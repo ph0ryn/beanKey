@@ -338,11 +338,22 @@ struct ConversionModifiers<'a> {
 
 pub struct NormalConverter<'a> {
     dictionary: &'a DictionaryStore,
+    learning_memory: Option<crate::LearningMemory>,
 }
 
 impl<'a> NormalConverter<'a> {
     pub fn new(dictionary: &'a DictionaryStore) -> Self {
-        Self { dictionary }
+        Self {
+            dictionary,
+            learning_memory: None,
+        }
+    }
+
+    pub(crate) fn with_learning_memory(&self, memory: Option<&crate::LearningMemory>) -> Self {
+        Self {
+            dictionary: self.dictionary,
+            learning_memory: memory.cloned(),
+        }
     }
 
     pub fn convert(
@@ -528,7 +539,13 @@ impl<'a> NormalConverter<'a> {
                 });
                 surface_nodes[start].push(node_index);
             }
-            for entry in modifiers.additional_entries {
+            let learned = self
+                .learning_memory
+                .as_ref()
+                .map(|memory| memory.matches_from_start(&suffix, MAXIMUM_DICTIONARY_LENGTH))
+                .transpose()?
+                .unwrap_or_default();
+            for entry in modifiers.additional_entries.iter().chain(&learned) {
                 let ruby_count = UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count();
                 if ruby_count == 0
                     || ruby_count > MAXIMUM_DICTIONARY_LENGTH
@@ -573,6 +590,9 @@ impl<'a> NormalConverter<'a> {
                             .filter(|entry| entry.ruby == prefix.ruby)
                             .cloned(),
                     );
+                    if let Some(memory) = &self.learning_memory {
+                        entries.extend(memory.exact_match(&prefix.ruby)?);
+                    }
                     for entry in entries {
                         let adjustment = typo_adjustment(&entry, prefix.penalty);
                         let entry = entry.adjusted(adjustment);
@@ -888,6 +908,9 @@ impl<'a> NormalConverter<'a> {
                     .filter(|entry| entry.ruby.starts_with(prefix) && entry.ruby != *prefix)
                     .cloned(),
             );
+            if let Some(memory) = &self.learning_memory {
+                entries.extend(memory.predict(prefix)?);
+            }
             for entry in entries {
                 let entry_ruby_count =
                     UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count();

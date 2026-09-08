@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, HashSet};
+mod index;
+
+use index::{MatchKind, MemoryLouds, MemoryTrie};
+
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::fs;
@@ -79,7 +83,9 @@ struct LearningState {
     mode: LearningMode,
     max_count: usize,
     today: u16,
+    persisted_index: MemoryLouds,
     persisted: Vec<LearningRecord>,
+    temporary_index: MemoryTrie,
     temporary: Vec<LearningRecord>,
 }
 
@@ -130,6 +136,8 @@ impl LearningMemory {
         }
         Ok(Self {
             inner: Arc::new(Mutex::new(LearningState {
+                persisted_index: MemoryLouds::new(&persisted, &character_ids),
+                temporary_index: MemoryTrie::default(),
                 directory,
                 character_ids,
                 mode,
@@ -156,30 +164,72 @@ impl LearningMemory {
         Ok(output)
     }
 
+    pub(crate) fn exact_match(&self, ruby: &str) -> Result<Vec<DictionaryEntry>, LearningError> {
+        self.lookup(ruby, MatchKind::Exact, usize::MAX)
+    }
+
+    pub(crate) fn matches_from_start(
+        &self,
+        ruby: &str,
+        maximum_length: usize,
+    ) -> Result<Vec<DictionaryEntry>, LearningError> {
+        self.lookup(ruby, MatchKind::Prefixes, maximum_length)
+    }
+
+    pub(crate) fn predict(&self, ruby: &str) -> Result<Vec<DictionaryEntry>, LearningError> {
+        self.lookup(ruby, MatchKind::Completions, usize::MAX)
+    }
+
+    fn lookup(
+        &self,
+        ruby: &str,
+        kind: MatchKind,
+        maximum_length: usize,
+    ) -> Result<Vec<DictionaryEntry>, LearningError> {
+        let state = self.lock()?;
+        if !state.mode.uses_memory() || ruby.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut ids = Vec::new();
+        for grapheme in UnicodeSegmentation::graphemes(ruby, true).take(maximum_length) {
+            match state.character_ids.id(grapheme) {
+                Some(id) => ids.push(id),
+                None if matches!(kind, MatchKind::Prefixes) => break,
+                None => return Ok(Vec::new()),
+            }
+        }
+        let persisted = state.persisted_index.lookup(&ids, kind);
+        let temporary = state.temporary_index.lookup(&ids, kind);
+        Ok(persisted
+            .into_iter()
+            .map(|index| &state.persisted[index])
+            .chain(temporary.into_iter().map(|index| &state.temporary[index]))
+            .map(learned_entry)
+            .collect())
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), LearningError> {
+        drop(self.lock()?);
+        Ok(())
+    }
+
     pub fn learn(&self, candidate: &Candidate) -> Result<(), LearningError> {
         let mut state = self.lock()?;
         if !state.mode.updates_memory() {
             return Ok(());
         }
-        let today = state.today;
-        let character_ids = state.character_ids.clone();
         for entry in candidate
             .entries
             .iter()
             .filter(|entry| learns_individual_word(entry))
         {
-            memorize(&mut state.temporary, entry.clone(), today, &character_ids);
+            state.memorize(entry.clone());
         }
         for entry in learned_clause_entries(&candidate.entries) {
-            memorize(&mut state.temporary, entry, today, &character_ids);
+            state.memorize(entry);
         }
         if candidate.entries.len() > 1 {
-            memorize(
-                &mut state.temporary,
-                join_entries(&candidate.entries),
-                today,
-                &character_ids,
-            );
+            state.memorize(join_entries(&candidate.entries));
         }
         Ok(())
     }
@@ -210,21 +260,14 @@ impl LearningMemory {
         };
         let update_start = prefix.len();
         prefix.extend(update.iter().cloned());
-        let today = state.today;
-        let character_ids = state.character_ids.clone();
         for entry in update.iter().filter(|entry| learns_individual_word(entry)) {
-            memorize(&mut state.temporary, entry.clone(), today, &character_ids);
+            state.memorize(entry.clone());
         }
         for entry in learned_clause_entries_after(&prefix, update_start) {
-            memorize(&mut state.temporary, entry, today, &character_ids);
+            state.memorize(entry);
         }
         if prefix.len() > 1 {
-            memorize(
-                &mut state.temporary,
-                join_entries(&prefix),
-                today,
-                &character_ids,
-            );
+            state.memorize(join_entries(&prefix));
         }
         Ok(())
     }
@@ -247,11 +290,11 @@ impl LearningMemory {
         state.temporary.retain(|record| {
             !temporary_targets.contains(&(record.entry.ruby.clone(), record.entry.word.clone()))
         });
-        state
-            .persisted
-            .retain(|record| !persistent_targets.contains(&record.entry.word));
+        state.temporary_index = MemoryTrie::new(&state.temporary, &state.character_ids);
         let mut persisted = state.persisted.clone();
+        persisted.retain(|record| !persistent_targets.contains(&record.entry.word));
         save_records(&state, &mut persisted)?;
+        state.persisted_index = MemoryLouds::new(&persisted, &state.character_ids);
         state.persisted = persisted;
         Ok(())
     }
@@ -266,15 +309,19 @@ impl LearningMemory {
             merge_record(&mut persisted, record.clone());
         }
         save_records(&state, &mut persisted)?;
+        state.persisted_index = MemoryLouds::new(&persisted, &state.character_ids);
         state.persisted = persisted;
         state.temporary.clear();
+        state.temporary_index = MemoryTrie::default();
         Ok(true)
     }
 
     pub fn reset(&self) -> Result<(), LearningError> {
         let mut state = self.lock()?;
         state.persisted.clear();
+        state.persisted_index = MemoryLouds::new(&[], &state.character_ids);
         state.temporary.clear();
+        state.temporary_index = MemoryTrie::default();
         for entry in read_directory(&state.directory)? {
             let path = entry.path();
             let name = entry.file_name();
@@ -353,29 +400,34 @@ fn join_entries(entries: &[DictionaryEntry]) -> DictionaryEntry {
     }
 }
 
-fn memorize(
-    records: &mut Vec<LearningRecord>,
-    entry: DictionaryEntry,
-    today: u16,
-    character_ids: &CharacterIdMap,
-) {
-    if !valid_learning_entry(&entry, character_ids) {
-        return;
-    }
-    if let Some(record) = records
-        .iter_mut()
-        .find(|record| same_entry(&record.entry, &entry))
-    {
-        record.count = record.count.saturating_add(1);
-        record.last_used_day = today;
-        record.entry = entry;
-    } else {
-        records.push(LearningRecord {
-            entry,
-            last_used_day: today,
-            last_updated_day: today,
-            count: 1,
-        });
+impl LearningState {
+    fn memorize(&mut self, entry: DictionaryEntry) {
+        if !valid_learning_entry(&entry, &self.character_ids) {
+            return;
+        }
+        let ids = self
+            .character_ids
+            .encode(&entry.ruby)
+            .expect("validated learning ruby has character IDs");
+        let existing = self
+            .temporary_index
+            .lookup(&ids, MatchKind::Exact)
+            .into_iter()
+            .find(|index| same_entry(&self.temporary[*index].entry, &entry));
+        if let Some(index) = existing {
+            let record = &mut self.temporary[index];
+            record.count = record.count.saturating_add(1);
+            record.last_used_day = self.today;
+            record.entry = entry;
+        } else {
+            self.temporary_index.insert(&ids, self.temporary.len());
+            self.temporary.push(LearningRecord {
+                entry,
+                last_used_day: self.today,
+                last_updated_day: self.today,
+                count: 1,
+            });
+        }
     }
 }
 
@@ -440,16 +492,21 @@ fn decay(records: &mut Vec<LearningRecord>, today: u16) {
 }
 
 fn deduplicate_entries(entries: &mut Vec<DictionaryEntry>) {
-    let mut output = Vec::new();
+    let mut indices: HashMap<(String, String, u16, u16), usize> = HashMap::new();
+    let mut output: Vec<DictionaryEntry> = Vec::new();
     for entry in std::mem::take(entries) {
-        if let Some(existing) = output
-            .iter_mut()
-            .find(|existing| same_entry(existing, &entry))
-        {
-            if existing.value() < entry.value() {
-                *existing = entry;
+        let key = (
+            entry.ruby.clone(),
+            entry.word.clone(),
+            entry.left_id,
+            entry.right_id,
+        );
+        if let Some(&index) = indices.get(&key) {
+            if output[index].value() < entry.value() {
+                output[index] = entry;
             }
         } else {
+            indices.insert(key, output.len());
             output.push(entry);
         }
     }
@@ -514,74 +571,23 @@ struct EncodedMemory {
     shards: Vec<Vec<u8>>,
 }
 
-#[derive(Default)]
-struct MemoryTrieNode {
-    children: BTreeMap<u8, usize>,
-    record_indices: Vec<usize>,
-}
-
 fn encode_files(records: &[LearningRecord], character_ids: &CharacterIdMap) -> EncodedMemory {
-    let mut nodes = vec![MemoryTrieNode::default()];
-    for (record_index, record) in records.iter().enumerate() {
-        let Some(characters) = character_ids.encode(&record.entry.ruby) else {
-            continue;
-        };
-        let mut node_index = 0;
-        for character in characters {
-            let next = if let Some(next) = nodes[node_index].children.get(&character) {
-                *next
-            } else {
-                let next = nodes.len();
-                nodes.push(MemoryTrieNode::default());
-                nodes[node_index].children.insert(character, next);
-                next
-            };
-            node_index = next;
-        }
-        if nodes[node_index].record_indices.len() < u8::MAX as usize {
-            nodes[node_index].record_indices.push(record_index);
-        }
+    let index::EncodedIndex {
+        louds,
+        characters,
+        mut blocks,
+    } = MemoryTrie::new(records, character_ids).encode();
+    for block in &mut blocks {
+        block.truncate(u8::MAX as usize);
     }
-
-    let mut bits = vec![true, false];
-    let mut characters = vec![0, 0];
-    let mut blocks = vec![Vec::new(), Vec::new()];
-    let mut metadata_blocks = vec![Vec::new(), Vec::new()];
-    let mut current = nodes[0]
-        .children
-        .iter()
-        .map(|(character, index)| (*character, *index))
-        .collect::<Vec<_>>();
-    bits.extend(std::iter::repeat_n(true, current.len()));
-    bits.push(false);
-    while !current.is_empty() {
-        for (character, node_index) in &current {
-            characters.push(*character);
-            blocks.push(nodes[*node_index].record_indices.clone());
-            metadata_blocks.push(nodes[*node_index].record_indices.clone());
-            bits.extend(std::iter::repeat_n(true, nodes[*node_index].children.len()));
-            bits.push(false);
-        }
-        current = current
-            .into_iter()
-            .flat_map(|(_, node_index)| {
-                nodes[node_index]
-                    .children
-                    .iter()
-                    .map(|(character, index)| (*character, *index))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-    }
-
-    let mut metadata = u32::try_from(metadata_blocks.len())
+    let mut metadata = u32::try_from(blocks.len())
         .unwrap_or(u32::MAX)
         .to_le_bytes()
         .to_vec();
-    for block in metadata_blocks {
+    for block in &blocks {
         metadata.push(u8::try_from(block.len()).unwrap_or(u8::MAX));
         for index in block {
-            let record = &records[index];
+            let record = &records[*index];
             metadata.extend(record.last_used_day.to_le_bytes());
             metadata.extend(record.last_updated_day.to_le_bytes());
             metadata.push(record.count);
@@ -595,7 +601,7 @@ fn encode_files(records: &[LearningRecord], character_ids: &CharacterIdMap) -> E
         .map(|blocks| encode_entry_shard(blocks, records))
         .collect();
     EncodedMemory {
-        louds: encode_louds(&bits),
+        louds,
         characters,
         metadata,
         shards,
@@ -870,6 +876,8 @@ mod tests {
         LearningMemory {
             inner: Arc::new(Mutex::new(LearningState {
                 directory: PathBuf::new(),
+                persisted_index: MemoryLouds::new(&persisted, &character_ids()),
+                temporary_index: MemoryTrie::default(),
                 character_ids: character_ids(),
                 mode,
                 max_count: 128,
@@ -891,6 +899,81 @@ mod tests {
             adjustment: 0.0,
             metadata: DictionaryMetadata::default(),
         }
+    }
+
+    #[test]
+    fn indexed_lookups_match_reading_filters_and_keep_each_memory_layer() {
+        let memory = memory(LearningMode::InputAndOutput, Vec::new());
+        let readings = ["カナカナ", "カ", "ガク", "カナ", "カニ", "カナ"];
+        {
+            let mut state = memory.lock().unwrap();
+            state.persisted = readings
+                .iter()
+                .enumerate()
+                .map(|(index, ruby)| LearningRecord {
+                    entry: entry(&format!("保存語{index}"), ruby),
+                    last_used_day: 10,
+                    last_updated_day: 10,
+                    count: 2,
+                })
+                .collect();
+            state.persisted_index = MemoryLouds::new(&state.persisted, &state.character_ids);
+            for ruby in readings {
+                state.memorize(entry("一時語", ruby));
+            }
+        }
+
+        for ruby in ["カ", "カナ", "カナカナ", "カナ😀", "ガ", "ギ"] {
+            for maximum in [0, 1, 2, 20] {
+                let expected: Vec<_> = {
+                    let state = memory.lock().unwrap();
+                    state
+                        .persisted
+                        .iter()
+                        .chain(&state.temporary)
+                        .filter(|record| {
+                            ruby.starts_with(&record.entry.ruby)
+                                && UnicodeSegmentation::graphemes(record.entry.ruby.as_str(), true)
+                                    .count()
+                                    <= maximum
+                        })
+                        .map(learned_entry)
+                        .collect()
+                };
+                assert_eq!(memory.matches_from_start(ruby, maximum).unwrap(), expected);
+            }
+            let (exact, predictions): (Vec<_>, Vec<_>) = {
+                let state = memory.lock().unwrap();
+                let exact = state
+                    .persisted
+                    .iter()
+                    .chain(&state.temporary)
+                    .filter(|record| record.entry.ruby == ruby)
+                    .map(learned_entry)
+                    .collect();
+                let predictions = state
+                    .persisted
+                    .iter()
+                    .filter(|record| {
+                        record.entry.ruby.starts_with(ruby) && record.entry.ruby != ruby
+                    })
+                    .chain(
+                        state
+                            .temporary
+                            .iter()
+                            .filter(|record| record.entry.ruby.starts_with(ruby)),
+                    )
+                    .map(learned_entry)
+                    .collect();
+                (exact, predictions)
+            };
+            assert_eq!(memory.exact_match(ruby).unwrap(), exact);
+            assert_eq!(memory.predict(ruby).unwrap(), predictions);
+        }
+        // Disabled learning must not expose either index.
+        memory.lock().unwrap().mode = LearningMode::Nothing;
+        assert!(memory.matches_from_start("カナ", 20).unwrap().is_empty());
+        assert!(memory.predict("カ").unwrap().is_empty());
     }
 
     #[test]
@@ -1026,7 +1109,7 @@ mod tests {
         let mut second = entry("表層", "オモテソウ");
         second.left_id = 1_288;
         second.right_id = 1_288;
-        let persisted = [first, second]
+        let persisted: Vec<_> = [first, second]
             .into_iter()
             .map(|entry| LearningRecord {
                 entry,
@@ -1038,6 +1121,8 @@ mod tests {
         let memory = LearningMemory {
             inner: Arc::new(Mutex::new(LearningState {
                 directory: directory.clone(),
+                persisted_index: MemoryLouds::new(&persisted, &character_ids()),
+                temporary_index: MemoryTrie::default(),
                 character_ids: character_ids(),
                 mode: LearningMode::InputAndOutput,
                 max_count: 128,

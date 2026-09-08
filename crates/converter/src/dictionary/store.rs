@@ -22,6 +22,7 @@ pub enum DictionaryError {
     Io { path: PathBuf, source: io::Error },
     Binary(DictionaryBinaryError),
     Louds(LoudsError),
+    Learning(crate::LearningError),
     Poisoned(&'static str),
 }
 
@@ -33,6 +34,7 @@ impl fmt::Display for DictionaryError {
             }
             Self::Binary(error) => error.fmt(formatter),
             Self::Louds(error) => error.fmt(formatter),
+            Self::Learning(error) => error.fmt(formatter),
             Self::Poisoned(name) => write!(formatter, "dictionary {name} cache is poisoned"),
         }
     }
@@ -44,6 +46,7 @@ impl Error for DictionaryError {
             Self::Io { source, .. } => Some(source),
             Self::Binary(error) => Some(error),
             Self::Louds(error) => Some(error),
+            Self::Learning(error) => Some(error),
             Self::Poisoned(_) => None,
         }
     }
@@ -58,6 +61,12 @@ impl From<DictionaryBinaryError> for DictionaryError {
 impl From<LoudsError> for DictionaryError {
     fn from(value: LoudsError) -> Self {
         Self::Louds(value)
+    }
+}
+
+impl From<crate::LearningError> for DictionaryError {
+    fn from(value: crate::LearningError) -> Self {
+        Self::Learning(value)
     }
 }
 

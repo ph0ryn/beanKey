@@ -154,7 +154,6 @@ pub struct ConversionSession {
     user_shortcuts: Vec<DictionaryEntry>,
     file_user_dictionary: UserDictionary,
     learning_memory: Option<LearningMemory>,
-    learned_dictionary: Vec<DictionaryEntry>,
     stable_prediction_cache: Option<StablePredictionCache>,
     zenz_prediction_cache: Option<ZenzPredictionCache>,
     foreign_completion_provider: Option<Arc<dyn ForeignCompletionProvider>>,
@@ -241,8 +240,9 @@ impl ConversionSession {
     }
 
     pub fn set_learning_memory(&mut self, memory: LearningMemory) -> Result<(), LearningError> {
-        self.learned_dictionary = memory.entries()?;
+        memory.validate()?;
         self.learning_memory = Some(memory);
+        self.stable_prediction_cache = None;
         self.candidates.clear();
         Ok(())
     }
@@ -256,10 +256,9 @@ impl ConversionSession {
     }
 
     pub fn refresh_learning(&mut self) -> Result<(), LearningError> {
-        self.learned_dictionary = match &self.learning_memory {
-            Some(memory) => memory.entries()?,
-            None => Vec::new(),
-        };
+        if let Some(memory) = &self.learning_memory {
+            memory.validate()?;
+        }
         self.candidates.clear();
         Ok(())
     }
@@ -269,11 +268,15 @@ impl ConversionSession {
             Some(memory) => memory.commit()?,
             None => false,
         };
+        if committed {
+            self.stable_prediction_cache = None;
+        }
         self.refresh_learning()?;
         Ok(committed)
     }
 
     pub fn forget_learning(&mut self, candidate: &Candidate) -> Result<(), LearningError> {
+        self.stable_prediction_cache = None;
         if let Some(memory) = &self.learning_memory {
             memory.forget(candidate)?;
         }
@@ -281,6 +284,7 @@ impl ConversionSession {
     }
 
     pub fn reset_learning(&mut self) -> Result<(), LearningError> {
+        self.stable_prediction_cache = None;
         if let Some(memory) = &self.learning_memory {
             memory.reset()?;
         }
@@ -291,7 +295,6 @@ impl ConversionSession {
         self.user_dictionary
             .iter()
             .chain(self.file_user_dictionary.entries())
-            .chain(&self.learned_dictionary)
             .cloned()
             .collect()
     }
@@ -459,6 +462,7 @@ impl ConversionSession {
         n_best: usize,
     ) -> Result<&[Candidate], DictionaryError> {
         let additional = self.additional_dictionary();
+        let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         self.candidates = converter.convert_with_entries(
             &self.composing,
             tables,
@@ -496,6 +500,7 @@ impl ConversionSession {
         constraint: &PrefixConstraint,
     ) -> Result<&[Candidate], DictionaryError> {
         let additional = self.additional_dictionary();
+        let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         self.candidates = if constraint.is_empty() {
             converter.convert_with_entries(
                 &self.composing,
@@ -672,6 +677,7 @@ impl ConversionSession {
         options: RequestOptions,
     ) -> Result<ConversionResult, DictionaryError> {
         let additional = self.additional_dictionary();
+        let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         let full = converter.convert_with_entries_and_typo(
             &self.composing,
             tables,
@@ -680,7 +686,7 @@ impl ConversionSession {
             &additional,
             options.typo_correction == TypoCorrectionMode::Enabled,
         )?;
-        self.assemble_request(converter, tables, options, full, None)
+        self.assemble_request(&converter, tables, options, full, None)
     }
 
     fn assemble_request(
@@ -866,7 +872,6 @@ impl ConversionSession {
             && let Some(memory) = self.learning_memory.clone()
         {
             memory.learn(&candidate)?;
-            self.learned_dictionary = memory.entries()?;
         }
         self.last_committed = Some(candidate.clone());
         if self.composing.is_empty() {
@@ -953,6 +958,7 @@ impl ConversionSession {
             .as_ref()
             .map(|cache| cache.compatible_candidates(&self.composing, &source))
             .unwrap_or_default();
+        let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         let fresh = converter.predict_with_entries(
             &self.composing,
             tables,

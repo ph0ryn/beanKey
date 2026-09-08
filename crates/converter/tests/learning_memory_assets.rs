@@ -24,6 +24,55 @@ fn temporary_directory() -> PathBuf {
 }
 
 #[test]
+fn retries_failed_learning_saves_without_losing_or_double_counting_words() {
+    let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
+    let converter = NormalConverter::new(&dictionary);
+    let tables = InputTableRegistry::new();
+    let mut session = ConversionSession::new();
+    session.insert_str("しかい", InputStyle::Direct, &tables);
+    let candidate = session
+        .request_candidates(&converter, &tables, 10)
+        .unwrap()
+        .iter()
+        .find(|candidate| candidate.text == "司会" && candidate.entries.len() == 1)
+        .unwrap()
+        .clone();
+
+    // Exercise failure both before and after the recovery marker is published.
+    for blocked_file in ["memory.louds.2", "memory.louds"] {
+        let directory = temporary_directory();
+        let memory = LearningMemory::open(
+            &directory,
+            LearningMode::InputAndOutput,
+            128,
+            dictionary.character_ids().clone(),
+        )
+        .unwrap();
+        memory.learn(&candidate).unwrap();
+        let expected = memory.entries().unwrap();
+        fs::create_dir(directory.join(blocked_file)).unwrap();
+        assert!(memory.commit().is_err());
+        assert!(memory.commit().is_err());
+        assert_eq!(memory.entries().unwrap(), expected);
+        fs::remove_dir(directory.join(blocked_file)).unwrap();
+        assert!(memory.commit().unwrap());
+        assert!(!memory.commit().unwrap());
+        let reopened = LearningMemory::open(
+            &directory,
+            LearningMode::OnlyOutput,
+            128,
+            dictionary.character_ids().clone(),
+        )
+        .unwrap();
+        let actual = reopened.entries().unwrap();
+        assert_eq!(actual.len(), expected.len());
+        assert_eq!(actual[0].word, expected[0].word);
+        assert_eq!(actual[0].value(), expected[0].value());
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
 fn learns_persists_recovers_forgets_and_resets_selected_candidates() {
     let directory = temporary_directory();
     let dictionary = DictionaryStore::open(dictionary_root()).unwrap();

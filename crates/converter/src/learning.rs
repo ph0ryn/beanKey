@@ -250,7 +250,10 @@ impl LearningMemory {
         state
             .persisted
             .retain(|record| !persistent_targets.contains(&record.entry.word));
-        save_locked(&mut state)
+        let mut persisted = state.persisted.clone();
+        save_records(&state, &mut persisted)?;
+        state.persisted = persisted;
+        Ok(())
     }
 
     pub fn commit(&self) -> Result<bool, LearningError> {
@@ -258,11 +261,13 @@ impl LearningMemory {
         if !state.mode.updates_memory() || state.temporary.is_empty() {
             return Ok(false);
         }
-        let temporary = std::mem::take(&mut state.temporary);
-        for record in temporary {
-            merge_record(&mut state.persisted, record);
+        let mut persisted = state.persisted.clone();
+        for record in &state.temporary {
+            merge_record(&mut persisted, record.clone());
         }
-        save_locked(&mut state)?;
+        save_records(&state, &mut persisted)?;
+        state.persisted = persisted;
+        state.temporary.clear();
         Ok(true)
     }
 
@@ -451,13 +456,14 @@ fn deduplicate_entries(entries: &mut Vec<DictionaryEntry>) {
     *entries = output;
 }
 
-fn save_locked(state: &mut LearningState) -> Result<(), LearningError> {
-    decay(&mut state.persisted, state.today);
-    state
-        .persisted
-        .sort_by_key(|record| std::cmp::Reverse(record.last_used_day));
-    state.persisted.truncate(state.max_count);
-    let files = encode_files(&state.persisted, &state.character_ids);
+fn save_records(
+    state: &LearningState,
+    records: &mut Vec<LearningRecord>,
+) -> Result<(), LearningError> {
+    decay(records, state.today);
+    records.sort_by_key(|record| std::cmp::Reverse(record.last_used_day));
+    records.truncate(state.max_count);
+    let files = encode_files(records, &state.character_ids);
     write_temporary(&state.directory, LOUDS_FILE, &files.louds)?;
     write_temporary(&state.directory, LOUDS_CHARS_FILE, &files.characters)?;
     write_temporary(&state.directory, METADATA_FILE, &files.metadata)?;

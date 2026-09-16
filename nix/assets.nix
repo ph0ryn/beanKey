@@ -1,6 +1,18 @@
 { pkgs }:
 
 let
+  dictionarySource = pkgs.fetchFromGitHub {
+    owner = "azooKey";
+    repo = "azooKey_dictionary_storage";
+    rev = "4d418525b090cf49c219819d05a7e3cc2a4346eb";
+    hash = "sha256-CsJ9kODrCOtMnMd/5I4A52enoSOyJlioC1i6azOd1Pk=";
+  };
+  emojiSource = pkgs.fetchFromGitHub {
+    owner = "azooKey";
+    repo = "azooKey_emoji_dictionary_storage";
+    rev = "67b822603391b01238d7b80b8b61b63f966cf357";
+    hash = "sha256-5Ebm94/W/21lrjMprdwbd6cfaavTaXZGH3WxV9OLt5M=";
+  };
   beanKeyUpstream = pkgs.fetchFromGitHub {
     owner = "azooKey";
     repo = "AzooKeyKanaKanjiConverter";
@@ -14,7 +26,7 @@ in
       attribution = pkgs.writeText "bean-key-dictionary-attribution" ''
         Asset: azooKey dictionary storage
         Source: azooKey/azooKey_dictionary_storage
-        Fixed revision: 4d418525b090cf49c219819d05a7e3cc2a4346eb
+        Fixed revision: ${dictionarySource.rev}
         License: Apache License 2.0
         Copyright 2024 Miwa / ensan
         Changes by beanKey: none; generated dictionary files are copied directly.
@@ -28,9 +40,9 @@ in
       ''
         mkdir -p "$out/share/bean-key/dictionary"
         mkdir -p "$out/share/licenses/bean-key-dictionary"
-        cp -r ${../data/azooKey_dictionary_storage/Dictionary}/. \
+        cp -r ${dictionarySource}/Dictionary/. \
           "$out/share/bean-key/dictionary/"
-        cp ${../data/azooKey_dictionary_storage/LICENSE} \
+        cp ${dictionarySource}/LICENSE \
           "$out/share/licenses/bean-key-dictionary/LICENSE"
         cp ${attribution} "$out/share/licenses/bean-key-dictionary/ATTRIBUTION"
       '';
@@ -48,7 +60,7 @@ in
       attribution = pkgs.writeText "bean-key-emoji-attribution" ''
         Asset: generated azooKey emoji dictionary for Unicode Emoji 17.0
         Source: azooKey/azooKey_emoji_dictionary_storage
-        Fixed revision: 67b822603391b01238d7b80b8b61b63f966cf357
+        Fixed revision: ${emojiSource.rev}
         Packaged file: EmojiDictionary/emoji_all_E17.0.txt
         Changes by beanKey: none; the generated dictionary is copied directly.
 
@@ -78,9 +90,9 @@ in
       ''
         mkdir -p "$out/share/bean-key/emoji"
         mkdir -p "$out/share/licenses/bean-key-emoji"
-        cp ${../data/azooKey_emoji_dictionary_storage/EmojiDictionary/emoji_all_E17.0.txt} \
+        cp ${emojiSource}/EmojiDictionary/emoji_all_E17.0.txt \
           "$out/share/bean-key/emoji/emoji_all_E17.0.txt"
-        cp ${../data/azooKey_emoji_dictionary_storage/data/README.md} \
+        cp ${emojiSource}/data/README.md \
           "$out/share/licenses/bean-key-emoji/UPSTREAM-DATA.md"
         cp ${mozcLicense} "$out/share/licenses/bean-key-emoji/BSD-3-Clause.txt"
         cp ${unicodeLicense} "$out/share/licenses/bean-key-emoji/Unicode-License-V3.txt"

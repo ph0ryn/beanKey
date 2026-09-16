@@ -31,7 +31,6 @@ Fcitx5プロセスへロードするのはC++アドオンだけです。辞書�
 | `fcitx5` | Fcitx5 key eventの正規化、プリエディット、候補UI、確定、デーモン起動 |
 | `proto/bean_key.proto` | RustとC++の通信契約 |
 | `nix` | package、固定資産、NixOS module、内部設定の生成 |
-| `data` | 固定した辞書submodule |
 
 ## 依存境界
 
@@ -98,6 +97,8 @@ moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/bean-key/config.
 モデル、辞書、tokenizer、実行ファイルはNix storeへ置きます。学習データなどの可変状態はユーザーのXDG state directoryに置き、Nix管理の不変資産と分離します。
 
 ## 配布資産
+
+辞書と絵文字辞書は、`nix/assets.nix`の`fetchFromGitHub`でcommitとhashを固定して取得し、生成済みデータを直接packageします。Git submoduleは使用しません。開発環境とpackageのテストには、同じ辞書packageのNix store pathをテスト専用の`BEAN_KEY_TEST_DICTIONARY`と`BEAN_KEY_TEST_EMOJI_DICTIONARY`で渡します。
 
 直接配布する辞書、絵文字データ、tokenizer、GGUFモデルには、資産ごとのlicense本文、取得元、固定revision、attributionをNix packageへ同梱します。
 

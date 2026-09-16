@@ -506,10 +506,10 @@ mod tests {
     #[test]
     fn rejects_socket_paths_outside_the_canonical_runtime_location() {
         let root = TempDir::new().unwrap();
-        let engine = Engine::open(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../data/azooKey_dictionary_storage/Dictionary"),
-        )
+        let engine = Engine::open(PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        ))
         .unwrap();
         assert!(matches!(
             DaemonServer::bind(engine, root.path(), "../daemon.sock"),

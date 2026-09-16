@@ -45,8 +45,6 @@
 │   └── src/
 ├── proto/
 │   └── bean_key.proto
-├── data/
-│   └── azooKey_dictionary_storage/
 ├── nix/             # NixOS moduleとpackage定義が必要になった時点で追加
 ├── flake.nix
 └── flake.lock
@@ -100,15 +98,11 @@
 - wire formatはvarint length-delimited Protobufとし、各envelopeにprotocol version、request ID、session IDおよびpayloadを持たせる。
 - 1メッセージの上限は1 MiBとし、超過、未知のversion、不正なpayloadは接続単位の明示的なprotocol errorとして扱う。
 
-### `data`
-
-- 辞書など、実行時に必要な固定データを配置する。
-- `data/azooKey_dictionary_storage` は upstream の submodule として扱い、内部を直接編集しない。
-- 製品はsubmodule内の生成済み辞書を直接packageし、辞書生成器や別形式への変換を含めない。
-- submodule の更新は、互換性を確認したうえで gitlink を明示的に更新する。
-
 ### `nix`
 
+- 辞書と絵文字辞書は`nix/assets.nix`の`pkgs.fetchFromGitHub`でcommitとhashを固定して取得し、Git submoduleやvendorしたコピーを持たない。
+- 製品は取得した生成済み辞書を直接packageし、辞書生成器や別形式への変換を含めない。更新は互換性を確認したうえでrevisionとhashを明示的に変更する。
+- 開発環境とpackageのテストは、同じ辞書packageのNix store pathをテスト専用の`BEAN_KEY_TEST_DICTIONARY`と`BEAN_KEY_TEST_EMOJI_DICTIONARY`で渡す。これらをdaemonの利用者向け設定には使用しない。
 - NixOS moduleで`programs.beanKey.enable`を公開する。
 - 今後追加する利用者向けoptionも`programs.beanKey`配下に置き、NixOS moduleを設定の唯一の公開境界とする。
 - モデルはflakeが固定した`pkgs.fetchurl { url; hash; }` derivationとしてNixOS moduleから参照し、利用者向けoptionにしない。
@@ -131,7 +125,7 @@
 
 - `daemon` は `converter` と `llama` を利用し、`proto/bean_key.proto` から生成した型を IPC に利用する。
 - `fcitx5` は `proto/bean_key.proto` から生成した型を IPC に利用するが、Rust crate へ依存しない。
-- `converter` は実行時に渡されたパスから `data` の辞書とHunspell辞書を読むが、`daemon`、`fcitx5`、Protobuf または llama.cpp の C API へ依存しない。
+- `converter` は実行時に渡されたパスから固定辞書とHunspell辞書を読むが、`daemon`、`fcitx5`、Protobuf または llama.cpp の C API へ依存しない。
 - `llama` は `daemon`、`fcitx5` または Protobuf へ依存しない。
 - 上記と逆向きの依存が必要になった場合は、責務の置き場所を先に見直す。
 

@@ -3,7 +3,6 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    self.submodules = true;
   };
 
   outputs =
@@ -36,6 +35,8 @@
           pkgs = pkgsFor system;
           development = import ./nix/dev-shell.nix {
             inherit pkgs;
+            dictionary = self.packages.${system}.dictionary;
+            emoji = self.packages.${system}.emoji;
             model = self.packages.${system}.model;
             tokenizer = self.packages.${system}.tokenizer;
           };
@@ -53,6 +54,8 @@
           pkgs = pkgsFor system;
           development = import ./nix/dev-shell.nix {
             inherit pkgs;
+            dictionary = self.packages.${system}.dictionary;
+            emoji = self.packages.${system}.emoji;
             model = self.packages.${system}.model;
             tokenizer = self.packages.${system}.tokenizer;
           };

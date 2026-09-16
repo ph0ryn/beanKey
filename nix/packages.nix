@@ -26,7 +26,6 @@ let
       "Cargo.toml"
       "LICENSE"
       "crates"
-      "data"
       "proto"
     ];
     cargoLock.lockFile = ../Cargo.lock;
@@ -47,6 +46,8 @@ let
       pkgs.llama-cpp
       pkgs.marisa
     ];
+    BEAN_KEY_TEST_DICTIONARY = "${assets.dictionary}/share/bean-key/dictionary";
+    BEAN_KEY_TEST_EMOJI_DICTIONARY = "${assets.emoji}/share/bean-key/emoji/emoji_all_E17.0.txt";
     BEAN_KEY_TEST_EN_US_DICTIONARY = "${pkgs.hunspellDicts.en_US}/share/hunspell/en_US";
     BEAN_KEY_TEST_EL_GR_DICTIONARY = "${pkgs.hunspellDicts.el_GR}/share/hunspell/el_GR";
     BEAN_KEY_TEST_MODEL = "${assets.model}/share/bean-key/model/ggml-model-Q5_K_M.gguf";

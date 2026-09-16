@@ -50,7 +50,7 @@ NixOS flakeへbeanKeyを追加し、NixOS moduleを読み込みます。
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     beanKey = {
-      url = "git+https://github.com/ph0ryn/beanKey.git?ref=main&submodules=1";
+      url = "github:ph0ryn/beankey";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

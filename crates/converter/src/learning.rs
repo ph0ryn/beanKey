@@ -845,9 +845,11 @@ mod tests {
     use super::*;
 
     fn character_ids() -> CharacterIdMap {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("data/azooKey_dictionary_storage/Dictionary/louds/charID.chid");
+        let path = PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        )
+        .join("louds/charID.chid");
         CharacterIdMap::parse(&fs::read_to_string(path).unwrap()).unwrap()
     }
 

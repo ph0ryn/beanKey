@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use bean_key_converter::TextReplacer;
 
 fn emoji_dictionary_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join("data/azooKey_emoji_dictionary_storage/EmojiDictionary/emoji_all_E17.0.txt")
+    PathBuf::from(
+        std::env::var_os("BEAN_KEY_TEST_EMOJI_DICTIONARY")
+            .expect("BEAN_KEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"),
+    )
 }
 
 #[test]

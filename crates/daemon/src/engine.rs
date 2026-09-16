@@ -2591,9 +2591,10 @@ mod tests {
 
     #[test]
     fn uses_the_finalized_zenz_result_for_live_conversion() {
-        let dictionary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("data/azooKey_dictionary_storage/Dictionary");
+        let dictionary = PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        );
         let mut engine =
             Engine::open_with_zenz_model(dictionary, Box::new(LivePrefixModel)).unwrap();
         engine.live_conversion = true;
@@ -2632,9 +2633,10 @@ mod tests {
 
     #[test]
     fn learns_a_live_candidate_committed_with_enter() {
-        let dictionary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("data/azooKey_dictionary_storage/Dictionary");
+        let dictionary = PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        );
         let learning_directory = tempfile::tempdir().unwrap();
         let mut engine =
             Engine::open_with_zenz_model(dictionary, Box::new(LivePrefixModel)).unwrap();
@@ -2686,9 +2688,10 @@ mod tests {
 
     #[test]
     fn distinguishes_read_only_learning_management_from_candidate_forgetting() {
-        let dictionary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("data/azooKey_dictionary_storage/Dictionary");
+        let dictionary = PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        );
         let state = tempfile::tempdir().unwrap();
         let mut engine = Engine::open(dictionary).unwrap();
         engine
@@ -2722,9 +2725,10 @@ mod tests {
 
     #[test]
     fn uses_the_configured_keyboard_language_for_unspecified_sessions() {
-        let dictionary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("data/azooKey_dictionary_storage/Dictionary");
+        let dictionary = PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        );
         let mut engine = Engine::open(dictionary).unwrap();
         engine.foreign_completion_provider = Some(Arc::new(GreekCompleter));
         engine
@@ -2851,9 +2855,10 @@ mod tests {
 
     #[test]
     fn applies_static_zenz_configuration() {
-        let dictionary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("data/azooKey_dictionary_storage/Dictionary");
+        let dictionary = PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        );
         let mut engine = Engine::open(dictionary).unwrap();
         engine.apply_zenz_options(&crate::ZenzConfig {
             inference_limit: 7,
@@ -2885,9 +2890,10 @@ mod tests {
 
     #[test]
     fn loads_fixed_format_personalization_models() {
-        let dictionary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("data/azooKey_dictionary_storage/Dictionary");
+        let dictionary = PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        );
         let ngram = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter/tests/data/ngram");
         let mut engine = Engine::open(dictionary).unwrap();
         let config = crate::ZenzConfig {
@@ -2906,9 +2912,10 @@ mod tests {
 
     #[test]
     fn returns_lm_typo_candidates_without_mutating_composition() {
-        let dictionary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("data/azooKey_dictionary_storage/Dictionary");
+        let dictionary = PathBuf::from(
+            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
+                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        );
         let ngram =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter/tests/data/ngram/lm");
         let tokenizer = std::env::var_os("BEAN_KEY_TEST_ZENZ_TOKENIZER")

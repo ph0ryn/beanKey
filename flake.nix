@@ -26,7 +26,13 @@
           assets = import ./nix/assets.nix { inherit pkgs; };
           runtimePackages = import ./nix/packages.nix { inherit assets pkgs; };
         in
-        assets // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux runtimePackages
+        assets
+        // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
+          runtimePackages
+          // {
+            default = runtimePackages.fcitx5-addon;
+          }
+        )
       );
 
       devShells = forAllSystems (

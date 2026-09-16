@@ -28,9 +28,14 @@
         in
         assets
         // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
-          runtimePackages
+          let
+            publishedPackages = assets // runtimePackages;
+          in
+          publishedPackages
           // {
-            default = runtimePackages.fcitx5-addon;
+            default = pkgs.linkFarm "beankey-${runtimePackages.daemon.version}" (
+              pkgs.lib.mapAttrsToList (name: path: { inherit name path; }) publishedPackages
+            );
           }
         )
       );

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::{fs, process};
 
-use bean_key_converter::{
+use beankey_converter::{
     ConversionSession, DictionaryMetadata, DictionaryStore, InputStyle, InputTableRegistry,
     LearningMemory, LearningMode, NormalConverter, PrefixConstraint, RequestOptions,
     TypoCorrectionMode,
@@ -9,8 +9,8 @@ use bean_key_converter::{
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
@@ -183,7 +183,7 @@ fn existing_sessions_search_current_learning_for_conversion_prediction_and_typos
 
 fn temporary_directory() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "bean-key-learning-{}-{}",
+        "beankey-learning-{}-{}",
         process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

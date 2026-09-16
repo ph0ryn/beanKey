@@ -272,7 +272,7 @@ impl fmt::Display for DaemonConfigError {
             Self::Read(error) => write!(formatter, "could not read daemon configuration: {error}"),
             Self::Parse(error) => write!(formatter, "invalid daemon configuration: {error}"),
             Self::InvalidRuntimeSocket => {
-                write!(formatter, "runtime_socket must be beanKey/daemon.sock")
+                write!(formatter, "runtime_socket must be beankey/daemon.sock")
             }
             Self::InvalidConversionCandidateCount => {
                 write!(formatter, "conversion.n_best must be greater than zero")
@@ -329,7 +329,7 @@ impl DaemonConfig {
     }
 
     fn validate(&self) -> Result<(), DaemonConfigError> {
-        if self.runtime_socket != Path::new("bean-key/daemon.sock")
+        if self.runtime_socket != Path::new("beankey/daemon.sock")
             || self.runtime_socket.components().any(|component| {
                 matches!(
                     component,
@@ -403,7 +403,7 @@ dictionary = "/nix/store/dictionary"
 model = "/nix/store/model.gguf"
 emoji_dictionary = "/nix/store/emoji_all_E17.0.txt"
 llama_backend_directory = "/nix/store/llama/bin"
-runtime_socket = "bean-key/daemon.sock"
+runtime_socket = "beankey/daemon.sock"
 
 [hunspell]
 english_dictionary = "/nix/store/en_US"
@@ -456,7 +456,7 @@ flash_attention = true
     #[test]
     fn parses_the_internal_nixos_configuration() {
         let config = DaemonConfig::parse(CONFIG).unwrap();
-        assert_eq!(config.runtime_socket, Path::new("bean-key/daemon.sock"));
+        assert_eq!(config.runtime_socket, Path::new("beankey/daemon.sock"));
         assert_eq!(config.inference.context_size, 512);
         assert_eq!(config.zenz.inference_limit, 10);
         assert_eq!(
@@ -476,7 +476,7 @@ flash_attention = true
     #[test]
     fn rejects_path_traversal_and_noncanonical_inference_profiles() {
         let traversal = CONFIG.replace(
-            "runtime_socket = \"bean-key/daemon.sock\"",
+            "runtime_socket = \"beankey/daemon.sock\"",
             "runtime_socket = \"../daemon.sock\"",
         );
         assert!(matches!(

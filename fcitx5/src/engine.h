@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "bean_key.pb.h"
+#include "beankey.pb.h"
 #include "client.h"
 
 namespace fcitx {
@@ -40,17 +40,17 @@ public:
 
 private:
   bool start();
-  bool pageCandidates(bean_key::v1::PageCandidates::Direction direction);
+  bool pageCandidates(beankey::v1::PageCandidates::Direction direction);
   bool commitComposition();
-  bool send(bean_key::v1::Envelope request,
-            const std::vector<bean_key::v1::CursorAction> &commitActions = {});
-  bool apply(const bean_key::v1::Envelope &response,
-             const std::vector<bean_key::v1::CursorAction> &commitActions);
-  void showTypoCorrections(const bean_key::v1::TypoCorrectionResponse &response);
-  void fillSurroundingText(bean_key::v1::SurroundingText *surrounding) const;
+  bool send(beankey::v1::Envelope request,
+            const std::vector<beankey::v1::CursorAction> &commitActions = {});
+  bool apply(const beankey::v1::Envelope &response,
+             const std::vector<beankey::v1::CursorAction> &commitActions);
+  void showTypoCorrections(const beankey::v1::TypoCorrectionResponse &response);
+  void fillSurroundingText(beankey::v1::SurroundingText *surrounding) const;
   void clearUi();
   void failSession();
-  bean_key::v1::Envelope envelope();
+  beankey::v1::Envelope envelope();
 
   InputContext *inputContext_;
   BeanKeyEngine *engine_;
@@ -62,7 +62,7 @@ private:
   bool lmTypoAvailable_ = false;
   bool learningAvailable_ = false;
   bool learningWritable_ = false;
-  std::vector<std::vector<bean_key::v1::CursorAction>> candidateActions_;
+  std::vector<std::vector<beankey::v1::CursorAction>> candidateActions_;
 };
 
 class BeanKeyEngine final : public InputMethodEngineV2 {
@@ -77,13 +77,13 @@ public:
   void reset(const InputMethodEntry &entry, InputContextEvent &event) override;
 
   BeanKeyState *state(InputContext *inputContext);
-  bean_key::Client &client();
+  beankey::Client &client();
   bool ensureConnected();
   std::chrono::milliseconds requestTimeout() const;
 
 private:
   Instance *instance_;
-  bean_key::Client client_;
+  beankey::Client client_;
   FactoryFor<BeanKeyState> factory_;
   SimpleAction resetLearningAction_;
 };

@@ -29,7 +29,7 @@ Fcitx5プロセスへロードするのはC++アドオンだけです。辞書�
 | `crates/llama` | llama.cpp C APIのbinding、モデル読み込み、tokenize、decode、logit取得 |
 | `crates/daemon` | 設定、Unix socket、Protobuf、入力セッション、converterとllamaの接続 |
 | `fcitx5` | Fcitx5 key eventの正規化、プリエディット、候補UI、確定、デーモン起動 |
-| `proto/bean_key.proto` | RustとC++の通信契約 |
+| `proto/beankey.proto` | RustとC++の通信契約 |
 | `nix` | package、固定資産、NixOS module、内部設定の生成 |
 
 ## 依存境界
@@ -68,11 +68,11 @@ converterはpromptと再探索、llama crateはモデル操作、デーモンは
 
 ## IPCとプロセス
 
-アドオンとデーモンは、`$XDG_RUNTIME_DIR/bean-key/daemon.sock`のUnix domain socket上で通信します。wire formatはvarint length-delimited Protobufで、1 messageの上限は1 MiBです。
+アドオンとデーモンは、`$XDG_RUNTIME_DIR/beankey/daemon.sock`のUnix domain socket上で通信します。wire formatはvarint length-delimited Protobufで、1 messageの上限は1 MiBです。
 
 各envelopeはprotocol version、request ID、session ID、payloadを持ちます。Fcitx5固有のkey symbolはwireへ流さず、意味的な操作だけを送ります。
 
-アドオンがsocketへ接続できない場合は、Nix store pathへ固定された`bean-key-daemon`を直接起動して再接続します。systemd serviceやsocket activationは使用しません。最後のclientが切断し、sessionがなくなるとデーモンも終了します。
+アドオンがsocketへ接続できない場合は、Nix store pathへ固定された`beankey-daemon`を直接起動して再接続します。systemd serviceやsocket activationは使用しません。最後のclientが切断し、sessionがなくなるとデーモンも終了します。
 
 runtime directoryはmode `0700`、socketはmode `0600`です。デーモンは接続peerのUIDを検証し、自分と異なるUIDからの接続を拒否します。stale socketはprocess lockを取得した同一UIDのデーモンだけが削除できます。
 
@@ -92,13 +92,13 @@ runtime directoryはmode `0700`、socketはmode `0600`です。デーモンは�
 - 固定GGUFモデルとtokenizer
 - nixpkgsのllama.cpp、Hunspell、英語・ギリシャ語辞書
 
-moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/bean-key/config.toml`からNix store上の生成物を参照させます。アドオンは、この設定ファイルを指定してデーモンを起動します。
+moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させます。アドオンは、この設定ファイルを指定してデーモンを起動します。
 
 モデル、辞書、tokenizer、実行ファイルはNix storeへ置きます。学習データなどの可変状態はユーザーのXDG state directoryに置き、Nix管理の不変資産と分離します。
 
 ## 配布資産
 
-辞書と絵文字辞書は、`nix/assets.nix`の`fetchFromGitHub`でcommitとhashを固定して取得し、生成済みデータを直接packageします。Git submoduleは使用しません。開発環境とpackageのテストには、同じ辞書packageのNix store pathをテスト専用の`BEAN_KEY_TEST_DICTIONARY`と`BEAN_KEY_TEST_EMOJI_DICTIONARY`で渡します。
+辞書と絵文字辞書は、`nix/assets.nix`の`fetchFromGitHub`でcommitとhashを固定して取得し、生成済みデータを直接packageします。Git submoduleは使用しません。開発環境とpackageのテストには、同じ辞書packageのNix store pathをテスト専用の`BEANKEY_TEST_DICTIONARY`と`BEANKEY_TEST_EMOJI_DICTIONARY`で渡します。
 
 直接配布する辞書、絵文字データ、tokenizer、GGUFモデルには、資産ごとのlicense本文、取得元、固定revision、attributionをNix packageへ同梱します。
 

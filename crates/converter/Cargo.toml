@@ -1,12 +1,12 @@
 [package]
-name = "bean-key-converter"
+name = "beankey-converter"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [lib]
-name = "bean_key_converter"
+name = "beankey_converter"
 
 [dependencies]
 chrono.workspace = true

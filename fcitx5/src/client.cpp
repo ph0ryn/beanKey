@@ -15,7 +15,7 @@
 #include <thread>
 #include <utility>
 
-namespace bean_key {
+namespace beankey {
 namespace {
 
 std::array<std::uint8_t, 5> encodeLength(std::size_t size,
@@ -222,4 +222,4 @@ bool Client::wait(short events,
   }
 }
 
-} // namespace bean_key
+} // namespace beankey

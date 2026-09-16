@@ -3,11 +3,11 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 
-use bean_key_daemon::{DaemonConfig, DaemonServer, Engine, ServerError};
+use beankey_daemon::{DaemonConfig, DaemonServer, Engine, ServerError};
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("bean-key-daemon: {error}");
+        eprintln!("beankey-daemon: {error}");
         std::process::exit(1);
     }
 }
@@ -17,7 +17,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let config = DaemonConfig::load(config_path)?;
     let learning_directory =
         state_home(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))?
-            .join("bean-key/learning");
+            .join("beankey/learning");
     let engine = Engine::open_with_config(&config, learning_directory)?;
     let server = match DaemonServer::bind_from_environment(engine, &config.runtime_socket) {
         Ok(server) => server,
@@ -49,10 +49,10 @@ fn absolute_directory(path: PathBuf, variable: &str) -> Result<PathBuf, String> 
 fn parse_config_argument() -> Result<PathBuf, Box<dyn Error>> {
     let mut arguments = std::env::args_os().skip(1);
     let Some(flag) = arguments.next() else {
-        return Err("usage: bean-key-daemon --config PATH".into());
+        return Err("usage: beankey-daemon --config PATH".into());
     };
     if flag != "--config" {
-        return Err("usage: bean-key-daemon --config PATH".into());
+        return Err("usage: beankey-daemon --config PATH".into());
     }
     let Some(path) = arguments.next() else {
         return Err("--config requires a path".into());

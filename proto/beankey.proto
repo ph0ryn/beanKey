@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package bean_key.v1;
+package beankey.v1;
 
 enum InputStyle {
   INPUT_STYLE_UNSPECIFIED = 0;

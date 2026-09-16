@@ -15,7 +15,7 @@ public:
 } // namespace fcitx
 
 #ifdef FCITX_ADDON_FACTORY_V2
-FCITX_ADDON_FACTORY_V2(bean_key, fcitx::BeanKeyEngineFactory)
+FCITX_ADDON_FACTORY_V2(beankey, fcitx::BeanKeyEngineFactory)
 #else
 FCITX_ADDON_FACTORY(fcitx::BeanKeyEngineFactory)
 #endif

@@ -4,7 +4,7 @@ fn main() {
         .atleast_version("0.3")
         .cargo_metadata(false)
         .probe("marisa")
-        .expect("marisa-trie is required to build bean-key-converter");
+        .expect("marisa-trie is required to build beankey-converter");
     let mut compiler = cc::Build::new();
     compiler
         .cpp(true)
@@ -15,7 +15,7 @@ fn main() {
     for include in marisa.include_paths {
         compiler.include(include);
     }
-    compiler.compile("bean-key-ngram-marisa");
+    compiler.compile("beankey-ngram-marisa");
     for link_path in marisa.link_paths {
         println!("cargo:rustc-link-search=native={}", link_path.display());
     }

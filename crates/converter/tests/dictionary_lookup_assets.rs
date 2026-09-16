@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
 
-use bean_key_converter::{CharacterIdMap, Louds, escaped_identifier, parse_entry_shard};
+use beankey_converter::{CharacterIdMap, Louds, escaped_identifier, parse_entry_shard};
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 

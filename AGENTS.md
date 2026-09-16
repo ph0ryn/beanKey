@@ -44,7 +44,7 @@
 │   ├── CMakeLists.txt
 │   └── src/
 ├── proto/
-│   └── bean_key.proto
+│   └── beankey.proto
 ├── nix/             # NixOS moduleとpackage定義が必要になった時点で追加
 ├── flake.nix
 └── flake.lock
@@ -76,7 +76,7 @@
 - `converter` の変換要求と `llama` の推論結果を接続し、Zenzaiの評価とprefix制約付き再探索のループを進行する。
 - 辞書探索や候補順位付けのロジックを持たない。
 - addon から直接起動できる単一のserver executableを提供する。
-- `$XDG_RUNTIME_DIR/bean-key/daemon.sock`でユーザー単位に待ち受け、接続peerのUIDを検証する。
+- `$XDG_RUNTIME_DIR/beankey/daemon.sock`でユーザー単位に待ち受け、接続peerのUIDを検証する。
 - runtime directory内のlockをdaemonの生存中保持し、lock取得後にだけ同一UIDのstale socketを除去する。
 - 同一セッションの要求を順番に処理し、異なるセッションは独立させる。共有llama.cpp contextへの推論は直列化する。
 
@@ -84,7 +84,7 @@
 
 - Fcitx5 の入力コンテキスト、キーイベントの意味的操作への正規化、標準 UI への候補提示および daemon との通信を所有する。
 - かな漢字変換やニューラル推論を実装しない。
-- Rust 実装へ直接リンクせず、`proto/bean_key.proto` で定義した IPC 境界を利用する。
+- Rust 実装へ直接リンクせず、`proto/beankey.proto` で定義した IPC 境界を利用する。
 - daemonへ接続できない場合はserver executableを起動し、接続を再試行する。
 - fcitx5-mozcと同様に、daemon応答がキーをconsumedとした場合だけFcitx5のeventをacceptし、結果を標準のプリエディット、候補UIおよびcommit APIへ反映する。
 - daemonへの接続または要求が失敗した場合はセッションとUIをresetし、未処理のキーをFcitx5へ返す。キーをaddon内でbufferまたは再送しない。
@@ -102,7 +102,7 @@
 
 - 辞書と絵文字辞書は`nix/assets.nix`の`pkgs.fetchFromGitHub`でcommitとhashを固定して取得し、Git submoduleやvendorしたコピーを持たない。
 - 製品は取得した生成済み辞書を直接packageし、辞書生成器や別形式への変換を含めない。更新は互換性を確認したうえでrevisionとhashを明示的に変更する。
-- 開発環境とpackageのテストは、同じ辞書packageのNix store pathをテスト専用の`BEAN_KEY_TEST_DICTIONARY`と`BEAN_KEY_TEST_EMOJI_DICTIONARY`で渡す。これらをdaemonの利用者向け設定には使用しない。
+- 開発環境とpackageのテストは、同じ辞書packageのNix store pathをテスト専用の`BEANKEY_TEST_DICTIONARY`と`BEANKEY_TEST_EMOJI_DICTIONARY`で渡す。これらをdaemonの利用者向け設定には使用しない。
 - NixOS moduleで`programs.beanKey.enable`を公開する。
 - 今後追加する利用者向けoptionも`programs.beanKey`配下に置き、NixOS moduleを設定の唯一の公開境界とする。
 - モデルはflakeが固定した`pkgs.fetchurl { url; hash; }` derivationとしてNixOS moduleから参照し、利用者向けoptionにしない。
@@ -110,7 +110,7 @@
 - NixOS moduleはHunspellと固定nixpkgsの英語・ギリシャ語辞書を導入し、そのNix store pathを内部用daemon設定へ書く。辞書pathを利用者向けoptionにしない。
 - 直接packageする辞書、モデル、tokenizerおよび絵文字には、資産ごとのlicense本文、取得元、固定revision、attributionおよび変更有無を添付する。通常依存の`pkgs.llama-cpp`、`pkgs.hunspell`および`pkgs.hunspellDicts`をこの資産台帳へ重複登録しない。
 - flakeは`packages.<system>.daemon`、`packages.<system>.fcitx5-addon`、`packages.<system>.model`および`nixosModules.default`を公開する。
-- NixOS moduleは内部設定をTOMLとして生成し、`/etc/bean-key/config.toml`からNix store上の生成物を参照させる。addonはdaemonを`--config /etc/bean-key/config.toml`付きで起動する。
+- NixOS moduleは内部設定をTOMLとして生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させる。addonはdaemonを`--config /etc/beankey/config.toml`付きで起動する。
 - package境界は [fcitx5-mozc](https://github.com/NixOS/nixpkgs/blob/8c91a71d13451abc40eb9dae8910f972f979852f/pkgs/by-name/fc/fcitx5-mozc/package.nix#L36-L45) と [mozc](https://github.com/NixOS/nixpkgs/blob/8c91a71d13451abc40eb9dae8910f972f979852f/pkgs/by-name/mo/mozc/package.nix#L69-L105) を基準とする。
 - daemonとFcitx5 addonを別のpackageとして定義し、addon packageからdaemon packageを参照する。
 - addonにはdaemon executableのNix store pathを埋め込み、runtimeの`PATH`検索に依存させない。
@@ -123,8 +123,8 @@
 
 ## 依存方向
 
-- `daemon` は `converter` と `llama` を利用し、`proto/bean_key.proto` から生成した型を IPC に利用する。
-- `fcitx5` は `proto/bean_key.proto` から生成した型を IPC に利用するが、Rust crate へ依存しない。
+- `daemon` は `converter` と `llama` を利用し、`proto/beankey.proto` から生成した型を IPC に利用する。
+- `fcitx5` は `proto/beankey.proto` から生成した型を IPC に利用するが、Rust crate へ依存しない。
 - `converter` は実行時に渡されたパスから固定辞書とHunspell辞書を読むが、`daemon`、`fcitx5`、Protobuf または llama.cpp の C API へ依存しない。
 - `llama` は `daemon`、`fcitx5` または Protobuf へ依存しない。
 - 上記と逆向きの依存が必要になった場合は、責務の置き場所を先に見直す。

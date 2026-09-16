@@ -78,7 +78,7 @@ impl HunspellCompleter {
         let (requests, receiver) = mpsc::channel::<CompletionRequest>();
         let (ready, readiness) = mpsc::sync_channel(1);
         std::thread::Builder::new()
-            .name("bean-key-hunspell".into())
+            .name("beankey-hunspell".into())
             .spawn(move || {
                 let dictionaries = (|| {
                     Ok::<_, HunspellError>((

@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct bean_key_llama {
+struct beankey_llama {
     struct llama_model *model;
     struct llama_context *context;
     const struct llama_vocab *vocab;
@@ -23,7 +23,7 @@ static void set_error(char *error, size_t error_capacity, const char *message) {
     error[copy_length] = '\0';
 }
 
-struct bean_key_llama *bean_key_llama_load(
+struct beankey_llama *beankey_llama_load(
     const char *path,
     const char *backend_directory,
     int32_t thread_count,
@@ -61,7 +61,7 @@ struct bean_key_llama *bean_key_llama_load(
         return NULL;
     }
 
-    struct bean_key_llama *handle = calloc(1, sizeof(*handle));
+    struct beankey_llama *handle = calloc(1, sizeof(*handle));
     if (handle == NULL) {
         llama_free(context);
         llama_model_free(model);
@@ -75,7 +75,7 @@ struct bean_key_llama *bean_key_llama_load(
     return handle;
 }
 
-void bean_key_llama_free(struct bean_key_llama *handle) {
+void beankey_llama_free(struct beankey_llama *handle) {
     if (handle == NULL) {
         return;
     }
@@ -85,16 +85,16 @@ void bean_key_llama_free(struct bean_key_llama *handle) {
     free(handle);
 }
 
-int32_t bean_key_llama_vocab_size(const struct bean_key_llama *handle) {
+int32_t beankey_llama_vocab_size(const struct beankey_llama *handle) {
     return llama_vocab_n_tokens(handle->vocab);
 }
 
-int32_t bean_key_llama_eos_token(const struct bean_key_llama *handle) {
+int32_t beankey_llama_eos_token(const struct beankey_llama *handle) {
     return llama_vocab_eos(handle->vocab);
 }
 
-int32_t bean_key_llama_tokenize(
-    const struct bean_key_llama *handle,
+int32_t beankey_llama_tokenize(
+    const struct beankey_llama *handle,
     const char *text,
     int32_t text_length,
     int32_t *tokens,
@@ -112,8 +112,8 @@ int32_t bean_key_llama_tokenize(
     );
 }
 
-int32_t bean_key_llama_token_to_piece(
-    const struct bean_key_llama *handle,
+int32_t beankey_llama_token_to_piece(
+    const struct beankey_llama *handle,
     int32_t token,
     char *buffer,
     int32_t buffer_capacity
@@ -121,8 +121,8 @@ int32_t bean_key_llama_token_to_piece(
     return llama_token_to_piece(handle->vocab, token, buffer, buffer_capacity, 0, false);
 }
 
-int32_t bean_key_llama_logits(
-    struct bean_key_llama *handle,
+int32_t beankey_llama_logits(
+    struct beankey_llama *handle,
     const int32_t *tokens,
     int32_t token_count,
     int32_t logits_start_index,

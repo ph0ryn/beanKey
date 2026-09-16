@@ -1,15 +1,15 @@
 use std::path::{Path, PathBuf};
 use std::{fs, time::SystemTime};
 
-use bean_key_converter::{
+use beankey_converter::{
     ConversionSession, DictionaryEntry, DictionaryMetadata, DictionaryStore, InputStyle,
     InputTableRegistry, NormalConverter, PredictionMode, RequestOptions,
 };
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
@@ -18,7 +18,7 @@ fn user_dictionary_root() -> PathBuf {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("bean-key-user-dictionary-{nonce}"))
+    std::env::temp_dir().join(format!("beankey-user-dictionary-{nonce}"))
 }
 
 fn entry_block(word: &str, ruby: &str) -> Vec<u8> {

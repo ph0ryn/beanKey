@@ -8,7 +8,7 @@ struct BeanKeyMarisaTrie {
   marisa::Trie trie;
 };
 
-extern "C" BeanKeyMarisaTrie *bean_key_marisa_load(const char *path) noexcept {
+extern "C" BeanKeyMarisaTrie *beankey_marisa_load(const char *path) noexcept {
   if (path == nullptr) {
     return nullptr;
   }
@@ -21,14 +21,14 @@ extern "C" BeanKeyMarisaTrie *bean_key_marisa_load(const char *path) noexcept {
   }
 }
 
-extern "C" void bean_key_marisa_free(BeanKeyMarisaTrie *trie) noexcept {
+extern "C" void beankey_marisa_free(BeanKeyMarisaTrie *trie) noexcept {
   delete trie;
 }
 
 using BeanKeyMarisaVisitor = bool (*)(const std::uint8_t *, std::size_t,
                                       void *);
 
-extern "C" bool bean_key_marisa_predictive_search(
+extern "C" bool beankey_marisa_predictive_search(
     const BeanKeyMarisaTrie *trie, const std::uint8_t *query,
     std::size_t query_size, BeanKeyMarisaVisitor visitor,
     void *visitor_context) noexcept {

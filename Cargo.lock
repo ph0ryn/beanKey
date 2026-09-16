@@ -53,7 +53,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
-name = "bean-key-converter"
+name = "beankey-converter"
 version = "0.2.0"
 dependencies = [
  "cc",
@@ -70,11 +70,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "bean-key-daemon"
+name = "beankey-daemon"
 version = "0.2.0"
 dependencies = [
- "bean-key-converter",
- "bean-key-llama",
+ "beankey-converter",
+ "beankey-llama",
  "libc",
  "prost",
  "prost-build",
@@ -85,7 +85,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bean-key-llama"
+name = "beankey-llama"
 version = "0.2.0"
 dependencies = [
  "cc",

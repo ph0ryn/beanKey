@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use bean_key_converter::{EfficientNGram, NGramLanguageModel, ZenzLanguageModel, ZenzTokenizer};
+use beankey_converter::{EfficientNGram, NGramLanguageModel, ZenzLanguageModel, ZenzTokenizer};
 
 fn fixture_prefix() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/ngram/lm")
@@ -20,8 +20,8 @@ fn predicts_with_fixed_marisa_count_tries() {
 
 #[test]
 fn tokenizes_with_the_fixed_upstream_zenz_asset() {
-    let tokenizer_path = std::env::var_os("BEAN_KEY_TEST_ZENZ_TOKENIZER")
-        .expect("BEAN_KEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
+    let tokenizer_path = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
+        .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
     let tokenizer = ZenzTokenizer::open(tokenizer_path).unwrap();
     let tokens = tokenizer.encode("これは日本語です").unwrap();
 
@@ -31,8 +31,8 @@ fn tokenizes_with_the_fixed_upstream_zenz_asset() {
 
 #[test]
 fn exposes_ngram_probabilities_through_the_typo_language_model_boundary() {
-    let tokenizer_path = std::env::var_os("BEAN_KEY_TEST_ZENZ_TOKENIZER")
-        .expect("BEAN_KEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
+    let tokenizer_path = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
+        .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
     let mut model = NGramLanguageModel::open(fixture_prefix(), tokenizer_path, 2, 0.75).unwrap();
     let logits = model.next_logits(&[10]).unwrap();
 

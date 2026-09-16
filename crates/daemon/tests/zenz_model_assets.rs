@@ -5,21 +5,21 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use bean_key_converter::{
+use beankey_converter::{
     ComposingText, InputStyle, InputTableRegistry, LmTypoConfig, ZenzTokenizer,
     experimental_typo_correction,
 };
-use bean_key_daemon::protocol::envelope::Payload;
-use bean_key_daemon::{
+use beankey_daemon::protocol::envelope::Payload;
+use beankey_daemon::{
     Engine, LlamaModel, PROTOCOL_VERSION, protocol, read_envelope, write_envelope,
 };
-use bean_key_llama::{LlamaContext, LlamaSequence};
+use beankey_llama::{LlamaContext, LlamaSequence};
 use tempfile::TempDir;
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
@@ -40,8 +40,8 @@ fn required_environment(name: &str) -> String {
 
 #[test]
 fn converts_with_the_fixed_zenz_model_and_llama_backend() {
-    let model_path = required_environment("BEAN_KEY_TEST_MODEL");
-    let backend_directory = required_environment("BEAN_KEY_TEST_LLAMA_BACKEND");
+    let model_path = required_environment("BEANKEY_TEST_MODEL");
+    let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
     let mut engine = Engine::open_with_llama(dictionary_root(), model_path, backend_directory)
         .expect("the fixed model and pinned llama.cpp backend must load");
     engine.handle(envelope(
@@ -114,8 +114,8 @@ fn converts_with_the_fixed_zenz_model_and_llama_backend() {
 
 #[test]
 fn cached_and_batched_logits_match_a_single_full_evaluation() {
-    let model_path = required_environment("BEAN_KEY_TEST_MODEL");
-    let backend_directory = required_environment("BEAN_KEY_TEST_LLAMA_BACKEND");
+    let model_path = required_environment("BEANKEY_TEST_MODEL");
+    let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
     let mut context = LlamaContext::load(model_path, backend_directory).unwrap();
     let tokens = context
         .tokenize("\u{ee00}テスト\u{ee01}候補", true)
@@ -141,9 +141,9 @@ fn cached_and_batched_logits_match_a_single_full_evaluation() {
 
 #[test]
 fn fixed_llama_tokenizer_matches_the_upstream_tokenizer_asset() {
-    let model_path = required_environment("BEAN_KEY_TEST_MODEL");
-    let backend_directory = required_environment("BEAN_KEY_TEST_LLAMA_BACKEND");
-    let tokenizer_path = required_environment("BEAN_KEY_TEST_ZENZ_TOKENIZER");
+    let model_path = required_environment("BEANKEY_TEST_MODEL");
+    let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
+    let tokenizer_path = required_environment("BEANKEY_TEST_ZENZ_TOKENIZER");
     let context = LlamaContext::load(model_path, backend_directory).unwrap();
     let tokenizer = ZenzTokenizer::open(tokenizer_path).unwrap();
 
@@ -164,8 +164,8 @@ fn fixed_llama_tokenizer_matches_the_upstream_tokenizer_asset() {
 fn fixed_model_engine() -> Engine {
     Engine::open_with_llama(
         dictionary_root(),
-        required_environment("BEAN_KEY_TEST_MODEL"),
-        required_environment("BEAN_KEY_TEST_LLAMA_BACKEND"),
+        required_environment("BEANKEY_TEST_MODEL"),
+        required_environment("BEANKEY_TEST_LLAMA_BACKEND"),
     )
     .expect("the fixed model and pinned llama.cpp backend must load")
 }
@@ -260,8 +260,8 @@ fn recovers_the_fixed_upstream_roman_typo_regression() {
     let mut composing = ComposingText::new();
     composing.insert_str("ojsyougozainasu", InputStyle::RomanToKana, &tables);
     let mut model = LlamaModel::load(
-        required_environment("BEAN_KEY_TEST_MODEL"),
-        required_environment("BEAN_KEY_TEST_LLAMA_BACKEND"),
+        required_environment("BEANKEY_TEST_MODEL"),
+        required_environment("BEANKEY_TEST_LLAMA_BACKEND"),
     )
     .unwrap();
     let candidates = experimental_typo_correction(
@@ -293,10 +293,10 @@ fn recovers_the_fixed_upstream_roman_typo_regression() {
 
 #[test]
 fn runs_the_server_executable_with_the_fixed_nixos_assets() {
-    let model = required_environment("BEAN_KEY_TEST_MODEL");
-    let backend = required_environment("BEAN_KEY_TEST_LLAMA_BACKEND");
-    let english = required_environment("BEAN_KEY_TEST_EN_US_DICTIONARY");
-    let greek = required_environment("BEAN_KEY_TEST_EL_GR_DICTIONARY");
+    let model = required_environment("BEANKEY_TEST_MODEL");
+    let backend = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
+    let english = required_environment("BEANKEY_TEST_EN_US_DICTIONARY");
+    let greek = required_environment("BEANKEY_TEST_EL_GR_DICTIONARY");
     let runtime = TempDir::new().unwrap();
     let config_path = runtime.path().join("config.toml");
     fs::write(
@@ -307,7 +307,7 @@ dictionary = "{}"
 model = "{model}"
 emoji_dictionary = "{}"
 llama_backend_directory = "{backend}"
-runtime_socket = "bean-key/daemon.sock"
+runtime_socket = "beankey/daemon.sock"
 
 [hunspell]
 english_dictionary = "{english}"
@@ -349,21 +349,21 @@ flash_attention = true
 "#,
             dictionary_root().display(),
             PathBuf::from(
-                std::env::var_os("BEAN_KEY_TEST_EMOJI_DICTIONARY").expect(
-                    "BEAN_KEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"
+                std::env::var_os("BEANKEY_TEST_EMOJI_DICTIONARY").expect(
+                    "BEANKEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"
                 )
             )
             .display()
         ),
     )
     .unwrap();
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_bean-key-daemon"))
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_beankey-daemon"))
         .args(["--config", config_path.to_str().unwrap()])
         .env("XDG_RUNTIME_DIR", runtime.path())
         .env("XDG_STATE_HOME", runtime.path().join("state"))
         .spawn()
         .unwrap();
-    let socket = runtime.path().join("bean-key/daemon.sock");
+    let socket = runtime.path().join("beankey/daemon.sock");
     let mut stream = connect_before(&socket, Duration::from_secs(5));
 
     for request in [

@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use bean_key_converter::{
+use beankey_converter::{
     ConversionSession, DictionaryStore, HunspellCompleter, InputStyle, InputTableRegistry,
     KeyboardLanguage, NormalConverter, PredictionMode, RequestOptions,
 };
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
@@ -17,8 +17,8 @@ fn dictionary_root() -> PathBuf {
 fn completes_english_and_greek_with_the_pinned_hunspell_dictionaries() {
     let provider = Arc::new(
         HunspellCompleter::open(
-            env!("BEAN_KEY_TEST_EN_US_DICTIONARY"),
-            env!("BEAN_KEY_TEST_EL_GR_DICTIONARY"),
+            env!("BEANKEY_TEST_EN_US_DICTIONARY"),
+            env!("BEANKEY_TEST_EL_GR_DICTIONARY"),
         )
         .unwrap(),
     );

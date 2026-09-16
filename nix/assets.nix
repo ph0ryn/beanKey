@@ -23,7 +23,7 @@ in
 {
   dictionary =
     let
-      attribution = pkgs.writeText "bean-key-dictionary-attribution" ''
+      attribution = pkgs.writeText "beankey-dictionary-attribution" ''
         Asset: azooKey dictionary storage
         Source: azooKey/azooKey_dictionary_storage
         Fixed revision: ${dictionarySource.rev}
@@ -33,18 +33,18 @@ in
         Upstream NOTICE: none at the fixed revision.
       '';
     in
-    pkgs.runCommand "bean-key-dictionary"
+    pkgs.runCommand "beankey-dictionary"
       {
         meta.license = pkgs.lib.licenses.asl20;
       }
       ''
-        mkdir -p "$out/share/bean-key/dictionary"
-        mkdir -p "$out/share/licenses/bean-key-dictionary"
+        mkdir -p "$out/share/beankey/dictionary"
+        mkdir -p "$out/share/licenses/beankey-dictionary"
         cp -r ${dictionarySource}/Dictionary/. \
-          "$out/share/bean-key/dictionary/"
+          "$out/share/beankey/dictionary/"
         cp ${dictionarySource}/LICENSE \
-          "$out/share/licenses/bean-key-dictionary/LICENSE"
-        cp ${attribution} "$out/share/licenses/bean-key-dictionary/ATTRIBUTION"
+          "$out/share/licenses/beankey-dictionary/LICENSE"
+        cp ${attribution} "$out/share/licenses/beankey-dictionary/ATTRIBUTION"
       '';
 
   emoji =
@@ -57,7 +57,7 @@ in
         url = "https://www.unicode.org/license.txt";
         hash = "sha256-56k7AJVlz85VkZo4FDesTbiD6dohJvoouR0ScyvFPZY=";
       };
-      attribution = pkgs.writeText "bean-key-emoji-attribution" ''
+      attribution = pkgs.writeText "beankey-emoji-attribution" ''
         Asset: generated azooKey emoji dictionary for Unicode Emoji 17.0
         Source: azooKey/azooKey_emoji_dictionary_storage
         Fixed revision: ${emojiSource.rev}
@@ -79,7 +79,7 @@ in
         License: MIT
       '';
     in
-    pkgs.runCommand "bean-key-emoji-dictionary"
+    pkgs.runCommand "beankey-emoji-dictionary"
       {
         meta.license = with pkgs.lib.licenses; [
           bsd3
@@ -88,17 +88,17 @@ in
         ];
       }
       ''
-        mkdir -p "$out/share/bean-key/emoji"
-        mkdir -p "$out/share/licenses/bean-key-emoji"
+        mkdir -p "$out/share/beankey/emoji"
+        mkdir -p "$out/share/licenses/beankey-emoji"
         cp ${emojiSource}/EmojiDictionary/emoji_all_E17.0.txt \
-          "$out/share/bean-key/emoji/emoji_all_E17.0.txt"
+          "$out/share/beankey/emoji/emoji_all_E17.0.txt"
         cp ${emojiSource}/data/README.md \
-          "$out/share/licenses/bean-key-emoji/UPSTREAM-DATA.md"
-        cp ${mozcLicense} "$out/share/licenses/bean-key-emoji/BSD-3-Clause.txt"
-        cp ${unicodeLicense} "$out/share/licenses/bean-key-emoji/Unicode-License-V3.txt"
+          "$out/share/licenses/beankey-emoji/UPSTREAM-DATA.md"
+        cp ${mozcLicense} "$out/share/licenses/beankey-emoji/BSD-3-Clause.txt"
+        cp ${unicodeLicense} "$out/share/licenses/beankey-emoji/Unicode-License-V3.txt"
         cp ${beanKeyUpstream}/LICENSE \
-          "$out/share/licenses/bean-key-emoji/MIT.txt"
-        cp ${attribution} "$out/share/licenses/bean-key-emoji/ATTRIBUTION"
+          "$out/share/licenses/beankey-emoji/MIT.txt"
+        cp ${attribution} "$out/share/licenses/beankey-emoji/ATTRIBUTION"
       '';
 
   model =
@@ -111,7 +111,7 @@ in
         url = "https://www.apache.org/licenses/LICENSE-2.0.txt";
         hash = "sha256-z8d0m5b2O9McPEK1xHG/dWgUBT6EfBDz6wA0F7xSPTA=";
       };
-      attribution = pkgs.writeText "bean-key-model-attribution" ''
+      attribution = pkgs.writeText "beankey-model-attribution" ''
         Asset: zenz-v3.2-small GGUF model
         Source: Miwa-Keita/zenz-v3.2-small-gguf
         Fixed revision: c67e03e07d215c869f591b274c1631170d3e11fe
@@ -122,23 +122,23 @@ in
         Upstream LICENSE and NOTICE: none at the fixed revision.
       '';
     in
-    pkgs.runCommand "bean-key-zenz-v3.2-small-gguf"
+    pkgs.runCommand "beankey-zenz-v3.2-small-gguf"
       {
         meta.license = pkgs.lib.licenses.asl20;
       }
       ''
-        mkdir -p "$out/share/bean-key/model"
-        mkdir -p "$out/share/licenses/bean-key-model"
+        mkdir -p "$out/share/beankey/model"
+        mkdir -p "$out/share/licenses/beankey-model"
         cp ${source} \
-          "$out/share/bean-key/model/ggml-model-Q5_K_M.gguf"
+          "$out/share/beankey/model/ggml-model-Q5_K_M.gguf"
         cp ${license} \
-          "$out/share/licenses/bean-key-model/Apache-2.0.txt"
-        cp ${attribution} "$out/share/licenses/bean-key-model/ATTRIBUTION"
+          "$out/share/licenses/beankey-model/Apache-2.0.txt"
+        cp ${attribution} "$out/share/licenses/beankey-model/ATTRIBUTION"
       '';
 
   tokenizer =
     let
-      attribution = pkgs.writeText "bean-key-tokenizer-attribution" ''
+      attribution = pkgs.writeText "beankey-tokenizer-attribution" ''
         Asset: EfficientNGram tokenizer data
         Source: azooKey/AzooKeyKanaKanjiConverter
         Fixed revision: 93766c46e31fa6a18b7ced49dab31337780f6f45
@@ -151,16 +151,16 @@ in
         hash = "sha256-KKlSnH0LtNxR9L9cEWo9Fu8kegUvdZFGZ2jd9WP9HPU=";
       };
     in
-    pkgs.runCommand "bean-key-zenz-tokenizer"
+    pkgs.runCommand "beankey-zenz-tokenizer"
       {
         meta.license = pkgs.lib.licenses.cc-by-sa-40;
       }
       ''
-        mkdir -p "$out/share/bean-key/tokenizer"
-        mkdir -p "$out/share/licenses/bean-key-tokenizer"
+        mkdir -p "$out/share/beankey/tokenizer"
+        mkdir -p "$out/share/licenses/beankey-tokenizer"
         cp -r ${beanKeyUpstream}/Sources/EfficientNGram/tokenizer/. \
-          "$out/share/bean-key/tokenizer/"
-        cp ${license} "$out/share/licenses/bean-key-tokenizer/CC-BY-SA-4.0.txt"
-        cp ${attribution} "$out/share/licenses/bean-key-tokenizer/ATTRIBUTION"
+          "$out/share/beankey/tokenizer/"
+        cp ${license} "$out/share/licenses/beankey-tokenizer/CC-BY-SA-4.0.txt"
+        cp ${attribution} "$out/share/licenses/beankey-tokenizer/ATTRIBUTION"
       '';
 }

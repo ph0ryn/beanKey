@@ -41,7 +41,7 @@ std::string socketPath() {
   if (runtimeDirectory == nullptr || runtimeDirectory[0] != '/') {
     return {};
   }
-  return std::string(runtimeDirectory) + "/bean-key/daemon.sock";
+  return std::string(runtimeDirectory) + "/beankey/daemon.sock";
 }
 
 std::size_t characterCount(const std::string &text) {
@@ -214,13 +214,13 @@ bool BeanKeyState::processKey(KeyEvent &event) {
 
   auto request = envelope();
   auto *key = request.mutable_key_event();
-  bean_key::populateKeyEvent(event, key);
-  if (key->action() == bean_key::v1::USER_ACTION_UNSPECIFIED) {
+  beankey::populateKeyEvent(event, key);
+  if (key->action() == beankey::v1::USER_ACTION_UNSPECIFIED) {
     return false;
   }
   fillSurroundingText(key->mutable_surrounding_text());
 
-  std::vector<bean_key::v1::CursorAction> actions;
+  std::vector<beankey::v1::CursorAction> actions;
   if (selectedCandidate_ >= 0 &&
       static_cast<std::size_t>(selectedCandidate_) < candidateActions_.size()) {
     actions = candidateActions_[selectedCandidate_];
@@ -316,8 +316,8 @@ bool BeanKeyState::start() {
   nextRequestId_ = 1;
   auto request = envelope();
   auto *start = request.mutable_start_session();
-  start->set_input_style(bean_key::v1::INPUT_STYLE_UNSPECIFIED);
-  start->set_keyboard_language(bean_key::v1::KEYBOARD_LANGUAGE_UNSPECIFIED);
+  start->set_input_style(beankey::v1::INPUT_STYLE_UNSPECIFIED);
+  start->set_keyboard_language(beankey::v1::KEYBOARD_LANGUAGE_UNSPECIFIED);
   fillSurroundingText(start->mutable_surrounding_text());
   const auto response =
       engine_->client().request(request, engine_->requestTimeout());
@@ -333,7 +333,7 @@ bool BeanKeyState::start() {
 }
 
 bool BeanKeyState::pageCandidates(
-    bean_key::v1::PageCandidates::Direction direction) {
+    beankey::v1::PageCandidates::Direction direction) {
   if (candidateActions_.empty()) {
     return false;
   }
@@ -351,8 +351,8 @@ bool BeanKeyState::commitComposition() {
 }
 
 bool BeanKeyState::send(
-    bean_key::v1::Envelope request,
-    const std::vector<bean_key::v1::CursorAction> &commitActions) {
+    beankey::v1::Envelope request,
+    const std::vector<beankey::v1::CursorAction> &commitActions) {
   const auto response =
       engine_->client().request(request, engine_->requestTimeout());
   if (!response || response->protocol_version() != kProtocolVersion ||
@@ -365,8 +365,8 @@ bool BeanKeyState::send(
 }
 
 bool BeanKeyState::apply(
-    const bean_key::v1::Envelope &response,
-    const std::vector<bean_key::v1::CursorAction> &commitActions) {
+    const beankey::v1::Envelope &response,
+    const std::vector<beankey::v1::CursorAction> &commitActions) {
   const auto &state = response.state_response();
   lmTypoAvailable_ = state.lm_typo_available();
   learningAvailable_ = state.learning_available();
@@ -390,7 +390,7 @@ bool BeanKeyState::apply(
   candidateActions_.clear();
   auto candidates = makeCandidateList();
   const bool selecting =
-      state.candidate_window() == bean_key::v1::CANDIDATE_WINDOW_SELECTING;
+      state.candidate_window() == beankey::v1::CANDIDATE_WINDOW_SELECTING;
   if (selecting) {
     candidates->setSelectionKey(Key::keyListFromString("1 2 3 4 5 6 7 8 9"));
   } else {
@@ -413,7 +413,7 @@ bool BeanKeyState::apply(
       candidateWindowStart_ + static_cast<int>(kCandidatePageSize);
   for (int index = 0; index < state.candidates_size(); ++index) {
     const auto &candidate = state.candidates(index);
-    std::vector<bean_key::v1::CursorAction> actions;
+    std::vector<beankey::v1::CursorAction> actions;
     actions.reserve(candidate.actions_size());
     for (const auto &action : candidate.actions()) {
       actions.push_back(action);
@@ -457,7 +457,7 @@ bool BeanKeyState::apply(
     panel.setPreedit(preedit);
     panel.setClientPreedit(preedit);
   }
-  if (state.candidate_window() == bean_key::v1::CANDIDATE_WINDOW_HIDDEN ||
+  if (state.candidate_window() == beankey::v1::CANDIDATE_WINDOW_HIDDEN ||
       candidates->size() == 0) {
     panel.setCandidateList(nullptr);
   } else {
@@ -478,7 +478,7 @@ bool BeanKeyState::apply(
 }
 
 void BeanKeyState::showTypoCorrections(
-    const bean_key::v1::TypoCorrectionResponse &response) {
+    const beankey::v1::TypoCorrectionResponse &response) {
   if (response.candidates().empty()) {
     return;
   }
@@ -498,7 +498,7 @@ void BeanKeyState::showTypoCorrections(
 }
 
 void BeanKeyState::fillSurroundingText(
-    bean_key::v1::SurroundingText *surrounding) const {
+    beankey::v1::SurroundingText *surrounding) const {
   const auto &source = inputContext_->surroundingText();
   surrounding->set_available(source.isValid());
   if (source.isValid()) {
@@ -527,8 +527,8 @@ void BeanKeyState::failSession() {
   clearUi();
 }
 
-bean_key::v1::Envelope BeanKeyState::envelope() {
-  bean_key::v1::Envelope request;
+beankey::v1::Envelope BeanKeyState::envelope() {
+  beankey::v1::Envelope request;
   request.set_protocol_version(kProtocolVersion);
   request.set_request_id(nextRequestId_++);
   request.set_session_id(sessionId_);
@@ -548,7 +548,7 @@ BeanKeyEngine::BeanKeyEngine(Instance *instance)
       [this](InputContext *inputContext) {
         state(inputContext)->resetLearning();
       });
-  resetLearningAction_.registerAction("bean-key-reset-learning",
+  resetLearningAction_.registerAction("beankey-reset-learning",
                                       &instance_->userInterfaceManager());
 }
 
@@ -582,18 +582,18 @@ BeanKeyState *BeanKeyEngine::state(InputContext *inputContext) {
   return inputContext->propertyFor(&factory_);
 }
 
-bean_key::Client &BeanKeyEngine::client() { return client_; }
+beankey::Client &BeanKeyEngine::client() { return client_; }
 
 bool BeanKeyEngine::ensureConnected() {
   return client_.ensureConnected(
       [] {
-        startProcess({BEAN_KEY_DAEMON_PATH, "--config", BEAN_KEY_CONFIG_PATH});
+        startProcess({BEANKEY_DAEMON_PATH, "--config", BEANKEY_CONFIG_PATH});
       },
       kStartupTimeout);
 }
 
 std::chrono::milliseconds BeanKeyEngine::requestTimeout() const {
-  return std::chrono::milliseconds(BEAN_KEY_REQUEST_TIMEOUT_MS);
+  return std::chrono::milliseconds(BEANKEY_REQUEST_TIMEOUT_MS);
 }
 
 } // namespace fcitx

@@ -51,7 +51,7 @@ impl fmt::Display for ServerError {
                 "daemon lock is held but its socket is unavailable"
             ),
             Self::AlreadyRunning => write!(formatter, "a beanKey daemon is already running"),
-            Self::InvalidSocketPath => write!(formatter, "socket path must be beanKey/daemon.sock"),
+            Self::InvalidSocketPath => write!(formatter, "socket path must be beankey/daemon.sock"),
             Self::UnsafeSocket => write!(
                 formatter,
                 "existing socket path is not an owned Unix domain socket"
@@ -148,7 +148,7 @@ impl DaemonServer {
         runtime_root: impl AsRef<Path>,
         relative_socket: impl AsRef<Path>,
     ) -> Result<Self, ServerError> {
-        if relative_socket.as_ref() != Path::new("bean-key/daemon.sock") {
+        if relative_socket.as_ref() != Path::new("beankey/daemon.sock") {
             return Err(ServerError::InvalidSocketPath);
         }
         Ok(Self {
@@ -470,19 +470,19 @@ mod tests {
     #[test]
     fn replaces_only_an_owned_stale_socket_and_sets_private_modes() {
         let root = TempDir::new().unwrap();
-        let runtime = root.path().join("bean-key");
+        let runtime = root.path().join("beankey");
         fs::create_dir(&runtime).unwrap();
         let stale_path = runtime.join("daemon.sock");
         drop(UnixListener::bind(&stale_path).unwrap());
 
         let endpoint =
-            RuntimeEndpoint::bind(root.path(), Path::new("bean-key/daemon.sock")).unwrap();
+            RuntimeEndpoint::bind(root.path(), Path::new("beankey/daemon.sock")).unwrap();
         let directory = fs::metadata(&runtime).unwrap();
         let socket = fs::symlink_metadata(&stale_path).unwrap();
         assert_eq!(directory.mode() & 0o777, 0o700);
         assert_eq!(socket.mode() & 0o777, 0o600);
         assert!(matches!(
-            RuntimeEndpoint::bind(root.path(), Path::new("bean-key/daemon.sock")),
+            RuntimeEndpoint::bind(root.path(), Path::new("beankey/daemon.sock")),
             Err(ServerError::AlreadyRunning)
         ));
         drop(endpoint);
@@ -492,12 +492,12 @@ mod tests {
     #[test]
     fn refuses_to_remove_a_non_socket_runtime_path() {
         let root = TempDir::new().unwrap();
-        let runtime = root.path().join("bean-key");
+        let runtime = root.path().join("beankey");
         fs::create_dir(&runtime).unwrap();
         File::create(runtime.join("daemon.sock")).unwrap();
 
         assert!(matches!(
-            RuntimeEndpoint::bind(root.path(), Path::new("bean-key/daemon.sock")),
+            RuntimeEndpoint::bind(root.path(), Path::new("beankey/daemon.sock")),
             Err(ServerError::UnsafeSocket)
         ));
         assert!(runtime.join("daemon.sock").is_file());
@@ -507,8 +507,8 @@ mod tests {
     fn rejects_socket_paths_outside_the_canonical_runtime_location() {
         let root = TempDir::new().unwrap();
         let engine = Engine::open(PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         ))
         .unwrap();
         assert!(matches!(

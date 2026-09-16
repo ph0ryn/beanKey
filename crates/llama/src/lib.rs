@@ -8,17 +8,17 @@ const ERROR_CAPACITY: usize = 256;
 const CONTEXT_TOKEN_LIMIT: usize = 512;
 
 unsafe extern "C" {
-    fn bean_key_llama_load(
+    fn beankey_llama_load(
         path: *const c_char,
         backend_directory: *const c_char,
         thread_count: c_int,
         error: *mut c_char,
         error_capacity: usize,
     ) -> *mut c_void;
-    fn bean_key_llama_free(handle: *mut c_void);
-    fn bean_key_llama_vocab_size(handle: *const c_void) -> c_int;
-    fn bean_key_llama_eos_token(handle: *const c_void) -> c_int;
-    fn bean_key_llama_tokenize(
+    fn beankey_llama_free(handle: *mut c_void);
+    fn beankey_llama_vocab_size(handle: *const c_void) -> c_int;
+    fn beankey_llama_eos_token(handle: *const c_void) -> c_int;
+    fn beankey_llama_tokenize(
         handle: *const c_void,
         text: *const c_char,
         text_length: c_int,
@@ -26,13 +26,13 @@ unsafe extern "C" {
         token_capacity: c_int,
         add_special: bool,
     ) -> c_int;
-    fn bean_key_llama_token_to_piece(
+    fn beankey_llama_token_to_piece(
         handle: *const c_void,
         token: c_int,
         buffer: *mut c_char,
         buffer_capacity: c_int,
     ) -> c_int;
-    fn bean_key_llama_logits(
+    fn beankey_llama_logits(
         handle: *mut c_void,
         tokens: *const c_int,
         token_count: c_int,
@@ -134,7 +134,7 @@ impl LlamaContext {
         let mut error = [0_i8; ERROR_CAPACITY];
         // SAFETY: The path and writable error buffer remain valid for this call.
         let handle = unsafe {
-            bean_key_llama_load(
+            beankey_llama_load(
                 path.as_ptr(),
                 backend_directory.as_ptr(),
                 threads,
@@ -150,7 +150,7 @@ impl LlamaContext {
             LlamaError::Load(message)
         })?;
         // SAFETY: A successfully constructed handle owns a valid vocabulary.
-        let vocabulary_size = unsafe { bean_key_llama_vocab_size(handle.as_ptr()) };
+        let vocabulary_size = unsafe { beankey_llama_vocab_size(handle.as_ptr()) };
         Ok(Self {
             handle,
             vocabulary_size: usize::try_from(vocabulary_size)
@@ -165,7 +165,7 @@ impl LlamaContext {
 
     pub fn eos_token(&self) -> i32 {
         // SAFETY: The handle remains valid for the lifetime of self.
-        unsafe { bean_key_llama_eos_token(self.handle.as_ptr()) }
+        unsafe { beankey_llama_eos_token(self.handle.as_ptr()) }
     }
 
     pub fn tokenize(&self, text: &str, add_special: bool) -> Result<Vec<i32>, LlamaError> {
@@ -174,7 +174,7 @@ impl LlamaContext {
         let mut tokens = vec![0; initial_capacity];
         // SAFETY: All buffers remain valid and their exact lengths are supplied.
         let mut count = unsafe {
-            bean_key_llama_tokenize(
+            beankey_llama_tokenize(
                 self.handle.as_ptr(),
                 text.as_ptr().cast(),
                 text_length,
@@ -191,7 +191,7 @@ impl LlamaContext {
             );
             // SAFETY: The resized token buffer has the capacity requested by llama.cpp.
             count = unsafe {
-                bean_key_llama_tokenize(
+                beankey_llama_tokenize(
                     self.handle.as_ptr(),
                     text.as_ptr().cast(),
                     text_length,
@@ -210,7 +210,7 @@ impl LlamaContext {
         let mut buffer = vec![0_i8; 8];
         // SAFETY: The writable buffer remains valid for this call.
         let mut count = unsafe {
-            bean_key_llama_token_to_piece(
+            beankey_llama_token_to_piece(
                 self.handle.as_ptr(),
                 token,
                 buffer.as_mut_ptr(),
@@ -225,7 +225,7 @@ impl LlamaContext {
             );
             // SAFETY: The resized piece buffer has the capacity requested by llama.cpp.
             count = unsafe {
-                bean_key_llama_token_to_piece(
+                beankey_llama_token_to_piece(
                     self.handle.as_ptr(),
                     token,
                     buffer.as_mut_ptr(),
@@ -274,7 +274,7 @@ impl LlamaContext {
         let plan = self.sequence_plan(tokens, start_index, sequence);
         // SAFETY: Token and logit slices remain valid and exact lengths are supplied.
         let result = unsafe {
-            bean_key_llama_logits(
+            beankey_llama_logits(
                 self.handle.as_ptr(),
                 tokens.as_ptr(),
                 c_int::try_from(tokens.len()).expect("token limit fits c_int"),
@@ -343,7 +343,7 @@ fn inference_thread_count(available: usize) -> usize {
 impl Drop for LlamaContext {
     fn drop(&mut self) {
         // SAFETY: This handle is uniquely owned and freed exactly once here.
-        unsafe { bean_key_llama_free(self.handle.as_ptr()) };
+        unsafe { beankey_llama_free(self.handle.as_ptr()) };
     }
 }
 

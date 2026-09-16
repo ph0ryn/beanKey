@@ -2,16 +2,16 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::thread;
 
-use bean_key_daemon::protocol::envelope::Payload;
-use bean_key_daemon::{
+use beankey_daemon::protocol::envelope::Payload;
+use beankey_daemon::{
     DaemonServer, Engine, PROTOCOL_VERSION, protocol, read_envelope, write_envelope,
 };
 use tempfile::TempDir;
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
@@ -37,11 +37,11 @@ fn request(stream: &mut UnixStream, envelope: protocol::Envelope) -> protocol::S
 #[test]
 fn serves_isolated_connections_and_exits_after_the_last_disconnect() {
     let runtime = TempDir::new().unwrap();
-    let socket = runtime.path().join("bean-key/daemon.sock");
+    let socket = runtime.path().join("beankey/daemon.sock");
     let server = DaemonServer::bind(
         Engine::open(dictionary_root()).unwrap(),
         runtime.path(),
-        "bean-key/daemon.sock",
+        "beankey/daemon.sock",
     )
     .unwrap();
     let worker = thread::spawn(move || server.run().unwrap());

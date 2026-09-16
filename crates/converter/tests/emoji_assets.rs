@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
-use bean_key_converter::TextReplacer;
+use beankey_converter::TextReplacer;
 
 fn emoji_dictionary_path() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_EMOJI_DICTIONARY")
-            .expect("BEAN_KEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_EMOJI_DICTIONARY")
+            .expect("BEANKEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"),
     )
 }
 

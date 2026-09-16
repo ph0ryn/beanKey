@@ -10,7 +10,7 @@
 #include <string_view>
 #include <utility>
 
-#include "bean_key.pb.h"
+#include "beankey.pb.h"
 
 namespace {
 
@@ -21,8 +21,8 @@ struct KeyCase {
 
 bool rejectsControlText(const KeyCase &keyCase) {
   fcitx::KeyEvent source(nullptr, fcitx::Key(keyCase.symbol));
-  bean_key::v1::KeyEvent target;
-  bean_key::populateKeyEvent(source, &target);
+  beankey::v1::KeyEvent target;
+  beankey::populateKeyEvent(source, &target);
 
   if (target.text().empty() && target.input().empty() &&
       target.intention().empty()) {
@@ -36,9 +36,9 @@ bool rejectsControlText(const KeyCase &keyCase) {
 
 int main() {
   fcitx::KeyEvent printableSource(nullptr, fcitx::Key(FcitxKey_a));
-  bean_key::v1::KeyEvent printableTarget;
-  bean_key::populateKeyEvent(printableSource, &printableTarget);
-  if (printableTarget.action() != bean_key::v1::USER_ACTION_INPUT ||
+  beankey::v1::KeyEvent printableTarget;
+  beankey::populateKeyEvent(printableSource, &printableTarget);
+  if (printableTarget.action() != beankey::v1::USER_ACTION_INPUT ||
       printableTarget.text() != "a" || printableTarget.input() != "a" ||
       printableTarget.intention() != "a") {
     std::cerr << "printable key mapping changed unexpectedly\n";
@@ -46,9 +46,9 @@ int main() {
   }
 
   fcitx::KeyEvent longVowelSource(nullptr, fcitx::Key(FcitxKey_minus));
-  bean_key::v1::KeyEvent longVowelTarget;
-  bean_key::populateKeyEvent(longVowelSource, &longVowelTarget);
-  if (longVowelTarget.action() != bean_key::v1::USER_ACTION_INPUT ||
+  beankey::v1::KeyEvent longVowelTarget;
+  beankey::populateKeyEvent(longVowelSource, &longVowelTarget);
+  if (longVowelTarget.action() != beankey::v1::USER_ACTION_INPUT ||
       longVowelTarget.text() != "ー" || longVowelTarget.input() != "-" ||
       longVowelTarget.intention() != "ー") {
     std::cerr << "Japanese hyphen key did not produce a long vowel mark\n";
@@ -69,30 +69,30 @@ int main() {
     valid = rejectsControlText(keyCase) && valid;
   }
   fcitx::KeyEvent backspaceSource(nullptr, fcitx::Key(FcitxKey_BackSpace));
-  bean_key::v1::KeyEvent backspaceTarget;
-  bean_key::populateKeyEvent(backspaceSource, &backspaceTarget);
-  if (backspaceTarget.action() != bean_key::v1::USER_ACTION_BACKSPACE) {
+  beankey::v1::KeyEvent backspaceTarget;
+  beankey::populateKeyEvent(backspaceSource, &backspaceTarget);
+  if (backspaceTarget.action() != beankey::v1::USER_ACTION_BACKSPACE) {
     std::cerr << "Backspace semantic action was not mapped\n";
     valid = false;
   }
 
   fcitx::KeyEvent controlHSource(nullptr,
                                  fcitx::Key(FcitxKey_h, fcitx::KeyState::Ctrl));
-  bean_key::v1::KeyEvent controlHTarget;
-  bean_key::populateKeyEvent(controlHSource, &controlHTarget);
-  if (controlHTarget.action() != bean_key::v1::USER_ACTION_BACKSPACE ||
+  beankey::v1::KeyEvent controlHTarget;
+  beankey::populateKeyEvent(controlHSource, &controlHTarget);
+  if (controlHTarget.action() != beankey::v1::USER_ACTION_BACKSPACE ||
       !controlHTarget.text().empty()) {
     std::cerr << "Control-H semantic action was not mapped\n";
     valid = false;
   }
 
   for (const auto &[symbol, expected] :
-       {std::pair{FcitxKey_j, bean_key::v1::USER_ACTION_HIRAGANA},
+       {std::pair{FcitxKey_j, beankey::v1::USER_ACTION_HIRAGANA},
         std::pair{FcitxKey_semicolon,
-                  bean_key::v1::USER_ACTION_HALF_WIDTH_KATAKANA}}) {
+                  beankey::v1::USER_ACTION_HALF_WIDTH_KATAKANA}}) {
     fcitx::KeyEvent source(nullptr, fcitx::Key(symbol, fcitx::KeyState::Ctrl));
-    bean_key::v1::KeyEvent target;
-    bean_key::populateKeyEvent(source, &target);
+    beankey::v1::KeyEvent target;
+    beankey::populateKeyEvent(source, &target);
     if (target.action() != expected || !target.text().empty()) {
       std::cerr << "known Control shortcut lost its semantic action\n";
       valid = false;
@@ -101,18 +101,18 @@ int main() {
 
   fcitx::KeyEvent controlDeleteSource(
       nullptr, fcitx::Key(FcitxKey_Delete, fcitx::KeyState::Ctrl));
-  bean_key::v1::KeyEvent controlDeleteTarget;
-  bean_key::populateKeyEvent(controlDeleteSource, &controlDeleteTarget);
-  if (controlDeleteTarget.action() != bean_key::v1::USER_ACTION_FORGET) {
+  beankey::v1::KeyEvent controlDeleteTarget;
+  beankey::populateKeyEvent(controlDeleteSource, &controlDeleteTarget);
+  if (controlDeleteTarget.action() != beankey::v1::USER_ACTION_FORGET) {
     std::cerr << "Control-Delete did not map to candidate forgetting\n";
     valid = false;
   }
 
   fcitx::KeyEvent controlQSource(nullptr,
                                  fcitx::Key(FcitxKey_q, fcitx::KeyState::Ctrl));
-  bean_key::v1::KeyEvent controlQTarget;
-  bean_key::populateKeyEvent(controlQSource, &controlQTarget);
-  if (controlQTarget.action() != bean_key::v1::USER_ACTION_CONSUME ||
+  beankey::v1::KeyEvent controlQTarget;
+  beankey::populateKeyEvent(controlQSource, &controlQTarget);
+  if (controlQTarget.action() != beankey::v1::USER_ACTION_CONSUME ||
       !controlQTarget.text().empty()) {
     std::cerr << "Undefined Control shortcut was not marked for consumption\n";
     valid = false;
@@ -122,9 +122,9 @@ int main() {
       nullptr,
       fcitx::Key(FcitxKey_u, fcitx::KeyStates{fcitx::KeyState::Ctrl,
                                               fcitx::KeyState::Shift}));
-  bean_key::v1::KeyEvent unicodeTarget;
-  bean_key::populateKeyEvent(unicodeSource, &unicodeTarget);
-  if (unicodeTarget.action() != bean_key::v1::USER_ACTION_START_UNICODE_INPUT) {
+  beankey::v1::KeyEvent unicodeTarget;
+  beankey::populateKeyEvent(unicodeSource, &unicodeTarget);
+  if (unicodeTarget.action() != beankey::v1::USER_ACTION_START_UNICODE_INPUT) {
     std::cerr << "Control-Shift-U Unicode input was not mapped\n";
     valid = false;
   }
@@ -133,21 +133,21 @@ int main() {
                               KeyCase{"Page Up", FcitxKey_Page_Up},
                               KeyCase{"Page Down", FcitxKey_Page_Down}}) {
     fcitx::KeyEvent source(nullptr, fcitx::Key(keyCase.symbol));
-    bean_key::v1::KeyEvent target;
-    bean_key::populateKeyEvent(source, &target);
-    if (target.action() != bean_key::v1::USER_ACTION_UNSPECIFIED) {
+    beankey::v1::KeyEvent target;
+    beankey::populateKeyEvent(source, &target);
+    if (target.action() != beankey::v1::USER_ACTION_UNSPECIFIED) {
       std::cerr << keyCase.name << " unsupported action was mapped\n";
       valid = false;
     }
   }
 
   for (const auto &[symbol, expected] :
-       {std::pair{FcitxKey_Eisu_toggle, bean_key::v1::USER_ACTION_EISU},
-        std::pair{FcitxKey_Hiragana_Katakana, bean_key::v1::USER_ACTION_KANA},
-        std::pair{FcitxKey_Kana_Lock, bean_key::v1::USER_ACTION_KANA}}) {
+       {std::pair{FcitxKey_Eisu_toggle, beankey::v1::USER_ACTION_EISU},
+        std::pair{FcitxKey_Hiragana_Katakana, beankey::v1::USER_ACTION_KANA},
+        std::pair{FcitxKey_Kana_Lock, beankey::v1::USER_ACTION_KANA}}) {
     fcitx::KeyEvent source(nullptr, fcitx::Key(symbol));
-    bean_key::v1::KeyEvent target;
-    bean_key::populateKeyEvent(source, &target);
+    beankey::v1::KeyEvent target;
+    beankey::populateKeyEvent(source, &target);
     if (target.action() != expected) {
       std::cerr << "input language key was not mapped\n";
       valid = false;
@@ -155,14 +155,14 @@ int main() {
   }
 
   for (const auto &[symbol, expected] :
-       {std::pair{FcitxKey_F6, bean_key::v1::USER_ACTION_HIRAGANA},
-        std::pair{FcitxKey_F7, bean_key::v1::USER_ACTION_KATAKANA},
-        std::pair{FcitxKey_F8, bean_key::v1::USER_ACTION_HALF_WIDTH_KATAKANA},
-        std::pair{FcitxKey_F9, bean_key::v1::USER_ACTION_FULL_WIDTH_ROMAN},
-        std::pair{FcitxKey_F10, bean_key::v1::USER_ACTION_HALF_WIDTH_ROMAN}}) {
+       {std::pair{FcitxKey_F6, beankey::v1::USER_ACTION_HIRAGANA},
+        std::pair{FcitxKey_F7, beankey::v1::USER_ACTION_KATAKANA},
+        std::pair{FcitxKey_F8, beankey::v1::USER_ACTION_HALF_WIDTH_KATAKANA},
+        std::pair{FcitxKey_F9, beankey::v1::USER_ACTION_FULL_WIDTH_ROMAN},
+        std::pair{FcitxKey_F10, beankey::v1::USER_ACTION_HALF_WIDTH_ROMAN}}) {
     fcitx::KeyEvent source(nullptr, fcitx::Key(symbol));
-    bean_key::v1::KeyEvent target;
-    bean_key::populateKeyEvent(source, &target);
+    beankey::v1::KeyEvent target;
+    beankey::populateKeyEvent(source, &target);
     if (target.action() != expected) {
       std::cerr << "Desktop function key was not mapped\n";
       valid = false;
@@ -170,11 +170,11 @@ int main() {
   }
 
   for (const auto &[symbol, expected] :
-       {std::pair{FcitxKey_Left, bean_key::v1::USER_ACTION_LEFT},
-        std::pair{FcitxKey_Right, bean_key::v1::USER_ACTION_RIGHT}}) {
+       {std::pair{FcitxKey_Left, beankey::v1::USER_ACTION_LEFT},
+        std::pair{FcitxKey_Right, beankey::v1::USER_ACTION_RIGHT}}) {
     fcitx::KeyEvent source(nullptr, fcitx::Key(symbol, fcitx::KeyState::Shift));
-    bean_key::v1::KeyEvent target;
-    bean_key::populateKeyEvent(source, &target);
+    beankey::v1::KeyEvent target;
+    beankey::populateKeyEvent(source, &target);
     if (target.action() != expected || !target.shift()) {
       std::cerr << "Shift navigation lost its segment-edit intention\n";
       valid = false;
@@ -183,9 +183,9 @@ int main() {
 
   fcitx::KeyEvent shiftedSpaceSource(
       nullptr, fcitx::Key(FcitxKey_space, fcitx::KeyState::Shift));
-  bean_key::v1::KeyEvent shiftedSpaceTarget;
-  bean_key::populateKeyEvent(shiftedSpaceSource, &shiftedSpaceTarget);
-  if (shiftedSpaceTarget.action() != bean_key::v1::USER_ACTION_SPACE ||
+  beankey::v1::KeyEvent shiftedSpaceTarget;
+  beankey::populateKeyEvent(shiftedSpaceSource, &shiftedSpaceTarget);
+  if (shiftedSpaceTarget.action() != beankey::v1::USER_ACTION_SPACE ||
       !shiftedSpaceTarget.shift()) {
     std::cerr << "Shift-Space semantic action was not mapped\n";
     valid = false;
@@ -193,9 +193,9 @@ int main() {
 
   fcitx::KeyEvent optionSource(nullptr,
                                fcitx::Key(FcitxKey_a, fcitx::KeyState::Alt));
-  bean_key::v1::KeyEvent optionTarget;
-  bean_key::populateKeyEvent(optionSource, &optionTarget);
-  if (optionTarget.action() != bean_key::v1::USER_ACTION_INPUT ||
+  beankey::v1::KeyEvent optionTarget;
+  beankey::populateKeyEvent(optionSource, &optionTarget);
+  if (optionTarget.action() != beankey::v1::USER_ACTION_INPUT ||
       !optionTarget.option() || !optionTarget.text().empty() ||
       optionTarget.input() != "a") {
     std::cerr << "Alt was not mapped to the semantic Option modifier\n";
@@ -205,8 +205,8 @@ int main() {
   fcitx::KeyEvent shiftedOptionSource(
       nullptr, fcitx::Key(FcitxKey_a, fcitx::KeyStates{fcitx::KeyState::Shift,
                                                        fcitx::KeyState::Alt}));
-  bean_key::v1::KeyEvent shiftedOptionTarget;
-  bean_key::populateKeyEvent(shiftedOptionSource, &shiftedOptionTarget);
+  beankey::v1::KeyEvent shiftedOptionTarget;
+  beankey::populateKeyEvent(shiftedOptionSource, &shiftedOptionTarget);
   if (!shiftedOptionTarget.option() || !shiftedOptionTarget.shift() ||
       shiftedOptionTarget.input() != "A") {
     std::cerr << "Shift-Alt input lost its shifted printable text\n";
@@ -217,8 +217,8 @@ int main() {
       nullptr,
       fcitx::Key(FcitxKey_a, fcitx::KeyStates{fcitx::KeyState::Alt,
                                               fcitx::KeyState::Super}));
-  bean_key::v1::KeyEvent modifiedOptionTarget;
-  bean_key::populateKeyEvent(modifiedOptionSource, &modifiedOptionTarget);
+  beankey::v1::KeyEvent modifiedOptionTarget;
+  beankey::populateKeyEvent(modifiedOptionSource, &modifiedOptionTarget);
   if (modifiedOptionTarget.option()) {
     std::cerr << "Alt with another shortcut modifier became Option\n";
     valid = false;

@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use bean_key_converter::{ZenzInferenceError, ZenzLanguageModel};
-use bean_key_daemon::protocol::envelope::Payload;
-use bean_key_daemon::{
+use beankey_converter::{ZenzInferenceError, ZenzLanguageModel};
+use beankey_daemon::protocol::envelope::Payload;
+use beankey_daemon::{
     ConversionConfig, ConversionResourceError, Engine, EngineOpenError, PROTOCOL_VERSION,
     PunctuationStyleConfig, protocol,
 };
@@ -13,15 +13,15 @@ use tempfile::TempDir;
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
 fn emoji_dictionary_path() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_EMOJI_DICTIONARY")
-            .expect("BEAN_KEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_EMOJI_DICTIONARY")
+            .expect("BEANKEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
@@ -752,7 +752,7 @@ fn keeps_a_single_character_raw_during_live_conversion() {
     let mut engine = Engine::open_with_conversion_resources(
         dictionary_root(),
         &ConversionConfig {
-            input_style: bean_key_daemon::InputStyleConfig::Direct,
+            input_style: beankey_daemon::InputStyleConfig::Direct,
             live_conversion: true,
             ..Default::default()
         },
@@ -863,8 +863,8 @@ fn exposes_manual_prediction_separately_and_accepts_it_with_tab() {
     let mut engine = Engine::open_with_conversion_resources(
         dictionary_root(),
         &ConversionConfig {
-            input_style: bean_key_daemon::InputStyleConfig::Direct,
-            japanese_prediction: bean_key_daemon::PredictionConfig::Manual,
+            input_style: beankey_daemon::InputStyleConfig::Direct,
+            japanese_prediction: beankey_daemon::PredictionConfig::Manual,
             ..Default::default()
         },
     )
@@ -902,7 +902,7 @@ fn exposes_manual_prediction_from_a_katakana_prefix() {
     let mut engine = Engine::open_with_conversion_resources(
         dictionary_root(),
         &ConversionConfig {
-            japanese_prediction: bean_key_daemon::PredictionConfig::Manual,
+            japanese_prediction: beankey_daemon::PredictionConfig::Manual,
             live_conversion: false,
             ..Default::default()
         },
@@ -1236,8 +1236,8 @@ fn forwards_explicit_kana_key_intention_and_input() {
 fn completes_foreign_input_with_the_configured_hunspell_assets() {
     let mut engine = Engine::open_with_hunspell(
         dictionary_root(),
-        env!("BEAN_KEY_TEST_EN_US_DICTIONARY"),
-        env!("BEAN_KEY_TEST_EL_GR_DICTIONARY"),
+        env!("BEANKEY_TEST_EN_US_DICTIONARY"),
+        env!("BEANKEY_TEST_EL_GR_DICTIONARY"),
     )
     .unwrap();
     response(engine.handle(envelope(
@@ -1453,7 +1453,7 @@ fn uses_a_json_user_dictionary_with_a_named_custom_input_table() {
 }
 
 #[test]
-fn provides_desktop_and_bean_key_product_name_candidates_by_default() {
+fn provides_desktop_and_beankey_product_name_candidates_by_default() {
     for (reading, expected) in [("あずーきー", "azooKey"), ("びーんきー", "beanKey")] {
         let mut engine = Engine::open(dictionary_root()).unwrap();
         response(engine.handle(envelope(

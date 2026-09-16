@@ -114,7 +114,7 @@ programs.beanKey.conversion = {
 
 ```nix
 programs.beanKey.conversion = {
-  userDictionary = "/home/me/.config/bean-key/user.json";
+  userDictionary = "/home/me/.config/beankey/user.json";
   userDictionaryDirectory = "/home/me/.local/share/azookey/user-dictionary";
 };
 ```

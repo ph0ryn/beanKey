@@ -6,9 +6,9 @@
 #include <optional>
 #include <string>
 
-#include "bean_key.pb.h"
+#include "beankey.pb.h"
 
-namespace bean_key {
+namespace beankey {
 
 class Client final {
 public:
@@ -39,4 +39,4 @@ private:
   int socket_ = -1;
 };
 
-} // namespace bean_key
+} // namespace beankey

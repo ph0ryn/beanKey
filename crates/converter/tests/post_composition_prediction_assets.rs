@@ -1,21 +1,21 @@
 use std::path::PathBuf;
 
-use bean_key_converter::{
+use beankey_converter::{
     ConversionSession, DictionaryStore, InputStyle, InputTableRegistry, NormalConverter,
     PostCompositionPredictor, TextReplacer,
 };
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
 fn emoji_dictionary_path() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_EMOJI_DICTIONARY")
-            .expect("BEAN_KEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_EMOJI_DICTIONARY")
+            .expect("BEANKEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
@@ -78,7 +78,7 @@ fn places_up_to_three_base_emojis_before_other_post_composition_predictions() {
     assert!(predictions[..3].iter().all(|item| {
         matches!(
             &item.kind,
-            bean_key_converter::PostPredictionKind::Additional { entries }
+            beankey_converter::PostPredictionKind::Additional { entries }
                 if entries.len() == 1 && entries[0].ruby == "エモジ"
         )
     }));

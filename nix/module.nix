@@ -144,16 +144,16 @@ let
     ngram = {
       inherit (cfg.lmTypo.ngram) discount n;
       prefix = cfg.lmTypo.ngram.prefix;
-      tokenizer = "${packages.tokenizer}/share/bean-key/tokenizer/tokenizer.json";
+      tokenizer = "${packages.tokenizer}/share/beankey/tokenizer/tokenizer.json";
     };
   };
 
-  configFile = (pkgs.formats.toml { }).generate "bean-key-config.toml" {
-    dictionary = "${packages.dictionary}/share/bean-key/dictionary";
-    model = "${packages.model}/share/bean-key/model/ggml-model-Q5_K_M.gguf";
-    emoji_dictionary = "${packages.emoji}/share/bean-key/emoji/emoji_all_E17.0.txt";
+  configFile = (pkgs.formats.toml { }).generate "beankey-config.toml" {
+    dictionary = "${packages.dictionary}/share/beankey/dictionary";
+    model = "${packages.model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
+    emoji_dictionary = "${packages.emoji}/share/beankey/emoji/emoji_all_E17.0.txt";
     llama_backend_directory = "${packages.daemon.llamaCpp}/bin";
-    runtime_socket = "bean-key/daemon.sock";
+    runtime_socket = "beankey/daemon.sock";
     hunspell = {
       english_dictionary = "${packages.daemon.hunspellEnglish}/share/hunspell/en_US";
       greek_dictionary = "${packages.daemon.hunspellGreek}/share/hunspell/el_GR";
@@ -429,6 +429,6 @@ in
       };
     };
     environment.systemPackages = [ packages.daemon ];
-    environment.etc."bean-key/config.toml".source = configFile;
+    environment.etc."beankey/config.toml".source = configFile;
   };
 }

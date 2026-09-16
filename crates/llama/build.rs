@@ -9,5 +9,5 @@ fn main() {
     for include in llama.include_paths {
         build.include(include);
     }
-    build.compile("bean_key_llama_shim");
+    build.compile("beankey_llama_shim");
 }

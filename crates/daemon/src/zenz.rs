@@ -2,13 +2,13 @@ use std::error::Error;
 use std::fmt;
 use std::path::Path;
 
-use bean_key_converter::{
+use beankey_converter::{
     Candidate, CandidateEvaluation, ConversionSession, DictionaryError, DictionaryMetadata,
     EfficientNGram, InputTableRegistry, NGramError, NormalConverter, PrefixConstraint,
     ZenzEvaluationRequest, ZenzEvaluator, ZenzInferenceError, ZenzInferenceSequence,
     ZenzLanguageModel, ZenzPersonalization, ZenzVersionConfig, to_katakana,
 };
-use bean_key_llama::{LlamaContext, LlamaError, LlamaSequence};
+use beankey_llama::{LlamaContext, LlamaError, LlamaSequence};
 
 pub const DEFAULT_INFERENCE_LIMIT: usize = 10;
 const PERSONALIZATION_N: usize = 5;
@@ -407,7 +407,7 @@ fn insert_rich_candidates(
     tables: &InputTableRegistry,
     inserted: &mut Vec<Candidate>,
     constructed: &[Candidate],
-    alternatives: Vec<bean_key_converter::AlternativeConstraint>,
+    alternatives: Vec<beankey_converter::AlternativeConstraint>,
 ) -> Result<(), DictionaryError> {
     for alternative in alternatives
         .into_iter()
@@ -454,7 +454,7 @@ fn candidate_uses_personal_dictionary(candidate: &Candidate) -> bool {
 mod tests {
     use std::path::PathBuf;
 
-    use bean_key_converter::{
+    use beankey_converter::{
         ConversionSession, DictionaryStore, InputStyle, InputTableRegistry, NormalConverter,
         ZenzEvaluator, ZenzInferenceError, ZenzLanguageModel, ZenzV3Config, ZenzVersionConfig,
     };
@@ -540,8 +540,8 @@ mod tests {
 
     fn dictionary_root() -> PathBuf {
         PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         )
     }
 
@@ -666,16 +666,16 @@ mod tests {
                 &converter,
                 &tables,
                 2,
-                &bean_key_converter::PrefixConstraint::default(),
+                &beankey_converter::PrefixConstraint::default(),
             )
             .unwrap()
             .to_vec();
         let candidate = candidates[0].clone();
-        let mut constraint = bean_key_converter::PrefixConstraint::new(b"x".to_vec());
+        let mut constraint = beankey_converter::PrefixConstraint::new(b"x".to_vec());
 
         let action = review_rejection(
             &mut constraint,
-            bean_key_converter::PrefixConstraint::new(b"x".to_vec()),
+            beankey_converter::PrefixConstraint::new(b"x".to_vec()),
             &candidates,
             0,
             &candidate,

@@ -22,8 +22,8 @@ let
             punctuationStyle = "period_and_comma";
           };
           zenz.personalization = {
-            baseNgram = "/nix/store/bean-key-base-ngram/lm";
-            personalNgram = "/nix/store/bean-key-personal-ngram/lm";
+            baseNgram = "/nix/store/beankey-base-ngram/lm";
+            personalNgram = "/nix/store/beankey-personal-ngram/lm";
             alpha = 1.5;
           };
         };
@@ -50,12 +50,12 @@ let
     assert builtins.elem self.packages.${system}.daemon moduleConfig.environment.systemPackages;
     assert !(moduleConfig.systemd.services ? beanKey);
     assert !(moduleConfig.systemd.sockets ? beanKey);
-    moduleConfig.environment.etc."bean-key/config.toml".source;
+    moduleConfig.environment.etc."beankey/config.toml".source;
   classicUIConfigSource = moduleConfig.environment.etc."xdg/fcitx5/conf/classicui.conf".source;
 in
 {
   cargo-metadata =
-    pkgs.runCommand "bean-key-cargo-metadata"
+    pkgs.runCommand "beankey-cargo-metadata"
       {
         nativeBuildInputs = [ pkgs.cargo ];
       }
@@ -71,7 +71,7 @@ in
       '';
 
   development-tools =
-    pkgs.runCommand "bean-key-development-tools"
+    pkgs.runCommand "beankey-development-tools"
       {
         nativeBuildInputs = developmentPackages;
       }
@@ -92,12 +92,12 @@ in
       '';
 }
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-  nixos-module = pkgs.runCommand "bean-key-nixos-module" { } ''
+  nixos-module = pkgs.runCommand "beankey-nixos-module" { } ''
     config=${moduleConfigSource}
-    grep -F 'dictionary = "${self.packages.${system}.dictionary}/share/bean-key/dictionary"' "$config"
-    grep -F 'model = "${self.packages.${system}.model}/share/bean-key/model/ggml-model-Q5_K_M.gguf"' "$config"
+    grep -F 'dictionary = "${self.packages.${system}.dictionary}/share/beankey/dictionary"' "$config"
+    grep -F 'model = "${self.packages.${system}.model}/share/beankey/model/ggml-model-Q5_K_M.gguf"' "$config"
     grep -F 'llama_backend_directory = "${self.packages.${system}.daemon.llamaCpp}/bin"' "$config"
-    grep -F 'runtime_socket = "bean-key/daemon.sock"' "$config"
+    grep -F 'runtime_socket = "beankey/daemon.sock"' "$config"
     grep -F 'keyboard_language = "japanese"' "$config"
     grep -F 'japanese_prediction = "disabled"' "$config"
     grep -F 'foreign_prediction = "disabled"' "$config"
@@ -112,8 +112,8 @@ in
     grep -F 'max_count = 65536' "$config"
     grep -F 'inference_limit = 5' "$config"
     grep -F 'enable_alignment_separator = true' "$config"
-    grep -F 'base_ngram = "/nix/store/bean-key-base-ngram/lm"' "$config"
-    grep -F 'personal_ngram = "/nix/store/bean-key-personal-ngram/lm"' "$config"
+    grep -F 'base_ngram = "/nix/store/beankey-base-ngram/lm"' "$config"
+    grep -F 'personal_ngram = "/nix/store/beankey-personal-ngram/lm"' "$config"
     grep -F 'alpha = 1.5' "$config"
     classic_ui_config=${classicUIConfigSource}
     grep -F 'Font=Sans 13' "$classic_ui_config"

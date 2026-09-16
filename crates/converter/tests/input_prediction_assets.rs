@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
-use bean_key_converter::{
+use beankey_converter::{
     ConversionSession, DictionaryStore, InputStyle, InputTableRegistry, NormalConverter,
 };
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(
-        std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-            .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        std::env::var_os("BEANKEY_TEST_DICTIONARY")
+            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
 }
 
@@ -83,7 +83,7 @@ fn keeps_compatible_predictions_while_a_roman_suffix_is_unresolved() {
             .any(|candidate| candidate.text == expected)
     );
     assert!(unresolved.iter().all(|candidate| {
-        candidate.composing_count == bean_key_converter::ComposingCount::Surface(4)
+        candidate.composing_count == beankey_converter::ComposingCount::Surface(4)
     }));
 }
 

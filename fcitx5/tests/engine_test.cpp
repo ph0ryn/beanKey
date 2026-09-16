@@ -27,7 +27,7 @@
 #include <thread>
 #include <utility>
 
-#include "bean_key.pb.h"
+#include "beankey.pb.h"
 
 namespace {
 
@@ -93,13 +93,13 @@ bool writeFrame(int socket, const std::string &payload) {
 class TestInputContext final : public fcitx::InputContext {
 public:
   explicit TestInputContext(fcitx::InputContextManager &manager)
-      : InputContext(manager, "bean-key-engine-test") {
+      : InputContext(manager, "beankey-engine-test") {
     created();
   }
 
   ~TestInputContext() override { destroy(); }
 
-  const char *frontend() const override { return "bean-key-test"; }
+  const char *frontend() const override { return "beankey-test"; }
 
   const std::string &committed() const { return committed_; }
 
@@ -126,16 +126,16 @@ bool report(bool condition, const char *message) {
 
 int main() {
   std::array<char, 64> directoryTemplate{};
-  std::strcpy(directoryTemplate.data(), "/tmp/bean-key-engine-test.XXXXXX");
+  std::strcpy(directoryTemplate.data(), "/tmp/beankey-engine-test.XXXXXX");
   const char *runtimeDirectory = mkdtemp(directoryTemplate.data());
   if (!report(runtimeDirectory != nullptr,
               "failed to create runtime directory")) {
     return 1;
   }
   const std::string beanKeyDirectory =
-      std::string(runtimeDirectory) + "/bean-key";
+      std::string(runtimeDirectory) + "/beankey";
   if (!report(mkdir(beanKeyDirectory.c_str(), 0700) == 0,
-              "failed to create bean-key runtime directory")) {
+              "failed to create beankey runtime directory")) {
     return 1;
   }
   const std::string socketPath = beanKeyDirectory + "/daemon.sock";
@@ -174,7 +174,7 @@ int main() {
       SelectTypo,
       InvalidResponse
     };
-    const auto addCandidates = [](bean_key::v1::StateResponse *state) {
+    const auto addCandidates = [](beankey::v1::StateResponse *state) {
       for (int index = 0; index < 10; ++index) {
         auto *candidate = state->add_candidates();
         candidate->set_index(index);
@@ -185,7 +185,7 @@ int main() {
       }
     };
     const auto exchange = [&](ExpectedRequest expected) {
-      bean_key::v1::Envelope request;
+      beankey::v1::Envelope request;
       if (!request.ParseFromString(readFrame(connection))) {
         return false;
       }
@@ -215,7 +215,7 @@ int main() {
         return false;
       }
 
-      bean_key::v1::Envelope response;
+      beankey::v1::Envelope response;
       response.set_protocol_version(request.protocol_version());
       response.set_request_id(request.request_id());
       response.set_session_id(request.session_id());
@@ -236,35 +236,35 @@ int main() {
           state->set_consumed(true);
         } else if (expected == ExpectedRequest::Key &&
                    request.key_event().action() ==
-                       bean_key::v1::USER_ACTION_INPUT) {
+                       beankey::v1::USER_ACTION_INPUT) {
           state->set_consumed(true);
           state->set_preedit("かな");
           state->set_preedit_cursor(2);
           state->set_highlighted_preedit_length(1);
           state->set_selected_candidate(0);
-          state->set_candidate_window(bean_key::v1::CANDIDATE_WINDOW_SELECTING);
+          state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_SELECTING);
           addCandidates(state);
           state->mutable_prediction()->set_display_text("今日");
         } else if (expected == ExpectedRequest::Key &&
                    request.key_event().action() ==
-                       bean_key::v1::USER_ACTION_UP) {
+                       beankey::v1::USER_ACTION_UP) {
           state->set_consumed(true);
           state->set_preedit("Candidate 9");
           state->set_preedit_cursor(11);
           state->set_highlighted_preedit_length(11);
           state->set_selected_candidate(8);
-          state->set_candidate_window(bean_key::v1::CANDIDATE_WINDOW_SELECTING);
+          state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_SELECTING);
           addCandidates(state);
         } else if (expected == ExpectedRequest::Key &&
                    request.key_event().action() ==
-                       bean_key::v1::USER_ACTION_ENTER) {
+                       beankey::v1::USER_ACTION_ENTER) {
           state->set_consumed(true);
           state->set_commit("司会");
           state->set_reset(true);
-          state->set_candidate_window(bean_key::v1::CANDIDATE_WINDOW_HIDDEN);
+          state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_HIDDEN);
         } else if (expected == ExpectedRequest::Key &&
                    request.key_event().action() ==
-                       bean_key::v1::USER_ACTION_TAB) {
+                       beankey::v1::USER_ACTION_TAB) {
           state->set_consumed(true);
         } else if (expected == ExpectedRequest::Forget) {
           state->set_consumed(true);
@@ -282,7 +282,7 @@ int main() {
           state->set_consumed(true);
           state->set_commit("司会");
           state->set_reset(true);
-          state->set_candidate_window(bean_key::v1::CANDIDATE_WINDOW_HIDDEN);
+          state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_HIDDEN);
         } else if (expected != ExpectedRequest::Key) {
           state->set_consumed(true);
         }
@@ -310,7 +310,7 @@ int main() {
 
   bool valid = true;
   {
-    char argument0[] = "bean-key-engine-test";
+    char argument0[] = "beankey-engine-test";
     char argument1[] = "--disable=all";
     char *arguments[] = {argument0, argument1};
     fcitx::Instance instance(2, arguments);
@@ -320,7 +320,7 @@ int main() {
     fcitx::BeanKeyEngine engine(&instance);
     TestInputContext inputContext(instance.inputContextManager());
     inputContext.setCapabilityFlags(fcitx::CapabilityFlag::Preedit);
-    fcitx::InputMethodEntry entry("bean_key", "beanKey", "ja", "bean_key");
+    fcitx::InputMethodEntry entry("beankey", "beanKey", "ja", "beankey");
 
     fcitx::FocusInEvent activateEvent(&inputContext);
     engine.activate(entry, activateEvent);
@@ -506,7 +506,7 @@ int main() {
                  "failed to remove daemon socket") &&
           valid;
   valid = report(rmdir(beanKeyDirectory.c_str()) == 0,
-                 "failed to remove bean-key runtime directory") &&
+                 "failed to remove beankey runtime directory") &&
           valid;
   valid = report(rmdir(runtimeDirectory) == 0,
                  "failed to remove runtime directory") &&

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bean_key_converter::{
+use beankey_converter::{
     Candidate as ConverterCandidate, CompleteAction, ComposingCount as ConverterComposingCount,
     ConversionResult, ConversionSession, DictionaryEntry, DictionaryError, DictionaryMetadata,
     DictionaryStore, ForeignCompletionProvider, FormatReport, HunspellCompleter, HunspellError,
@@ -16,7 +16,7 @@ use bean_key_converter::{
     ZenzV3Config, ZenzVersionConfig, experimental_typo_correction, to_full_width, to_hiragana,
     to_katakana,
 };
-use bean_key_llama::LlamaError;
+use beankey_llama::LlamaError;
 use serde::Deserialize;
 
 use crate::config::{
@@ -79,8 +79,8 @@ struct SessionState {
     live_conversion_enabled: bool,
     surrounding: SurroundingContext,
     request_options: RequestOptions,
-    live_candidate: Option<bean_key_converter::Candidate>,
-    typo_corrections: Vec<bean_key_converter::LmTypoCandidate>,
+    live_candidate: Option<beankey_converter::Candidate>,
+    typo_corrections: Vec<beankey_converter::LmTypoCandidate>,
     lm_typo_available: bool,
     learning_available: bool,
     learning_writable: bool,
@@ -456,7 +456,7 @@ impl Engine {
             );
         }
         if let Some(path) = &conversion.user_dictionary_directory {
-            bean_key_converter::UserDictionary::open(path.clone())
+            beankey_converter::UserDictionary::open(path.clone())
                 .map_err(ConversionResourceError::Dictionary)?;
             self.user_dictionary_directory = Some(path.clone());
         }
@@ -908,7 +908,7 @@ impl Engine {
     fn request_typo_corrections(
         &mut self,
         session: &SessionState,
-    ) -> SessionRequestResult<Vec<bean_key_converter::LmTypoCandidate>> {
+    ) -> SessionRequestResult<Vec<beankey_converter::LmTypoCandidate>> {
         if !self.lm_typo_enabled {
             return Err((
                 Code::InvalidPayload,
@@ -1692,10 +1692,10 @@ impl Engine {
                                 )
                                 .map_err(|error| match error {
                                     zenz::ZenzConversionError::Dictionary(error) => {
-                                        bean_key_converter::ZenzPredictionError::Dictionary(error)
+                                        beankey_converter::ZenzPredictionError::Dictionary(error)
                                     }
                                     zenz::ZenzConversionError::Inference(error) => {
-                                        bean_key_converter::ZenzPredictionError::Inference(error)
+                                        beankey_converter::ZenzPredictionError::Inference(error)
                                     }
                                 })
                             },
@@ -2391,7 +2391,7 @@ fn make_state(
 
 fn candidate_to_protocol(
     index: usize,
-    candidate: &bean_key_converter::Candidate,
+    candidate: &beankey_converter::Candidate,
     annotation: &str,
 ) -> protocol::Candidate {
     protocol::Candidate {
@@ -2451,7 +2451,7 @@ fn state_envelope(
 fn typo_correction_envelope(
     request_id: u64,
     session_id: String,
-    candidates: Vec<bean_key_converter::LmTypoCandidate>,
+    candidates: Vec<beankey_converter::LmTypoCandidate>,
 ) -> protocol::Envelope {
     protocol::Envelope {
         protocol_version: PROTOCOL_VERSION,
@@ -2496,9 +2496,7 @@ fn error_envelope(
 
 #[cfg(test)]
 mod tests {
-    use bean_key_converter::{
-        ForeignLanguage, ZenzInferenceError, ZenzV3Config, ZenzVersionConfig,
-    };
+    use beankey_converter::{ForeignLanguage, ZenzInferenceError, ZenzV3Config, ZenzVersionConfig};
 
     use super::*;
 
@@ -2592,8 +2590,8 @@ mod tests {
     #[test]
     fn uses_the_finalized_zenz_result_for_live_conversion() {
         let dictionary = PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         );
         let mut engine =
             Engine::open_with_zenz_model(dictionary, Box::new(LivePrefixModel)).unwrap();
@@ -2634,8 +2632,8 @@ mod tests {
     #[test]
     fn learns_a_live_candidate_committed_with_enter() {
         let dictionary = PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         );
         let learning_directory = tempfile::tempdir().unwrap();
         let mut engine =
@@ -2689,8 +2687,8 @@ mod tests {
     #[test]
     fn distinguishes_read_only_learning_management_from_candidate_forgetting() {
         let dictionary = PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         );
         let state = tempfile::tempdir().unwrap();
         let mut engine = Engine::open(dictionary).unwrap();
@@ -2726,8 +2724,8 @@ mod tests {
     #[test]
     fn uses_the_configured_keyboard_language_for_unspecified_sessions() {
         let dictionary = PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         );
         let mut engine = Engine::open(dictionary).unwrap();
         engine.foreign_completion_provider = Some(Arc::new(GreekCompleter));
@@ -2856,8 +2854,8 @@ mod tests {
     #[test]
     fn applies_static_zenz_configuration() {
         let dictionary = PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         );
         let mut engine = Engine::open(dictionary).unwrap();
         engine.apply_zenz_options(&crate::ZenzConfig {
@@ -2891,8 +2889,8 @@ mod tests {
     #[test]
     fn loads_fixed_format_personalization_models() {
         let dictionary = PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         );
         let ngram = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter/tests/data/ngram");
         let mut engine = Engine::open(dictionary).unwrap();
@@ -2913,13 +2911,13 @@ mod tests {
     #[test]
     fn returns_lm_typo_candidates_without_mutating_composition() {
         let dictionary = PathBuf::from(
-            std::env::var_os("BEAN_KEY_TEST_DICTIONARY")
-                .expect("BEAN_KEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
         );
         let ngram =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter/tests/data/ngram/lm");
-        let tokenizer = std::env::var_os("BEAN_KEY_TEST_ZENZ_TOKENIZER")
-            .expect("BEAN_KEY_TEST_ZENZ_TOKENIZER must point to tokenizer.json");
+        let tokenizer = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
+            .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to tokenizer.json");
         let mut engine = Engine::open(dictionary).unwrap();
         engine
             .load_lm_typo(&crate::LmTypoCorrectionConfig {

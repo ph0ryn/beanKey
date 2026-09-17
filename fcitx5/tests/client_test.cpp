@@ -1,5 +1,6 @@
 #include "client.h"
 
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -16,6 +17,28 @@
 #include <thread>
 
 namespace {
+
+int closeOnExec(int descriptor) {
+  if (descriptor < 0) {
+    return -1;
+  }
+  const int flags = fcntl(descriptor, F_GETFD);
+  if (flags < 0 || fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) < 0) {
+    const int error = errno;
+    close(descriptor);
+    errno = error;
+    return -1;
+  }
+  return descriptor;
+}
+
+int createListenerSocket() {
+  return closeOnExec(socket(AF_UNIX, SOCK_STREAM, 0));
+}
+
+int acceptConnection(int listener) {
+  return closeOnExec(accept(listener, nullptr, nullptr));
+}
 
 bool readAll(int socket, void *data, std::size_t size) {
   auto *current = static_cast<std::uint8_t *>(data);
@@ -86,7 +109,7 @@ int main() {
   assert(directory != nullptr);
   const std::string socketPath = std::string(directory) + "/daemon.sock";
 
-  const int listener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  const int listener = createListenerSocket();
   assert(listener >= 0);
   sockaddr_un address{};
   address.sun_family = AF_UNIX;
@@ -96,7 +119,7 @@ int main() {
   assert(listen(listener, 1) == 0);
 
   std::thread server([listener] {
-    const int connection = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
+    const int connection = acceptConnection(listener);
     assert(connection >= 0);
     beankey::v1::Envelope request;
     assert(request.ParseFromString(readFrame(connection)));
@@ -134,14 +157,13 @@ int main() {
   client.disconnect();
   assert(unlink(socketPath.c_str()) == 0);
 
-  const int oversizedListener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  const int oversizedListener = createListenerSocket();
   assert(oversizedListener >= 0);
   assert(bind(oversizedListener, reinterpret_cast<const sockaddr *>(&address),
               sizeof(address)) == 0);
   assert(listen(oversizedListener, 1) == 0);
   std::thread oversizedServer([oversizedListener] {
-    const int connection =
-        accept4(oversizedListener, nullptr, nullptr, SOCK_CLOEXEC);
+    const int connection = acceptConnection(oversizedListener);
     assert(connection >= 0);
     assert(!readFrame(connection).empty());
     writeLength(connection, static_cast<std::uint32_t>(
@@ -156,14 +178,13 @@ int main() {
   oversizedServer.join();
   assert(unlink(socketPath.c_str()) == 0);
 
-  const int malformedListener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  const int malformedListener = createListenerSocket();
   assert(malformedListener >= 0);
   assert(bind(malformedListener, reinterpret_cast<const sockaddr *>(&address),
               sizeof(address)) == 0);
   assert(listen(malformedListener, 1) == 0);
   std::thread malformedServer([malformedListener] {
-    const int connection =
-        accept4(malformedListener, nullptr, nullptr, SOCK_CLOEXEC);
+    const int connection = acceptConnection(malformedListener);
     assert(connection >= 0);
     assert(!readFrame(connection).empty());
     writeFrame(connection, std::string(1, static_cast<char>(0xff)));

@@ -1,5 +1,6 @@
 #include "client.h"
 
+#include <fcntl.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -32,6 +33,28 @@ std::array<std::uint8_t, 5> encodeLength(std::size_t size,
     encoded[encodedSize++] = byte;
   } while (value != 0);
   return encoded;
+}
+
+int createNonblockingUnixSocket() {
+#if defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK)
+  return socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+#else
+  const int descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (descriptor < 0) {
+    return -1;
+  }
+  const int descriptorFlags = fcntl(descriptor, F_GETFD);
+  const int statusFlags = fcntl(descriptor, F_GETFL);
+  if (descriptorFlags < 0 || statusFlags < 0 ||
+      fcntl(descriptor, F_SETFD, descriptorFlags | FD_CLOEXEC) < 0 ||
+      fcntl(descriptor, F_SETFL, statusFlags | O_NONBLOCK) < 0) {
+    const int error = errno;
+    close(descriptor);
+    errno = error;
+    return -1;
+  }
+  return descriptor;
+#endif
 }
 
 } // namespace
@@ -128,7 +151,7 @@ bool Client::connectOnce(std::chrono::steady_clock::time_point deadline) {
   if (socketPath_.empty() || socketPath_.size() >= sizeof(address.sun_path)) {
     return false;
   }
-  socket_ = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+  socket_ = createNonblockingUnixSocket();
   if (socket_ < 0) {
     return false;
   }

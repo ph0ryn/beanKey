@@ -25,6 +25,12 @@ protobuf_generate_cpp(
   BEANKEY_PROTO_HEADERS
   ${CMAKE_CURRENT_SOURCE_DIR}/../proto/beankey.proto
 )
+if(APPLE)
+  set_source_files_properties(
+    ${BEANKEY_PROTO_SOURCES}
+    PROPERTIES COMPILE_OPTIONS -Wno-nullability-extension
+  )
+endif()
 
 add_library(beankey-ipc STATIC
   src/client.cpp

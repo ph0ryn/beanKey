@@ -2,10 +2,10 @@
 
 ## プロジェクトの範囲
 
-- beanKey は、NixOS で動作するかな漢字変換器を実装するプロジェクトである。
-- beanKey はFcitx5 addon版azooKeyとして、公式azooKey Desktopの日本語入力における観測可能な操作感へ合わせる。
+- beanKey は、NixOSとmacOSで動作するかな漢字変換器を実装するプロジェクトである。
+- Fcitx5とmacOSは横並びのフロントエンドとし、公式azooKey Desktopを基準に、操作と使用感をほぼ互換にする。OSによる軽微な差は許容するが、一時的な制約は記録して将来の互換対象に含める。片方を従属させず、共通の操作感のために両方を変更できる。
 - 製品コードを Swift に依存させない。
-- 独自 GUI は実装対象に含めず、候補表示は Fcitx5 の標準 UI に委ねる。
+- Linuxの候補表示はFcitx5標準UIに委ねる。macOSはInputMethodKitとObjective-C++を使い、候補・注釈・予測だけの非アクティブパネルを同梱Fcitx5テーマに合わせて実装する。独自設定GUIは含めない。
 - Rust で変換本体と daemon を実装し、Fcitx5 addon は薄い C++20 の層とする。
 - Fcitx5 addon と daemon は Unix domain socket 上の Protobuf で通信する。
 - daemon の起動は fcitx5-mozc の方式に合わせ、addon が接続時に必要であれば daemon を直接起動する。systemd service や socket activation は利用しない。
@@ -16,7 +16,7 @@
 - flakeはモデルrepositoryのcommit `c67e03e07d215c869f591b274c1631170d3e11fe`とhash `sha256-KcIj1MIzJ7gP0T67WrJVUFekYxeZfV2jkVhP++8NtnM=`を持つ`pkgs.fetchurl` derivationを定義する。NixOS moduleはそのNix store pathをdaemonへ渡し、モデルを差し替えるoptionは公開しない。daemon自身もモデルをダウンロードしない。
 - 利用者向け設定はすべて`programs.beanKey`配下へ集約する。手書きのdaemon設定、設定用環境変数または別namespaceを公開しない。
 - 固定した原作スナップショットで確認できるかな漢字変換機能を1機能ずつ実装し、最終的にはすべてを対象にする。MVPやv1などの別成果範囲は設けない。
-- 現段階では各機能がNixOSとFcitx5上で正常に動作することを検証し、原作との厳密な出力・内部trace比較は後続作業とする。
+- 現段階では各機能がFcitx5とmacOS上で正常に動作することを検証し、原作との厳密な出力・内部trace比較は後続作業とする。
 - Fcitx5 APIの利用、キーのconsumed判定、プリエディット、候補および確定結果の反映は、[fcitx5-mozc](https://github.com/fcitx/mozc/tree/3f8dea4bdf72c6af200ecdbe3d456871fb1d5e03/src/unix/fcitx5)の構成に準拠する。日本語入力の状態遷移と表示意味は固定した公式azooKey Desktopを基準にし、Mozc固有protocolは流用しない。
 - Mozcのsource、library、daemonまたは`pkgs.mozc`へ依存しない。原作の生成済み絵文字辞書に含まれるMozc由来dataは、資産のattributionとしてのみ扱う。
 - 他の AzooKeyKanaKanjiConverter の Linux 向け移植は、設計や実装の参考にしない。
@@ -76,7 +76,7 @@
 - `converter` の変換要求と `llama` の推論結果を接続し、Zenzaiの評価とprefix制約付き再探索のループを進行する。
 - 辞書探索や候補順位付けのロジックを持たない。
 - addon から直接起動できる単一のserver executableを提供する。
-- `$XDG_RUNTIME_DIR/beankey/daemon.sock`でユーザー単位に待ち受け、接続peerのUIDを検証する。
+- フロントエンドが明示したruntime rootの`beankey/daemon.sock`でユーザー単位に待ち受け、接続peerのUIDを検証する。Linuxは`SO_PEERCRED`、macOSは`getpeereid`を使う。
 - runtime directory内のlockをdaemonの生存中保持し、lock取得後にだけ同一UIDのstale socketを除去する。
 - 同一セッションの要求を順番に処理し、異なるセッションは独立させる。共有llama.cpp contextへの推論は直列化する。
 
@@ -91,6 +91,8 @@
 
 ### `proto`
 
+- `ipc/cpp`は両フロントエンドの共有C++ transportと生成Protobuf型を所有する。
+- `macos`はInputMethodKit、キー正規化、UTF-16変換、marked text、確定、候補パネル、daemon起動を所有する。Rustへの直接linkや変換ロジックを持たない。
 - Rust と C++ の間で共有する通信仕様の唯一の正本とする。
 - 生成コードはコミットせず、各ビルドで生成する。
 - 内部実装の都合だけで通信仕様を拡張しない。
@@ -104,7 +106,7 @@
 - 製品は取得した生成済み辞書を直接packageし、辞書生成器や別形式への変換を含めない。更新は互換性を確認したうえでrevisionとhashを明示的に変更する。
 - 開発環境とpackageのテストは、同じ辞書packageのNix store pathをテスト専用の`BEANKEY_TEST_DICTIONARY`と`BEANKEY_TEST_EMOJI_DICTIONARY`で渡す。これらをdaemonの利用者向け設定には使用しない。
 - NixOS moduleで`programs.beanKey.enable`を公開する。
-- 今後追加する利用者向けoptionも`programs.beanKey`配下に置き、NixOS moduleを設定の唯一の公開境界とする。
+- 今後追加する利用者向けoptionも`programs.beanKey`配下に置く。NixOS moduleとmacOS用Home Manager moduleは、option定義と内部TOML生成を共有する。
 - モデルはflakeが固定した`pkgs.fetchurl { url; hash; }` derivationとしてNixOS moduleから参照し、利用者向けoptionにしない。
 - NixOS moduleはFcitx5 addon、daemon、辞書および固定モデルを導入し、`programs.beanKey`から内部用のdaemon設定を生成する。
 - NixOS moduleはHunspellと固定nixpkgsの英語・ギリシャ語辞書を導入し、そのNix store pathを内部用daemon設定へ書く。辞書pathを利用者向けoptionにしない。
@@ -132,7 +134,7 @@
 ## テストの配置
 
 - Rust の単体テストと crate 単位の統合テストは、所有する crate 内へ置く。
-- C++ addon のテストは `fcitx5` 内へ置く。
+- C++ addonのテストは`fcitx5`、共有IPCのテストは`ipc/cpp`、macOSフロントエンドのテストは`macos`内へ置く。
 - daemon、IPC、addon など複数の境界を跨ぐテストが必要になった場合だけ、ルートに `tests/` を追加する。
 - 辞書ファイルや依存パッケージの存在だけを確認する先行テストは追加せず、実際の利用境界で検証する。
 - 各機能は、入力、候補生成、選択、確定、必要な永続化および異常時の状態復旧を外部から確認できる最小シナリオで検証する。

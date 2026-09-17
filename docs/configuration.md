@@ -2,6 +2,8 @@
 
 beanKeyの設定は、すべて`programs.beanKey`配下にあります。
 
+NixOSとmacOSでは同じ変換・学習設定を使用します。OS固有の導入先、runtime directory、学習directoryは各moduleとフロントエンドが決め、変換の公開設定と分離します。
+
 ## 最小設定
 
 ```nix

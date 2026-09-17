@@ -1,6 +1,8 @@
-# beanKey for fcitx5 on NixOS
+# beanKey
 
-beanKeyは、[azooKey Desktop](https://github.com/azooKey/azooKey-Desktop)の日本語入力体験を、NixOS上のFcitx5で使うための日本語入力エンジンです。
+beanKeyは、[azooKey Desktop](https://github.com/azooKey/azooKey-Desktop)の日本語入力体験を、NixOS上のFcitx5とmacOSで使うための日本語入力エンジンです。
+
+Fcitx5とmacOSは共通のRustバックエンドを使う横並びのフロントエンドです。操作と使用感をほぼ互換にすることを目標とし、OS制約による一時的な差も将来の互換対象として扱います。macOSフロントエンドは実装中です。
 
 ニューラルかな漢字変換システムには、[zenz-v3.2-small-gguf](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf)を使用します。
 

@@ -79,6 +79,7 @@ in
       "Cargo.toml"
       "LICENSE"
       "fcitx5"
+      "ipc"
       "proto"
     ];
     cmakeDir = "../fcitx5";

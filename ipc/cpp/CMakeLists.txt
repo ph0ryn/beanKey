@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.20)
+project(beankey-ipc LANGUAGES CXX)
+include(CTest)
+
+set(protobuf_MODULE_COMPATIBLE TRUE)
+find_package(Protobuf CONFIG REQUIRED)
+find_package(Threads REQUIRED)
+protobuf_generate_cpp(BEANKEY_PROTO_SOURCES BEANKEY_PROTO_HEADERS
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../proto/beankey.proto)
+if(APPLE)
+  set_source_files_properties(${BEANKEY_PROTO_SOURCES}
+    PROPERTIES COMPILE_OPTIONS -Wno-nullability-extension)
+endif()
+add_library(beankey-ipc STATIC client.cpp ${BEANKEY_PROTO_SOURCES})
+set_target_properties(beankey-ipc PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_features(beankey-ipc PUBLIC cxx_std_20)
+target_compile_options(beankey-ipc PRIVATE -Wall -Wextra -Wpedantic -Werror)
+target_include_directories(beankey-ipc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(beankey-ipc PUBLIC protobuf::libprotobuf)
+
+if(BUILD_TESTING)
+  add_executable(beankey-client-test tests/client_test.cpp)
+  target_compile_options(beankey-client-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_link_libraries(beankey-client-test PRIVATE beankey-ipc Threads::Threads)
+  add_test(NAME beankey-client COMMAND beankey-client-test)
+endif()

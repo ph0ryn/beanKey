@@ -12,41 +12,19 @@ include(GNUInstallDirs)
 include(CTest)
 
 find_package(Fcitx5Core 5.1.21 REQUIRED)
-set(protobuf_MODULE_COMPATIBLE TRUE)
-find_package(Protobuf CONFIG REQUIRED)
 find_package(Threads REQUIRED)
+add_subdirectory(../ipc/cpp ${CMAKE_CURRENT_BINARY_DIR}/ipc)
 
 set(BEANKEY_DAEMON_PATH "beankey-daemon" CACHE FILEPATH "Absolute beanKey daemon path")
 set(BEANKEY_CONFIG_PATH "/etc/beankey/config.toml" CACHE FILEPATH "Internal daemon configuration path")
 set(BEANKEY_REQUEST_TIMEOUT_MS "5000" CACHE STRING "Synchronous daemon request deadline")
-
-protobuf_generate_cpp(
-  BEANKEY_PROTO_SOURCES
-  BEANKEY_PROTO_HEADERS
-  ${CMAKE_CURRENT_SOURCE_DIR}/../proto/beankey.proto
-)
-if(APPLE)
-  set_source_files_properties(
-    ${BEANKEY_PROTO_SOURCES}
-    PROPERTIES COMPILE_OPTIONS -Wno-nullability-extension
-  )
-endif()
-
-add_library(beankey-ipc STATIC
-  src/client.cpp
-  ${BEANKEY_PROTO_SOURCES}
-)
-set_target_properties(beankey-ipc PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_compile_features(beankey-ipc PUBLIC cxx_std_17)
-target_compile_options(beankey-ipc PRIVATE -Wall -Wextra -Wpedantic -Werror)
-target_include_directories(beankey-ipc PUBLIC src ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(beankey-ipc PUBLIC protobuf::libprotobuf)
 
 add_library(beankey-key-event STATIC
   src/key_event.cpp
 )
 set_target_properties(beankey-key-event PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(beankey-key-event PUBLIC cxx_std_20)
+target_include_directories(beankey-key-event PUBLIC src)
 target_compile_options(beankey-key-event PRIVATE -Wall -Wextra -Wpedantic -Werror)
 target_link_libraries(beankey-key-event PUBLIC beankey-ipc Fcitx5::Core)
 
@@ -77,12 +55,6 @@ install(FILES beankey-inputmethod.conf DESTINATION ${CMAKE_INSTALL_DATADIR}/fcit
 install(FILES themes/beanKey/theme.conf DESTINATION ${CMAKE_INSTALL_DATADIR}/fcitx5/themes/beanKey)
 
 if(BUILD_TESTING)
-  add_executable(beankey-client-test tests/client_test.cpp)
-  target_compile_features(beankey-client-test PRIVATE cxx_std_17)
-  target_compile_options(beankey-client-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
-  target_link_libraries(beankey-client-test PRIVATE beankey-ipc Threads::Threads)
-  add_test(NAME beankey-client COMMAND beankey-client-test)
-
   add_executable(beankey-key-event-test tests/key_event_test.cpp)
   target_compile_features(beankey-key-event-test PRIVATE cxx_std_20)
   target_compile_options(beankey-key-event-test PRIVATE -Wall -Wextra -Wpedantic -Werror)

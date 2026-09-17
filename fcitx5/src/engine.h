@@ -83,6 +83,8 @@ public:
 
 private:
   Instance *instance_;
+  std::string runtimeRoot_;
+  std::string learningDirectory_;
   beankey::Client client_;
   FactoryFor<BeanKeyState> factory_;
   SimpleAction resetLearningAction_;

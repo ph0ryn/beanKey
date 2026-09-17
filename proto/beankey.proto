@@ -22,6 +22,7 @@ enum KeyboardLanguage {
 message SurroundingText {
   bool available = 1;
   string text = 2;
+  // Zero-based Unicode scalar value offsets into text.
   uint32 cursor = 3;
   uint32 anchor = 4;
 }
@@ -160,6 +161,7 @@ message Prediction {
 message StateResponse {
   bool consumed = 1;
   string preedit = 2;
+  // Zero-based Unicode scalar value offset into preedit.
   uint32 preedit_cursor = 3;
   repeated Candidate candidates = 4;
   sint32 selected_candidate = 5;
@@ -170,6 +172,7 @@ message StateResponse {
   bool learning_writable = 10;
   InputState input_state = 11;
   CandidateWindow candidate_window = 12;
+  // Number of leading Unicode scalar values highlighted in preedit.
   uint32 highlighted_preedit_length = 13;
   Prediction prediction = 14;
   InputLanguage input_language = 15;

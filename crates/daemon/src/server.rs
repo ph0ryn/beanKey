@@ -21,7 +21,6 @@ static CONNECTION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug)]
 pub enum ServerError {
-    MissingRuntimeDirectory,
     RuntimeDirectory(io::Error),
     UnsafeRuntimeDirectory,
     Lock(io::Error),
@@ -37,7 +36,6 @@ pub enum ServerError {
 impl fmt::Display for ServerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingRuntimeDirectory => write!(formatter, "XDG_RUNTIME_DIR is not set"),
             Self::RuntimeDirectory(error) => {
                 write!(formatter, "could not prepare runtime directory: {error}")
             }
@@ -58,7 +56,10 @@ impl fmt::Display for ServerError {
             ),
             Self::Socket(error) => write!(formatter, "daemon socket failed: {error}"),
             Self::UnsupportedPlatform => {
-                write!(formatter, "peer credential verification requires Linux")
+                write!(
+                    formatter,
+                    "peer credential verification is unsupported on this platform"
+                )
             }
             Self::WorkerPanicked => write!(formatter, "a daemon connection worker panicked"),
         }
@@ -158,17 +159,6 @@ impl DaemonServer {
         })
     }
 
-    pub fn bind_from_environment(
-        engine: Engine,
-        relative_socket: impl AsRef<Path>,
-    ) -> Result<Self, ServerError> {
-        let runtime_root = std::env::var_os("XDG_RUNTIME_DIR")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .ok_or(ServerError::MissingRuntimeDirectory)?;
-        Self::bind(engine, runtime_root, relative_socket)
-    }
-
     pub fn run(self) -> Result<(), ServerError> {
         install_signal_handlers();
         let active_clients = Arc::new(AtomicUsize::new(0));
@@ -179,6 +169,7 @@ impl DaemonServer {
             reap_workers(&mut workers)?;
             match self.endpoint.listener.accept() {
                 Ok((stream, _)) => {
+                    stream.set_nonblocking(false).map_err(ServerError::Socket)?;
                     if peer_uid(&stream)? != self.uid {
                         continue;
                     }
@@ -435,7 +426,20 @@ fn peer_uid(stream: &UnixStream) -> Result<u32, ServerError> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn peer_uid(stream: &UnixStream) -> Result<u32, ServerError> {
+    // SAFETY: getpeereid writes the effective peer IDs to the two valid output pointers.
+    unsafe {
+        let mut uid: libc::uid_t = 0;
+        let mut gid: libc::gid_t = 0;
+        if libc::getpeereid(stream.as_raw_fd(), &raw mut uid, &raw mut gid) != 0 {
+            return Err(ServerError::Socket(io::Error::last_os_error()));
+        }
+        Ok(uid)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn peer_uid(_stream: &UnixStream) -> Result<u32, ServerError> {
     Err(ServerError::UnsupportedPlatform)
 }
@@ -515,5 +519,13 @@ mod tests {
             DaemonServer::bind(engine, root.path(), "../daemon.sock"),
             Err(ServerError::InvalidSocketPath)
         ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reads_the_uid_of_a_darwin_unix_socket_peer() {
+        let (stream, _peer) = UnixStream::pair().unwrap();
+
+        assert_eq!(peer_uid(&stream).unwrap(), effective_uid());
     }
 }

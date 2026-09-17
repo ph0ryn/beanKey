@@ -36,12 +36,33 @@ constexpr auto kStartupTimeout = std::chrono::milliseconds(5000);
 
 std::atomic<std::uint64_t> nextSessionId{1};
 
-std::string socketPath() {
-  const char *runtimeDirectory = std::getenv("XDG_RUNTIME_DIR");
-  if (runtimeDirectory == nullptr || runtimeDirectory[0] != '/') {
+std::string absoluteEnvironmentPath(const char *name) {
+  const char *value = std::getenv(name);
+  if (value == nullptr || value[0] != '/') {
     return {};
   }
-  return std::string(runtimeDirectory) + "/beankey/daemon.sock";
+  return value;
+}
+
+std::string runtimeRootPath() {
+  return absoluteEnvironmentPath("XDG_RUNTIME_DIR");
+}
+
+std::string learningDirectoryPath() {
+  auto stateRoot = absoluteEnvironmentPath("XDG_STATE_HOME");
+  if (stateRoot.empty()) {
+    const auto home = absoluteEnvironmentPath("HOME");
+    if (home.empty()) {
+      return {};
+    }
+    stateRoot = home + "/.local/state";
+  }
+  return stateRoot + "/beankey/learning";
+}
+
+std::string socketPath(const std::string &runtimeRoot) {
+  return runtimeRoot.empty() ? std::string{}
+                             : runtimeRoot + "/beankey/daemon.sock";
 }
 
 std::size_t characterCount(const std::string &text) {
@@ -536,7 +557,8 @@ beankey::v1::Envelope BeanKeyState::envelope() {
 }
 
 BeanKeyEngine::BeanKeyEngine(Instance *instance)
-    : instance_(instance), client_(socketPath()),
+    : instance_(instance), runtimeRoot_(runtimeRootPath()),
+      learningDirectory_(learningDirectoryPath()), client_(socketPath(runtimeRoot_)),
       factory_([this](InputContext &inputContext) {
         return new BeanKeyState(&inputContext, this);
       }) {
@@ -585,9 +607,17 @@ BeanKeyState *BeanKeyEngine::state(InputContext *inputContext) {
 beankey::Client &BeanKeyEngine::client() { return client_; }
 
 bool BeanKeyEngine::ensureConnected() {
+  if (runtimeRoot_.empty()) {
+    return false;
+  }
   return client_.ensureConnected(
-      [] {
-        startProcess({BEANKEY_DAEMON_PATH, "--config", BEANKEY_CONFIG_PATH});
+      [runtimeRoot = runtimeRoot_, learningDirectory = learningDirectory_] {
+        if (learningDirectory.empty()) {
+          return;
+        }
+        startProcess({BEANKEY_DAEMON_PATH, "--config", BEANKEY_CONFIG_PATH,
+                      "--runtime-root", runtimeRoot, "--learning-directory",
+                      learningDirectory});
       },
       kStartupTimeout);
 }

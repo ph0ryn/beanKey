@@ -317,6 +317,9 @@ int main() {
     valid =
         report(instance.initialized(), "Fcitx instance did not initialize") &&
         valid;
+    valid = report(unsetenv("XDG_STATE_HOME") == 0 && unsetenv("HOME") == 0,
+                   "failed to clear state directory variables") &&
+            valid;
     fcitx::BeanKeyEngine engine(&instance);
     TestInputContext inputContext(instance.inputContextManager());
     inputContext.setCapabilityFlags(fcitx::CapabilityFlag::Preedit);

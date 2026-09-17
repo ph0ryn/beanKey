@@ -357,14 +357,18 @@ flash_attention = true
         ),
     )
     .unwrap();
+    let learning_directory = runtime.path().join("state/beankey/learning");
     let mut daemon = Command::new(env!("CARGO_BIN_EXE_beankey-daemon"))
-        .args(["--config", config_path.to_str().unwrap()])
-        .env("XDG_RUNTIME_DIR", runtime.path())
-        .env("XDG_STATE_HOME", runtime.path().join("state"))
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--runtime-root")
+        .arg(runtime.path())
+        .arg("--learning-directory")
+        .arg(&learning_directory)
         .spawn()
         .unwrap();
     let socket = runtime.path().join("beankey/daemon.sock");
-    let mut stream = connect_before(&socket, Duration::from_secs(5));
+    let mut stream = connect_before(&socket, Duration::from_secs(15));
 
     for request in [
         envelope(

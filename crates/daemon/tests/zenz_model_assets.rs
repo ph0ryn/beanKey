@@ -1,7 +1,7 @@
 use std::fs;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -116,7 +116,7 @@ fn converts_with_the_fixed_zenz_model_and_llama_backend() {
 fn cached_and_batched_logits_preserve_zenz_token_predictions() {
     let model_path = required_environment("BEANKEY_TEST_MODEL");
     let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
-    let mut context = LlamaContext::load(model_path, backend_directory).unwrap();
+    let mut context = LlamaContext::load(&model_path, &backend_directory).unwrap();
     for prompt in [
         "\u{ee00}テスト\u{ee01}候補",
         "\u{ee00}ハシ\u{ee01}箸",
@@ -149,9 +149,15 @@ fn cached_and_batched_logits_preserve_zenz_token_predictions() {
             "next token changed for {prompt:?}"
         );
 
-        // Batch and cached decoding can use different floating-point reductions
-        // (notably Metal). Require the same decision and less than one percentage
-        // point of redistributed probability mass, not bit-identical raw logits.
+        // Compare cache reuse against a fresh context with the same decode batch
+        // sizes. The AMX backend uses VNNI for one token and AMX for multiple
+        // tokens; their probability distributions can differ by more than 1%.
+        // The reference uses only one sequence, so it never copies a KV prefix.
+        let mut reference = LlamaContext::load(&model_path, &backend_directory).unwrap();
+        let fresh_batched = reference
+            .logits(&tokens, 0, LlamaSequence::InputPrediction)
+            .unwrap();
+        let fresh_single = reference.next_logits(&tokens).unwrap();
         let probabilities = |values: &[f32]| {
             let maximum = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let weights: Vec<f64> = values
@@ -164,16 +170,34 @@ fn cached_and_batched_logits_preserve_zenz_token_predictions() {
                 .map(|value| value / sum)
                 .collect::<Vec<_>>()
         };
-        let total_variation = probabilities(final_row)
-            .iter()
-            .zip(probabilities(&single))
-            .map(|(left, right)| (left - right).abs())
-            .sum::<f64>()
-            / 2.0;
-        assert!(
-            total_variation < 0.01,
-            "token probability distribution changed by {total_variation} for {prompt:?}"
-        );
+        for (mode, actual, expected) in [
+            ("batched", &batched, &fresh_batched),
+            ("cached", &single, &fresh_single),
+        ] {
+            assert_eq!(actual.len(), expected.len());
+            for (row, (actual, expected)) in actual
+                .chunks_exact(context.vocabulary_size())
+                .zip(expected.chunks_exact(context.vocabulary_size()))
+                .enumerate()
+            {
+                assert!(actual.iter().chain(expected).all(|value| value.is_finite()));
+                assert_eq!(
+                    top_token(actual),
+                    top_token(expected),
+                    "{mode} token changed in row {row} for {prompt:?}"
+                );
+                let total_variation = probabilities(actual)
+                    .iter()
+                    .zip(probabilities(expected))
+                    .map(|(left, right)| (left - right).abs())
+                    .sum::<f64>()
+                    / 2.0;
+                assert!(
+                    total_variation < 0.01,
+                    "{mode} probability distribution changed by {total_variation} in row {row} for {prompt:?}"
+                );
+            }
+        }
     }
 }
 
@@ -405,8 +429,16 @@ flash_attention = true
         .arg(&learning_directory)
         .spawn()
         .unwrap();
+    let daemon = ChildGuard(&mut daemon);
     let socket = runtime.path().join("beankey/daemon.sock");
-    let mut stream = connect_before(&socket, Duration::from_secs(15));
+    // Metal initialization took 24 seconds on a cold macOS CI runner.
+    let mut stream = connect_before(daemon.0, &socket, Duration::from_secs(60));
+    stream
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(15)))
+        .unwrap();
 
     for request in [
         envelope(
@@ -448,21 +480,34 @@ flash_attention = true
 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        if let Some(status) = daemon.try_wait().unwrap() {
+        if let Some(status) = daemon.0.try_wait().unwrap() {
             assert!(status.success());
             break;
         }
         if Instant::now() >= deadline {
-            daemon.kill().unwrap();
             panic!("daemon did not exit after its last client disconnected");
         }
         thread::sleep(Duration::from_millis(20));
     }
 }
 
-fn connect_before(path: &Path, timeout: Duration) -> UnixStream {
+struct ChildGuard<'a>(&'a mut Child);
+
+impl Drop for ChildGuard<'_> {
+    fn drop(&mut self) {
+        // kill can fail if the child already exited. Always wait to reap it,
+        // including while unwinding a failed assertion in the parent test.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn connect_before(daemon: &mut Child, path: &Path, timeout: Duration) -> UnixStream {
     let deadline = Instant::now() + timeout;
     loop {
+        if let Some(status) = daemon.try_wait().unwrap() {
+            panic!("daemon exited before accepting connections: {status}");
+        }
         match UnixStream::connect(path) {
             Ok(stream) => return stream,
             Err(error) if Instant::now() < deadline => {
@@ -472,4 +517,42 @@ fn connect_before(path: &Path, timeout: Duration) -> UnixStream {
             Err(error) => panic!("could not connect to daemon: {error}"),
         }
     }
+}
+
+#[test]
+fn reaps_child_when_startup_times_out() {
+    let runtime = TempDir::new().unwrap();
+    let mut child = Command::new("sleep").arg("60").spawn().unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let child = ChildGuard(&mut child);
+        connect_before(
+            child.0,
+            &runtime.path().join("missing.sock"),
+            Duration::ZERO,
+        );
+    }));
+    let reaped = child.try_wait().unwrap().is_some();
+    // Also clean up when this regression test fails.
+    if !reaped {
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+    assert!(result.is_err());
+    assert!(reaped, "a failed startup left its child running");
+}
+
+#[test]
+#[should_panic(expected = "daemon exited before accepting connections")]
+fn reports_daemon_exit_during_startup() {
+    let runtime = TempDir::new().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_beankey-daemon"))
+        .arg("--invalid-option")
+        .spawn()
+        .unwrap();
+    let child = ChildGuard(&mut child);
+    connect_before(
+        child.0,
+        &runtime.path().join("missing.sock"),
+        Duration::from_secs(1),
+    );
 }

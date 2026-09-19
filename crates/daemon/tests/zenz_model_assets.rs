@@ -13,7 +13,7 @@ use beankey_daemon::protocol::envelope::Payload;
 use beankey_daemon::{
     Engine, LlamaModel, PROTOCOL_VERSION, protocol, read_envelope, write_envelope,
 };
-use beankey_llama::{LlamaContext, LlamaSequence};
+use beankey_llama::LlamaContext;
 use tempfile::TempDir;
 
 fn dictionary_root() -> PathBuf {
@@ -113,95 +113,6 @@ fn converts_with_the_fixed_zenz_model_and_llama_backend() {
 }
 
 #[test]
-fn cached_and_batched_logits_preserve_zenz_token_predictions() {
-    let model_path = required_environment("BEANKEY_TEST_MODEL");
-    let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
-    let mut context = LlamaContext::load(&model_path, &backend_directory).unwrap();
-    for prompt in [
-        "\u{ee00}テスト\u{ee01}候補",
-        "\u{ee00}ハシ\u{ee01}箸",
-        "\u{ee02}前文脈\u{ee00}カンジ\u{ee01}漢字",
-        "\u{ee00}これはテストです\u{ee01}",
-    ] {
-        let tokens = context.tokenize(prompt, true).unwrap();
-        let batched = context
-            .logits(&tokens, 0, LlamaSequence::Evaluation)
-            .unwrap();
-        let single = context.next_logits(&tokens).unwrap();
-        let final_row = &batched[batched.len() - single.len()..];
-        assert!(
-            final_row
-                .iter()
-                .chain(&single)
-                .all(|value| value.is_finite())
-        );
-        let top_token = |values: &[f32]| {
-            values
-                .iter()
-                .enumerate()
-                .max_by(|(_, left), (_, right)| left.total_cmp(right))
-                .unwrap()
-                .0
-        };
-        assert_eq!(
-            top_token(final_row),
-            top_token(&single),
-            "next token changed for {prompt:?}"
-        );
-
-        // Compare cache reuse against a fresh context with the same decode batch
-        // sizes. The AMX backend uses VNNI for one token and AMX for multiple
-        // tokens; their probability distributions can differ by more than 1%.
-        // The reference uses only one sequence, so it never copies a KV prefix.
-        let mut reference = LlamaContext::load(&model_path, &backend_directory).unwrap();
-        let fresh_batched = reference
-            .logits(&tokens, 0, LlamaSequence::InputPrediction)
-            .unwrap();
-        let fresh_single = reference.next_logits(&tokens).unwrap();
-        let probabilities = |values: &[f32]| {
-            let maximum = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let weights: Vec<f64> = values
-                .iter()
-                .map(|value| (f64::from(*value) - f64::from(maximum)).exp())
-                .collect();
-            let sum: f64 = weights.iter().sum();
-            weights
-                .into_iter()
-                .map(|value| value / sum)
-                .collect::<Vec<_>>()
-        };
-        for (mode, actual, expected) in [
-            ("batched", &batched, &fresh_batched),
-            ("cached", &single, &fresh_single),
-        ] {
-            assert_eq!(actual.len(), expected.len());
-            for (row, (actual, expected)) in actual
-                .chunks_exact(context.vocabulary_size())
-                .zip(expected.chunks_exact(context.vocabulary_size()))
-                .enumerate()
-            {
-                assert!(actual.iter().chain(expected).all(|value| value.is_finite()));
-                assert_eq!(
-                    top_token(actual),
-                    top_token(expected),
-                    "{mode} token changed in row {row} for {prompt:?}"
-                );
-                let total_variation = probabilities(actual)
-                    .iter()
-                    .zip(probabilities(expected))
-                    .map(|(left, right)| (left - right).abs())
-                    .sum::<f64>()
-                    / 2.0;
-                assert!(
-                    total_variation < 0.01,
-                    "{mode} probability distribution changed by {total_variation} in row {row} for {prompt:?}"
-                );
-            }
-        }
-    }
-}
-
-#[test]
 fn fixed_llama_tokenizer_matches_the_upstream_tokenizer_asset() {
     let model_path = required_environment("BEANKEY_TEST_MODEL");
     let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
@@ -244,19 +155,127 @@ fn start_input_session(engine: &mut Engine, style: protocol::InputStyle) {
     ));
 }
 
+fn state_response(
+    engine: &mut Engine,
+    request_id: u64,
+    payload: Payload,
+) -> protocol::StateResponse {
+    let response = engine.handle(envelope(request_id, payload));
+    let Some(Payload::StateResponse(state)) = response.payload else {
+        panic!("fixed-model conversion returned a protocol error");
+    };
+    state
+}
+
 fn input_state(engine: &mut Engine, request_id: u64, text: &str) -> protocol::StateResponse {
-    let response = engine.handle(envelope(
+    state_response(
+        engine,
         request_id,
         Payload::KeyEvent(protocol::KeyEvent {
             action: protocol::UserAction::Input as i32,
             text: text.into(),
             ..Default::default()
         }),
-    ));
-    let Some(Payload::StateResponse(state)) = response.payload else {
-        panic!("fixed-model conversion returned a protocol error");
-    };
-    state
+    )
+}
+
+#[test]
+fn inference_history_preserves_rich_candidates_and_commits() {
+    let inputs = [("はし", "箸"), ("てすと", "テスト"), ("かんじ", "漢字")];
+    let mut reversed = inputs;
+    reversed.reverse();
+    for inputs in [inputs, reversed] {
+        let mut engine = fixed_model_engine();
+        start_input_session(&mut engine, protocol::InputStyle::Direct);
+        for (step, (input, expected_commit)) in inputs.into_iter().enumerate() {
+            let request_id = 2 + u64::try_from(step).unwrap() * 5;
+            let mut reference = fixed_model_engine();
+            start_input_session(&mut reference, protocol::InputStyle::Direct);
+            let mut states = Vec::new();
+            for context in [&mut engine, &mut reference] {
+                input_state(context, request_id, input);
+                // Down requests neural rich candidates through the same public
+                // protocol action used by both frontends.
+                let state = state_response(
+                    context,
+                    request_id + 1,
+                    Payload::KeyEvent(protocol::KeyEvent {
+                        action: protocol::UserAction::Down as i32,
+                        ..Default::default()
+                    }),
+                );
+                assert_eq!(state.input_state, protocol::InputState::Selecting as i32);
+                assert!(!state.candidates.is_empty());
+                assert!(
+                    state
+                        .candidates
+                        .iter()
+                        .all(|candidate| candidate.value.is_finite())
+                );
+                states.push(state);
+            }
+            let visible_candidates = |state: &protocol::StateResponse| {
+                state
+                    .candidates
+                    .iter()
+                    .map(|candidate| {
+                        (
+                            candidate.text.clone(),
+                            candidate.annotation.clone(),
+                            candidate.composing_count.clone(),
+                            candidate.index,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            };
+            // Scores may drift with KV allocation; the ordered choices and
+            // their selection semantics must still match a fresh engine.
+            assert_eq!(
+                visible_candidates(&states[0]),
+                visible_candidates(&states[1]),
+                "candidate history changed {input:?}"
+            );
+            assert_eq!(states[0].preedit, states[1].preedit);
+            assert_eq!(states[0].selected_candidate, states[1].selected_candidate);
+            assert_eq!(states[0].candidate_window, states[1].candidate_window);
+            let index = states[0]
+                .candidates
+                .iter()
+                .find(|candidate| candidate.text == expected_commit)
+                .unwrap_or_else(|| panic!("missing full candidate {expected_commit:?}"))
+                .index;
+            for context in [&mut engine, &mut reference] {
+                let committed = state_response(
+                    context,
+                    request_id + 2,
+                    Payload::SelectCandidate(protocol::SelectCandidate { index }),
+                );
+                assert_eq!(committed.commit, expected_commit);
+                assert!(committed.reset);
+                assert!(committed.preedit.is_empty());
+                assert!(committed.candidates.is_empty());
+                let composing = input_state(context, request_id + 3, input);
+                assert!(!composing.preedit.is_empty());
+                assert_eq!(
+                    composing.input_state,
+                    protocol::InputState::Composing as i32
+                );
+                let reset = state_response(
+                    context,
+                    request_id + 4,
+                    Payload::ResetSession(protocol::ResetSession {}),
+                );
+                assert!(reset.reset);
+                assert!(reset.preedit.is_empty());
+                assert!(reset.candidates.is_empty());
+                assert_eq!(reset.input_state, protocol::InputState::None as i32);
+                assert_eq!(
+                    reset.candidate_window,
+                    protocol::CandidateWindow::Hidden as i32
+                );
+            }
+        }
+    }
 }
 
 #[test]

@@ -113,30 +113,68 @@ fn converts_with_the_fixed_zenz_model_and_llama_backend() {
 }
 
 #[test]
-fn cached_and_batched_logits_match_a_single_full_evaluation() {
+fn cached_and_batched_logits_preserve_zenz_token_predictions() {
     let model_path = required_environment("BEANKEY_TEST_MODEL");
     let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
     let mut context = LlamaContext::load(model_path, backend_directory).unwrap();
-    let tokens = context
-        .tokenize("\u{ee00}テスト\u{ee01}候補", true)
-        .unwrap();
-    assert!(tokens.len() >= 2);
+    for prompt in [
+        "\u{ee00}テスト\u{ee01}候補",
+        "\u{ee00}ハシ\u{ee01}箸",
+        "\u{ee02}前文脈\u{ee00}カンジ\u{ee01}漢字",
+        "\u{ee00}これはテストです\u{ee01}",
+    ] {
+        let tokens = context.tokenize(prompt, true).unwrap();
+        let batched = context
+            .logits(&tokens, 0, LlamaSequence::Evaluation)
+            .unwrap();
+        let single = context.next_logits(&tokens).unwrap();
+        let final_row = &batched[batched.len() - single.len()..];
+        assert!(
+            final_row
+                .iter()
+                .chain(&single)
+                .all(|value| value.is_finite())
+        );
+        let top_token = |values: &[f32]| {
+            values
+                .iter()
+                .enumerate()
+                .max_by(|(_, left), (_, right)| left.total_cmp(right))
+                .unwrap()
+                .0
+        };
+        assert_eq!(
+            top_token(final_row),
+            top_token(&single),
+            "next token changed for {prompt:?}"
+        );
 
-    let batched = context
-        .logits(&tokens, 0, LlamaSequence::Evaluation)
-        .unwrap();
-    let single = context.next_logits(&tokens).unwrap();
-    let final_row = &batched[batched.len() - single.len()..];
-    let maximum_difference = final_row
-        .iter()
-        .zip(&single)
-        .map(|(batched, single)| (batched - single).abs())
-        .fold(0.0_f32, f32::max);
-
-    assert!(
-        maximum_difference < 1e-5,
-        "cached logits differed by {maximum_difference}"
-    );
+        // Batch and cached decoding can use different floating-point reductions
+        // (notably Metal). Require the same decision and less than one percentage
+        // point of redistributed probability mass, not bit-identical raw logits.
+        let probabilities = |values: &[f32]| {
+            let maximum = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let weights: Vec<f64> = values
+                .iter()
+                .map(|value| (f64::from(*value) - f64::from(maximum)).exp())
+                .collect();
+            let sum: f64 = weights.iter().sum();
+            weights
+                .into_iter()
+                .map(|value| value / sum)
+                .collect::<Vec<_>>()
+        };
+        let total_variation = probabilities(final_row)
+            .iter()
+            .zip(probabilities(&single))
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>()
+            / 2.0;
+        assert!(
+            total_variation < 0.01,
+            "token probability distribution changed by {total_variation} for {prompt:?}"
+        );
+    }
 }
 
 #[test]

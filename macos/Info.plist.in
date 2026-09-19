@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>org.ph0ryn.inputmethod.beanKey</string>
+  <key>CFBundleName</key><string>beanKey</string>
+  <key>CFBundleDisplayName</key><string>beanKey</string>
+  <key>CFBundleExecutable</key><string>beanKey</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>@PROJECT_VERSION@</string>
+  <key>CFBundleShortVersionString</key><string>@PROJECT_VERSION@</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>LSUIElement</key><true/>
+  <key>InputMethodConnectionName</key><string>org.ph0ryn.inputmethod.beanKey.Connection</string>
+  <key>InputMethodServerControllerClass</key><string>BKInputController</string>
+  <key>TISInputSourceID</key><string>org.ph0ryn.inputmethod.beanKey</string>
+  <key>TISIntendedLanguage</key><string>ja</string>
+  <key>tsInputMethodCharacterRepertoireKey</key><array><string>Latn</string><string>Hira</string><string>Kana</string></array>
+</dict>
+</plist>

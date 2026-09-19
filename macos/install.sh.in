@@ -1,0 +1,28 @@
+#!@BASH@/bin/bash
+set -euo pipefail
+
+source_bundle='@BUNDLE@/Library/Input Methods/beanKey.app'
+destination="$HOME/Library/Input Methods/beanKey.app"
+parent="$HOME/Library/Input Methods"
+if [[ -e "$destination" ]]; then
+  identifier=$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$destination/Contents/Info.plist")
+  if [[ "$identifier" != org.ph0ryn.inputmethod.beanKey ]]; then
+    echo '導入先にはbeanKey以外のアプリがあります。' >&2
+    exit 1
+  fi
+fi
+mkdir -p "$parent"
+staging=$(mktemp -d "$parent/.beanKey-install.XXXXXX")
+/usr/bin/ditto "$source_bundle" "$staging/beanKey.app"
+chmod -R u+w "$staging/beanKey.app"
+/usr/bin/codesign --force --sign - "$staging/beanKey.app"
+if [[ -e "$destination" ]]; then
+  mv "$destination" "$staging/previous.app"
+fi
+if ! mv "$staging/beanKey.app" "$destination"; then
+  if [[ -e "$staging/previous.app" ]]; then mv "$staging/previous.app" "$destination"; fi
+  exit 1
+fi
+'@BUNDLE@/bin/beankey-register-input-method' "$destination"
+# Only remove this invocation's staging directory after successful registration.
+rm -r -- "$staging"

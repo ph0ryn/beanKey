@@ -18,6 +18,7 @@
     in
     {
       nixosModules.default = import ./nix/module.nix { inherit self; };
+      homeModules.default = import ./nix/home-module.nix { inherit self; };
 
       packages = forAllSystems (
         system:
@@ -26,8 +27,7 @@
           assets = import ./nix/assets.nix { inherit pkgs; };
           runtimePackages = import ./nix/packages.nix { inherit assets pkgs; };
         in
-        assets
-        // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
+        (
           let
             publishedPackages = assets // runtimePackages;
           in

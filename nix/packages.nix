@@ -65,12 +65,49 @@ let
       description = "beanKey kana-kanji conversion daemon";
       license = pkgs.lib.licenses.mit;
       mainProgram = "beankey-daemon";
-      platforms = pkgs.lib.platforms.linux;
+      platforms = pkgs.lib.platforms.linux ++ [ "aarch64-darwin" ];
+    };
+  };
+
+  defaultSettings = import ./settings.nix {
+    inherit pkgs;
+    lib = pkgs.lib;
+    packages = assets // { inherit daemon; };
+    cfg = (pkgs.lib.evalModules { modules = [ { options = defaultSettings.options; } ]; }).config;
+  };
+
+  makeInputMethod = configFile: pkgs.stdenv.mkDerivation {
+    pname = "beankey-macos-input-method";
+    inherit version;
+    src = sourceFor [ "Cargo.toml" "LICENSE" "macos" "ipc" "proto" ];
+    cmakeDir = "../macos";
+    nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.protobuf ];
+    buildInputs = [ pkgs.protobuf ];
+    cmakeFlags = [
+      "-DBEANKEY_DAEMON_PATH=${daemon}/bin/beankey-daemon"
+      "-DBEANKEY_CONFIG_PATH=${configFile}"
+    ];
+    doCheck = true;
+    postInstall = ''
+      substitute ${../macos/install.sh.in} "$out/bin/beankey-install" \
+        --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out"
+      chmod +x "$out/bin/beankey-install"
+      install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
+    '';
+    passthru = { withConfig = makeInputMethod; inherit configFile; };
+    meta = {
+      description = "beanKey InputMethodKit frontend";
+      license = pkgs.lib.licenses.mit;
+      platforms = [ "aarch64-darwin" ];
+      mainProgram = "beankey-install";
     };
   };
 in
-{
-  inherit daemon;
+{ inherit daemon; }
+// pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+  macos-input-method = makeInputMethod defaultSettings.configFile;
+}
+// pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
 
   fcitx5-addon = pkgs.stdenv.mkDerivation {
     pname = "fcitx5-beankey";

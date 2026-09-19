@@ -26,18 +26,14 @@
           pkgs = pkgsFor system;
           assets = import ./nix/assets.nix { inherit pkgs; };
           runtimePackages = import ./nix/packages.nix { inherit assets pkgs; };
+          publishedPackages = assets // runtimePackages;
         in
-        (
-          let
-            publishedPackages = assets // runtimePackages;
-          in
-          publishedPackages
-          // {
-            default = pkgs.linkFarm "beankey-${runtimePackages.daemon.version}" (
-              pkgs.lib.mapAttrsToList (name: path: { inherit name path; }) publishedPackages
-            );
-          }
-        )
+        publishedPackages
+        // {
+          default = pkgs.linkFarm "beankey-${runtimePackages.daemon.version}" (
+            pkgs.lib.mapAttrsToList (name: path: { inherit name path; }) publishedPackages
+          );
+        }
       );
 
       devShells = forAllSystems (

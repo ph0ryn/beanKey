@@ -54,6 +54,20 @@ let
   classicUIConfigSource = moduleConfig.environment.etc."xdg/fcitx5/conf/classicui.conf".source;
 in
 {
+  default-package =
+    let
+      packages = self.packages.${system};
+      components = builtins.removeAttrs packages [ "default" ];
+    in
+    pkgs.runCommand "beankey-default-package" { } ''
+      ${pkgs.lib.concatStringsSep "\n" (
+        pkgs.lib.mapAttrsToList (name: path: ''
+          test "$(readlink '${packages.default}/${name}')" = '${path}'
+        '') components
+      )}
+      touch "$out"
+    '';
+
   cargo-metadata =
     pkgs.runCommand "beankey-cargo-metadata"
       {

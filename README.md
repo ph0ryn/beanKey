@@ -47,6 +47,28 @@ Wayland、`aarch64-linux`、Intel Mac、NixOS以外のLinuxディストリビュ
 
 ## インストール
 
+NixOS・macOSともに、`beanKey.inputs.nixpkgs.follows`は指定しないでください。beanKey自身が固定したnixpkgsを使い、依存関係とCachixのビルド条件を維持します。
+
+### Cachix（任意）
+
+[beankeyのCachix](https://beankey.cachix.org)を利用すると、キャッシュにあるビルド済みパッケージを取得できます。
+
+```nix
+nix.settings = {
+  extra-substituters = [ "https://beankey.cachix.org" ];
+  extra-trusted-public-keys = [
+    "beankey.cachix.org-1:iE4tWJfPogk+oWopayLECdSsw+H1vqsVnMvmRPHSQ6k="
+  ];
+};
+```
+
+`nix.conf`を直接管理する場合は、`/etc/nix/nix.conf`へ次を追記し、Nix daemonを再起動してください。
+
+```ini
+extra-substituters = https://beankey.cachix.org
+extra-trusted-public-keys = beankey.cachix.org-1:iE4tWJfPogk+oWopayLECdSsw+H1vqsVnMvmRPHSQ6k=
+```
+
 ### NixOS
 
 NixOS flakeへbeanKeyを追加し、NixOS moduleを読み込みます。
@@ -56,10 +78,7 @@ NixOS flakeへbeanKeyを追加し、NixOS moduleを読み込みます。
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    beanKey = {
-      url = "github:ph0ryn/beankey";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    beanKey.url = "github:ph0ryn/beankey";
   };
 
   outputs =

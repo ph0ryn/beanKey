@@ -10,14 +10,14 @@ NixOSとmacOSでは同じ変換・学習設定を使用します。OS固有の�
 programs.beanKey.enable = true;
 ```
 
-この設定によりFcitx5が有効になり、beanKeyアドオン、変換デーモン、辞書、GGUFモデルが導入されます。
+NixOSでは`beanKey.nixosModules.default`がFcitx5とbeanKeyアドオンを導入します。macOSではHome Managerへ`beanKey.homeModules.default`を読み込むと、InputMethodKitアプリを`~/Library/Input Methods/beanKey.app`へ導入します。どちらも共通の変換デーモン、辞書、GGUFモデルを使用します。macOSの入力ソースへの追加はシステム設定で行います。
 
 ## 設定例
 
 ```nix
 programs.beanKey = {
   enable = true;
-  useBeanKeyTheme = true;
+  useBeanKeyTheme = true; # NixOSのみ。macOSではこの行を省略します。
 
   conversion = {
     inputStyle = "roman_to_kana";
@@ -44,10 +44,12 @@ programs.beanKey = {
 
 | option | 型 | 初期値 | 説明 |
 | --- | --- | --- | --- |
-| `enable` | `bool` | `false` | beanKeyとFcitx5統合を有効化 |
-| `useBeanKeyTheme` | `bool` | `false` | 同梱のFcitx5 Classic UIテーマを適用 |
+| `enable` | `bool` | `false` | OSに対応するbeanKeyフロントエンドを導入 |
+| `useBeanKeyTheme` | `bool` | `false` | NixOS専用。同梱のFcitx5 Classic UIテーマを適用 |
 
 `useBeanKeyTheme`はClassic UIのテーマ、フォント、accent color設定に既定値を設定します。ほかのNixOS設定で明示した値がある場合は、そちらが優先されます。
+
+macOSの候補パネルは常に同梱テーマの配色と余白を使用します。独自設定GUIやOS別の変換設定namespaceはありません。
 
 ## 変換
 

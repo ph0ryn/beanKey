@@ -43,9 +43,11 @@
 ├── fcitx5/          # 薄い C++20 addon
 │   ├── CMakeLists.txt
 │   └── src/
+├── ipc/cpp/         # 共有C++ IPC transport
+├── macos/           # Objective-C++ InputMethodKit frontend
 ├── proto/
 │   └── beankey.proto
-├── nix/             # NixOS moduleとpackage定義が必要になった時点で追加
+├── nix/             # package、共有設定、NixOS/Home Manager module
 ├── flake.nix
 └── flake.lock
 ```
@@ -89,10 +91,21 @@
 - fcitx5-mozcと同様に、daemon応答がキーをconsumedとした場合だけFcitx5のeventをacceptし、結果を標準のプリエディット、候補UIおよびcommit APIへ反映する。
 - daemonへの接続または要求が失敗した場合はセッションとUIをresetし、未処理のキーをFcitx5へ返す。キーをaddon内でbufferまたは再送しない。
 
+### `ipc/cpp`
+
+- 両フロントエンドの共有C++ transportと生成Protobuf型を所有する。OSのUIや変換状態遷移を持たない。
+
+### `macos`
+
+- InputMethodKit、キー正規化、UTF-16変換、marked text、確定、候補パネル、daemon起動を所有する。Rustへの直接linkや変換ロジックを持たない。
+- Input Methodはクライアントごとにdaemon sessionを持ち、共有接続はmain threadに閉じ込める。daemonの起動・準備だけをbackgroundで行う。
+- 準備中・通信失敗時は未処理のキーをアプリへ返し、bufferや再送はしない。
+- 候補パネルは非アクティブとし、入力先からキーボードフォーカスを奪わない。
+- bundleは`~/Library/Input Methods/beanKey.app`へ実体をコピーしてローカル署名・登録する。入力ソースの有効化や選択はinstallerで変更しない。
+- 現時点で公開APIによる実現方法が未確定の、候補確定後のカーソル移動はREADMEへ一時的制約として記録する。非公開APIや疑似キー送信で隠さない。
+
 ### `proto`
 
-- `ipc/cpp`は両フロントエンドの共有C++ transportと生成Protobuf型を所有する。
-- `macos`はInputMethodKit、キー正規化、UTF-16変換、marked text、確定、候補パネル、daemon起動を所有する。Rustへの直接linkや変換ロジックを持たない。
 - Rust と C++ の間で共有する通信仕様の唯一の正本とする。
 - 生成コードはコミットせず、各ビルドで生成する。
 - 内部実装の都合だけで通信仕様を拡張しない。
@@ -111,7 +124,7 @@
 - NixOS moduleはFcitx5 addon、daemon、辞書および固定モデルを導入し、`programs.beanKey`から内部用のdaemon設定を生成する。
 - NixOS moduleはHunspellと固定nixpkgsの英語・ギリシャ語辞書を導入し、そのNix store pathを内部用daemon設定へ書く。辞書pathを利用者向けoptionにしない。
 - 直接packageする辞書、モデル、tokenizerおよび絵文字には、資産ごとのlicense本文、取得元、固定revision、attributionおよび変更有無を添付する。通常依存の`pkgs.llama-cpp`、`pkgs.hunspell`および`pkgs.hunspellDicts`をこの資産台帳へ重複登録しない。
-- flakeは`packages.<system>.daemon`、`packages.<system>.fcitx5-addon`、`packages.<system>.model`および`nixosModules.default`を公開する。
+- flakeは`packages.<system>.daemon`、`packages.<system>.model`、Linux向け`fcitx5-addon`、Darwin向け`macos-input-method`、`nixosModules.default`、macOS用`homeModules.default`を公開する。
 - NixOS moduleは内部設定をTOMLとして生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させる。addonはdaemonを`--config /etc/beankey/config.toml`付きで起動する。
 - package境界は [fcitx5-mozc](https://github.com/NixOS/nixpkgs/blob/8c91a71d13451abc40eb9dae8910f972f979852f/pkgs/by-name/fc/fcitx5-mozc/package.nix#L36-L45) と [mozc](https://github.com/NixOS/nixpkgs/blob/8c91a71d13451abc40eb9dae8910f972f979852f/pkgs/by-name/mo/mozc/package.nix#L69-L105) を基準とする。
 - daemonとFcitx5 addonを別のpackageとして定義し、addon packageからdaemon packageを参照する。
@@ -126,7 +139,7 @@
 ## 依存方向
 
 - `daemon` は `converter` と `llama` を利用し、`proto/beankey.proto` から生成した型を IPC に利用する。
-- `fcitx5` は `proto/beankey.proto` から生成した型を IPC に利用するが、Rust crate へ依存しない。
+- `fcitx5`と`macos`は`ipc/cpp`と`proto/beankey.proto`から生成した型をIPCに利用するが、Rust crateへ依存しない。
 - `converter` は実行時に渡されたパスから固定辞書とHunspell辞書を読むが、`daemon`、`fcitx5`、Protobuf または llama.cpp の C API へ依存しない。
 - `llama` は `daemon`、`fcitx5` または Protobuf へ依存しない。
 - 上記と逆向きの依存が必要になった場合は、責務の置き場所を先に見直す。

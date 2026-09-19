@@ -2,7 +2,7 @@
 
 beanKeyは、[azooKey Desktop](https://github.com/azooKey/azooKey-Desktop)の日本語入力体験を、NixOS上のFcitx5とmacOSで使うための日本語入力エンジンです。
 
-Fcitx5とmacOSは共通のRustバックエンドを使う横並びのフロントエンドです。操作と使用感をほぼ互換にすることを目標とし、OS制約による一時的な差も将来の互換対象として扱います。macOSフロントエンドは実装中です。
+Fcitx5とmacOSは共通のRustバックエンドを使う横並びのフロントエンドです。操作と使用感をほぼ互換にすることを目標とし、OS制約による一時的な差も将来の互換対象として扱います。
 
 ニューラルかな漢字変換システムには、[zenz-v3.2-small-gguf](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf)を使用します。
 
@@ -16,10 +16,10 @@ Fcitx5とmacOSは共通のRustバックエンドを使う横並びのフロン�
 - Zenzaiによる文脈を考慮した候補評価
 - 日本語、英語、ギリシャ語の入力中予測
 - 学習、ユーザー辞書、入力訂正
-- Fcitx5標準UIによるプリエディットと候補表示
-- NixOS moduleによる宣言的な導入と設定
+- LinuxではFcitx5標準UI、macOSではInputMethodKitと同梱Fcitx5テーマに合わせた候補パネル
+- NixOS moduleとmacOS用Home Manager moduleによる宣言的な導入と設定
 
-azooKey DesktopのAI変換、UI、独自候補ウィンドウは実装しません。
+azooKey DesktopのAI変換や設定GUIは実装しません。
 
 ### azooKey Desktopとの違い
 
@@ -31,18 +31,23 @@ beanKeyは、AzooKeyKanaKanjiConverterのかな漢字変換機能と、azooKey D
 - 選択テキストへ指示を与えるAI変換
 - OpenAI APIやApple Foundation Modelsとの通信
 - macOS固有の設定画面
-- 独自の候補ウィンドウ
+- azooKey Desktopの候補ウィンドウの再現
 - Swift APIとのソース互換性またはABI互換性
 
-候補表示にはFcitx5の標準UIを使用します。変換候補、内部trace、prompt、token、logitが固定原作と完全に一致するかの厳密な適合検証は、まだ行っていません。
+macOSの候補パネルは候補・注釈・予測の表示に限定します。変換候補、内部trace、prompt、token、logitが固定原作と完全に一致するかの厳密な適合検証は、まだ行っていません。
+
+macOSでは、候補の確定後にカーソルを移動する追加アクションが未対応です。文字列の確定は行いますが、カーソルは末尾に残ります。InputMethodKitの公開APIで扱える方法を調査し、Fcitx5との互換課題として追跡します。
 
 ## 動作環境
 
 動作確認済みの環境は、`x86_64-linux`、NixOS 26.11、Fcitx5 5.1.21、X11です。
-Wayland、`aarch64-linux`、NixOS以外のLinuxディストリビューションでは、まだ実環境で確認していません。
+macOSの`aarch64-darwin`では、Nix packageのビルド、Rustテスト、AppKit上のmarked text・候補選択・確定・通信失敗時の復旧、実daemonとの接続を確認しています。通常アプリでの入力操作は引き続き受入検証中です。
+Wayland、`aarch64-linux`、Intel Mac、NixOS以外のLinuxディストリビューションでは、まだ実環境で確認していません。
 推論には、`flake.lock`でnixpkgsのllama.cpp `b10273`を使用します。
 
 ## インストール
+
+### NixOS
 
 NixOS flakeへbeanKeyを追加し、NixOS moduleを読み込みます。
 
@@ -75,6 +80,31 @@ NixOS flakeへbeanKeyを追加し、NixOS moduleを読み込みます。
 
 Switch後にFcitx5を再起動し、Fcitx5の入力メソッド設定から`beanKey`を追加してください。
 
+### macOS（Apple Silicon）
+
+Nixを導入した環境で、checkoutから実行します。
+
+```sh
+nix run .#macos-input-method
+```
+
+`~/Library/Input Methods/beanKey.app`へ実体をコピーし、ローカル署名と入力ソースの登録を行います。Nix storeへのsymlinkではありません。システム設定の「キーボード → テキスト入力 → 編集 → 追加」で、日本語の`beanKey`を追加してください。登録だけでは入力ソースの有効化・選択は行いません。
+
+初回導入や更新後に入力ソースが反映されない場合は、ログアウトして再ログインしてください。更新済みbundleがあっても、起動中の旧プロセスは自動的に置き換わりません。
+
+宣言的な設定には、同じflake inputの`beanKey.homeModules.default`をHome Managerへ読み込みます。
+
+```nix
+{
+  imports = [ beanKey.homeModules.default ];
+  programs.beanKey.enable = true;
+}
+```
+
+Home Managerのactivationが同じインストーラーを実行します。変換・学習設定はNixOSと共通です。`useBeanKeyTheme`はLinux専用で、macOSは常に同梱テーマに合わせた表示を使用します。
+
+daemonは入力メソッドが必要時に起動します。初回のモデル読み込みが終わるまでは、キーを溜めずにアプリへ返します。起動診断ログは`~/Library/Logs/beanKey/daemon.log`にあります。
+
 ## 設定
 
 設定例
@@ -82,7 +112,7 @@ Switch後にFcitx5を再起動し、Fcitx5の入力メソッド設定から`bean
 ```nix
 programs.beanKey = {
   enable = true;
-  useBeanKeyTheme = true;
+  useBeanKeyTheme = true; # NixOSのみ。macOSではこの行を省略します。
 
   conversion = {
     inputStyle = "roman_to_kana";

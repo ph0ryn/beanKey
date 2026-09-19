@@ -1,3 +1,4 @@
+#include "candidate_panel.h"
 #include "input_session.h"
 #include "text_input.h"
 #import <Carbon/Carbon.h>
@@ -179,6 +180,14 @@ static void fakeDaemonTest() {
   BKTestTextView *view =
       [[BKTestTextView alloc] initWithFrame:NSMakeRect(0, 0, 500, 300)];
   id<IMKTextInput> client = (id<IMKTextInput>)view;
+  view.string = @"前😀選択後";
+  view.selectedRange = NSMakeRange(3, 2);
+  const auto surrounding = macos::surroundingText(client);
+  require(surrounding.available() && surrounding.text() == "前😀選択後" &&
+              surrounding.anchor() == 2 && surrounding.cursor() == 4,
+          "selected surrounding text uses scalar offsets");
+  view.string = @"";
+  view.selectedRange = NSMakeRange(0, 0);
   [session activate];
   require([session handleEvent:key(kVK_ANSI_A, @"a") client:client],
           "consume input");
@@ -190,10 +199,30 @@ static void fakeDaemonTest() {
   require([view.string isEqualToString:@"仮名😀"] && !view.hasMarkedText,
           "candidate commit without duplicate text");
   require([session handleEvent:key(kVK_ANSI_A, @"a") client:client],
+          "composition for mouse selection");
+  BKCandidatePanel *panel = nil;
+  for (NSWindow *window in NSApp.windows)
+    if ([window isKindOfClass:BKCandidatePanel.class] && window.visible)
+      panel = (BKCandidatePanel *)window;
+  require(panel && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow,
+          "candidate panel must not steal keyboard focus");
+  NSButton *row = (NSButton *)panel.contentView.subviews.firstObject;
+  require([row isKindOfClass:NSButton.class],
+          "candidate exposes a selection button");
+  NSView *label = row.subviews[1];
+  const NSPoint labelPoint =
+      [row convertPoint:NSMakePoint(NSMidX(label.frame), NSMidY(label.frame))
+                 toView:panel.contentView];
+  require([panel.contentView hitTest:labelPoint] == row,
+          "candidate text must forward clicks to its row");
+  [row performClick:nil];
+  require([view.string isEqualToString:@"仮名😀仮名😀"] && !view.hasMarkedText,
+          "mouse selection commits without duplicate text");
+  require([session handleEvent:key(kVK_ANSI_A, @"a") client:client],
           "new composition");
   require(![session handleEvent:key(kVK_ANSI_X, @"x") client:client],
           "mismatched request must return the key");
-  require([view.string isEqualToString:@"仮名😀"] && !view.hasMarkedText,
+  require([view.string isEqualToString:@"仮名😀仮名😀"] && !view.hasMarkedText,
           "failure only clears the active marked text");
   require(!connection.ready, "mismatched response disconnects transport");
   [session deactivate:client];

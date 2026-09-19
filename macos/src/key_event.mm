@@ -57,7 +57,9 @@ v1::UserAction action(NSEvent *event) {
   case kVK_Delete:
     return v1::USER_ACTION_BACKSPACE;
   case kVK_ForwardDelete:
-    return v1::USER_ACTION_DELETE_FORWARD;
+  case kVK_PageUp:
+  case kVK_PageDown:
+    return v1::USER_ACTION_UNSPECIFIED;
   case kVK_Return:
   case kVK_ANSI_KeypadEnter:
     return v1::USER_ACTION_ENTER;
@@ -75,10 +77,6 @@ v1::UserAction action(NSEvent *event) {
     return v1::USER_ACTION_UP;
   case kVK_DownArrow:
     return v1::USER_ACTION_DOWN;
-  case kVK_PageUp:
-    return v1::USER_ACTION_PAGE_UP;
-  case kVK_PageDown:
-    return v1::USER_ACTION_PAGE_DOWN;
   case kVK_JIS_Eisu:
     return v1::USER_ACTION_EISU;
   case kVK_JIS_Kana:

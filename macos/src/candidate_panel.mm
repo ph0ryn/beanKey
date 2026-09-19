@@ -3,6 +3,15 @@
 #include <algorithm>
 #include <vector>
 
+@interface BKCandidateLabel : NSTextField
+@end
+@implementation BKCandidateLabel
+- (NSView *)hitTest:(NSPoint)point {
+  (void)point;
+  return nil;
+}
+@end
+
 @interface BKCandidateRow : NSButton
 @property(nonatomic, copy) void (^forget)(void);
 @property(nonatomic, copy) void (^correct)(void);
@@ -189,7 +198,7 @@
         16, std::max<CGFloat>(0, width - annotationWidth - 50),
         annotationWidth};
     for (NSUInteger part = 0; part < 3; ++part) {
-      NSTextField *field = [NSTextField labelWithString:texts[part]];
+      NSTextField *field = [BKCandidateLabel labelWithString:texts[part]];
       field.frame = NSMakeRect(starts[part], 6, widths[part], 18);
       field.font = (NSFont *)font;
       field.textColor =

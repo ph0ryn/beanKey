@@ -229,6 +229,9 @@ static void realDaemonTest(NSString *socketPath) {
             "real candidate selection");
     require([session handleEvent:key(kVK_Return, @"\r") client:client],
             "real commit");
+    // Enter can commit only the selected clause; finish any remaining clauses
+    // through the same lifecycle API used when switching input methods.
+    [session commit:client];
     require(!view.hasMarkedText && view.string.length > 0,
             "real committed text");
   }

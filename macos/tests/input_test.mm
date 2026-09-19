@@ -44,8 +44,8 @@ int main() {
                 v1::USER_ACTION_ENTER,
             "Return");
     require(macos::keyEvent(event(kVK_ForwardDelete, @"", @"")).action() ==
-                v1::USER_ACTION_DELETE_FORWARD,
-            "Forward delete");
+                v1::USER_ACTION_UNSPECIFIED,
+            "Forward delete passes through like Fcitx5");
     require(macos::keyEvent(
                 event(kVK_ANSI_U, @"U", @"U",
                       NSEventModifierFlagControl | NSEventModifierFlagShift))

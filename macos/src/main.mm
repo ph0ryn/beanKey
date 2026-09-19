@@ -10,6 +10,9 @@ int main() {
     // it by name.
     [BKInputController class];
     NSBundle *bundle = NSBundle.mainBundle;
+    // ARC must retain the server throughout the event loop, even in release
+    // builds.
+    __attribute__((objc_precise_lifetime))
     IMKServer *server = [[IMKServer alloc]
             initWithName:
                 [bundle objectForInfoDictionaryKey:@"InputMethodConnectionName"]
@@ -20,6 +23,5 @@ int main() {
     }
     [BKDaemonConnection.sharedConnection prepare];
     [NSApp run];
-    (void)server;
   }
 }

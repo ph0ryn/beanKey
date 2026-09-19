@@ -11,10 +11,13 @@
   <key>CFBundleShortVersionString</key><string>@PROJECT_VERSION@</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>LSUIElement</key><true/>
-  <key>InputMethodConnectionName</key><string>org.ph0ryn.inputmethod.beanKey.Connection</string>
+  <key>LSBackgroundOnly</key><true/>
+  <key>InputMethodConnectionName</key><string>org.ph0ryn.inputmethod.beanKey_Connection</string>
   <key>InputMethodServerControllerClass</key><string>BKInputController</string>
   <key>TISInputSourceID</key><string>org.ph0ryn.inputmethod.beanKey</string>
   <key>TISIntendedLanguage</key><string>ja</string>
+  <key>TISIconIsTemplate</key><true/>
+  <key>tsInputMethodIconFileKey</key><string>beanKey.tiff</string>
   <key>tsInputMethodCharacterRepertoireKey</key><array><string>Latn</string><string>Hira</string><string>Kana</string></array>
 </dict>
 </plist>

@@ -1,9 +1,21 @@
 { self }:
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.programs.beanKey;
   packages = self.packages.${pkgs.stdenv.hostPlatform.system};
-  settings = import ./settings.nix { inherit cfg lib pkgs packages; };
+  settings = import ./settings.nix {
+    inherit
+      cfg
+      lib
+      pkgs
+      packages
+      ;
+  };
   inherit (lib) mkIf optionalAttrs;
   inherit (settings) configFile;
 in

@@ -1,6 +1,16 @@
-{ cfg, lib, pkgs, packages }:
+{
+  cfg,
+  lib,
+  pkgs,
+  packages,
+}:
 let
-  inherit (lib) mkEnableOption mkOption optionalAttrs types;
+  inherit (lib)
+    mkEnableOption
+    mkOption
+    optionalAttrs
+    types
+    ;
   predictionType = types.enum [
     "automatic"
     "manual"
@@ -161,7 +171,6 @@ in
   inherit configFile;
   options = {
     enable = mkEnableOption "beanKey kana-kanji conversion";
-
 
     conversion = {
       inputStyle = mkOption {
@@ -364,32 +373,32 @@ in
     };
   };
   assertions = [
-      {
-        assertion =
-          cfg.conversion.inputStyle != "custom"
-          || (
-            cfg.conversion.customInputTable != null
-            && builtins.hasAttr cfg.conversion.customInputTable cfg.conversion.customInputTables
-          );
-        message = "programs.beanKey.conversion.customInputTable must name a registered table when inputStyle is custom";
-      }
-      {
-        assertion = cfg.zenz.personalization == null || cfg.zenz.personalization.alpha >= 0.0;
-        message = "programs.beanKey.zenz.personalization.alpha must be nonnegative";
-      }
-      {
-        assertion = cfg.lmTypo.languageModel != "ngram" || cfg.lmTypo.ngram != null;
-        message = "programs.beanKey.lmTypo.ngram is required when languageModel is ngram";
-      }
-      {
-        assertion = builtins.all (value: value == null || lib.hasPrefix "/" value) [
-          cfg.conversion.userDictionary
-          cfg.conversion.userDictionaryDirectory
-          (if cfg.zenz.personalization == null then null else cfg.zenz.personalization.baseNgram)
-          (if cfg.zenz.personalization == null then null else cfg.zenz.personalization.personalNgram)
-          (if cfg.lmTypo.ngram == null then null else cfg.lmTypo.ngram.prefix)
-        ];
-        message = "programs.beanKey runtime data paths must be absolute";
-      }
-    ];
+    {
+      assertion =
+        cfg.conversion.inputStyle != "custom"
+        || (
+          cfg.conversion.customInputTable != null
+          && builtins.hasAttr cfg.conversion.customInputTable cfg.conversion.customInputTables
+        );
+      message = "programs.beanKey.conversion.customInputTable must name a registered table when inputStyle is custom";
+    }
+    {
+      assertion = cfg.zenz.personalization == null || cfg.zenz.personalization.alpha >= 0.0;
+      message = "programs.beanKey.zenz.personalization.alpha must be nonnegative";
+    }
+    {
+      assertion = cfg.lmTypo.languageModel != "ngram" || cfg.lmTypo.ngram != null;
+      message = "programs.beanKey.lmTypo.ngram is required when languageModel is ngram";
+    }
+    {
+      assertion = builtins.all (value: value == null || lib.hasPrefix "/" value) [
+        cfg.conversion.userDictionary
+        cfg.conversion.userDictionaryDirectory
+        (if cfg.zenz.personalization == null then null else cfg.zenz.personalization.baseNgram)
+        (if cfg.zenz.personalization == null then null else cfg.zenz.personalization.personalNgram)
+        (if cfg.lmTypo.ngram == null then null else cfg.lmTypo.ngram.prefix)
+      ];
+      message = "programs.beanKey runtime data paths must be absolute";
+    }
+  ];
 }

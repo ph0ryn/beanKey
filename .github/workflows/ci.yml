@@ -16,6 +16,7 @@ jobs:
   flake-check:
     name: Nix flake check (${{ matrix.system }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:

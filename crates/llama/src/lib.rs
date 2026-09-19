@@ -131,7 +131,7 @@ impl LlamaContext {
             std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
         )
         .min(c_int::MAX as usize) as c_int;
-        let mut error = [0_i8; ERROR_CAPACITY];
+        let mut error = [0 as c_char; ERROR_CAPACITY];
         // SAFETY: The path and writable error buffer remain valid for this call.
         let handle = unsafe {
             beankey_llama_load(
@@ -207,7 +207,7 @@ impl LlamaContext {
     }
 
     pub fn token_to_piece(&self, token: i32) -> Result<Vec<u8>, LlamaError> {
-        let mut buffer = vec![0_i8; 8];
+        let mut buffer = vec![0 as c_char; 8];
         // SAFETY: The writable buffer remains valid for this call.
         let mut count = unsafe {
             beankey_llama_token_to_piece(

@@ -99,7 +99,7 @@ InputMethodKitがクライアントごとに作るcontrollerとdaemon sessionを
 
 wire上のUnicode scalar offsetとCocoaのUTF-16 offsetは`macos`内で変換します。周辺文脈は選択位置の前後だけを取得し、編集中のmarked textを除外します。クライアントが範囲を提供しない場合は、文脈を取得できないことをdaemonへ伝えます。
 
-候補確定後のカーソル移動はInputMethodKitの公開APIで未実現です。現在は文字列を確定して制約をログへ記録し、非公開APIや疑似キー送信は使いません。この差は恒久的な仕様差ではなく、両フロントエンドの互換課題です。
+候補の確定は、固定したazooKey Desktopと同様に文字列の挿入だけを行います。Fcitx5でも通常のcommit APIを使い、確定後にカーソル位置を調整する追加アクションは生成・転送しません。
 
 ## NixOS統合
 

@@ -151,19 +151,28 @@ static void fakeDaemonTest() {
         response.set_request_id(request.request_id() +
                                 1); // must reset, not apply
       } else if (request.has_select_candidate() ||
-                 request.has_commit_composition()) {
+                 request.has_commit_composition() ||
+                 (request.has_key_event() &&
+                  request.key_event().action() == v1::USER_ACTION_ENTER)) {
         state->set_commit(preedit);
         preedit.clear();
       } else if (request.has_key_event()) {
-        preedit = "仮名😀";
+        preedit = request.key_event().text() == "b" ? "「」" : "仮名😀";
         state->set_candidate_window(v1::CANDIDATE_WINDOW_SELECTING);
         state->set_selected_candidate(0);
         auto *candidate = state->add_candidates();
         candidate->set_text(preedit);
         candidate->set_index(0);
+        if (preedit == "「」") {
+          // Legacy field 4 must not change the normal text insertion position.
+          require(candidate->MergeFromString("\x22\x02\x08\x01"),
+                  "legacy cursor action fixture");
+        }
       }
       state->set_preedit(preedit);
-      state->set_preedit_cursor(preedit.empty() ? 0 : 3);
+      state->set_preedit_cursor(preedit.empty()     ? 0
+                                : preedit == "「」" ? 2
+                                                    : 3);
       state->set_highlighted_preedit_length(preedit.empty() ? 0 : 2);
       writeFrame(socket, response);
     }
@@ -218,6 +227,22 @@ static void fakeDaemonTest() {
   [row performClick:nil];
   require([view.string isEqualToString:@"仮名😀仮名😀"] && !view.hasMarkedText,
           "mouse selection commits without duplicate text");
+  for (int selection = 0; selection < 2; ++selection) {
+    view.string = @"前😀後";
+    view.selectedRange = NSMakeRange(3, 0);
+    require([session handleEvent:key(kVK_ANSI_B, @"b") client:client],
+            "bracket composition");
+    require([session handleEvent:selection == 0 ? key(kVK_Return, @"\r")
+                                                : key(kVK_ANSI_1, @"1")
+                          client:client],
+            "bracket selection");
+    require([view.string isEqualToString:@"前😀「」後"] &&
+                !view.hasMarkedText &&
+                NSEqualRanges(view.selectedRange, NSMakeRange(5, 0)),
+            "bracket commit leaves the caret after the inserted text");
+  }
+  view.string = @"仮名😀仮名😀";
+  view.selectedRange = NSMakeRange(view.string.length, 0);
   require([session handleEvent:key(kVK_ANSI_A, @"a") client:client],
           "new composition");
   require(![session handleEvent:key(kVK_ANSI_X, @"x") client:client],

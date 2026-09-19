@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use beankey_converter::{
-    Candidate as ConverterCandidate, CompleteAction, ComposingCount as ConverterComposingCount,
-    ConversionResult, ConversionSession, DictionaryEntry, DictionaryError, DictionaryMetadata,
-    DictionaryStore, ForeignCompletionProvider, FormatReport, HunspellCompleter, HunspellError,
-    InputModifier, InputStyle as ConverterInputStyle, InputTable, InputTableId, InputTableRegistry,
+    Candidate as ConverterCandidate, ComposingCount as ConverterComposingCount, ConversionResult,
+    ConversionSession, DictionaryEntry, DictionaryError, DictionaryMetadata, DictionaryStore,
+    ForeignCompletionProvider, FormatReport, HunspellCompleter, HunspellError, InputModifier,
+    InputStyle as ConverterInputStyle, InputTable, InputTableId, InputTableRegistry,
     KeyboardLanguage, LearningError, LearningMemory, LearningMode, LmTypoConfig, NGramError,
     NGramLanguageModel, NormalConverter, PredictionMode, RequestOptions, SelectionError,
     TextReplacer, TextReplacerError, TypoCorrectionMode, ZenzEvaluator, ZenzLanguageModel,
@@ -2398,19 +2398,6 @@ fn candidate_to_protocol(
         text: candidate.text.clone(),
         value: candidate.value,
         composing_count: Some(composing_count_to_protocol(&candidate.composing_count)),
-        actions: candidate
-            .actions
-            .iter()
-            .map(|action| match action {
-                CompleteAction::MoveCursor(count) => protocol::CursorAction {
-                    r#move: i32::try_from(*count).unwrap_or(if *count < 0 {
-                        i32::MIN
-                    } else {
-                        i32::MAX
-                    }),
-                },
-            })
-            .collect(),
         annotation: annotation.to_owned(),
         index: index.min(u32::MAX as usize) as u32,
     }

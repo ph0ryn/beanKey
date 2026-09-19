@@ -86,25 +86,14 @@ using namespace beankey;
   _state = response->state_response();
   return YES;
 }
-- (int)cursorMovement:(uint32_t)index {
-  for (const auto &candidate : _state.candidates())
-    if (candidate.index() == index) {
-      int movement = 0;
-      for (const auto &action : candidate.actions())
-        movement += action.move();
-      return movement;
-    }
-  return 0;
-}
-- (BOOL)send:(const v1::Envelope &)request movement:(int)movement {
+- (BOOL)send:(const v1::Envelope &)request {
   const auto response = [_connection request:request];
   if (!response || !response->has_state_response()) {
     [self fail];
     return NO;
   }
   const auto &state = response->state_response();
-  if (!macos::applyText(state, _textClient, movement,
-                        !_state.preedit().empty())) {
+  if (!macos::applyText(state, _textClient, !_state.preedit().empty())) {
     [self fail];
     return NO;
   }
@@ -121,14 +110,14 @@ using namespace beankey;
     request.mutable_select_typo_correction()->set_index(index);
   else
     request.mutable_select_candidate()->set_index(index);
-  return [self send:request movement:_typos ? 0 : [self cursorMovement:index]];
+  return [self send:request];
 }
 - (void)forget:(uint32_t)index {
   if (!_textClient || ![self start])
     return;
   auto request = [self envelope];
   request.mutable_forget_candidate()->set_index(index);
-  [self send:request movement:0];
+  [self send:request];
 }
 - (void)requestTypos {
   if (!_textClient || ![self start])
@@ -150,7 +139,7 @@ using namespace beankey;
     return;
   auto request = [self envelope];
   request.mutable_reset_learning();
-  [self send:request movement:0];
+  [self send:request];
 }
 - (BOOL)handleEvent:(NSEvent *)event client:(id<IMKTextInput>)client {
   if (event.type != NSEventTypeKeyDown)
@@ -179,10 +168,7 @@ using namespace beankey;
   *key.mutable_surrounding_text() = macos::surroundingText(client);
   auto request = [self envelope];
   *request.mutable_key_event() = key;
-  const int movement = _state.selected_candidate() >= 0
-                           ? [self cursorMovement:_state.selected_candidate()]
-                           : 0;
-  return [self send:request movement:movement];
+  return [self send:request];
 }
 - (void)commit:(id<IMKTextInput>)client {
   _textClient = client;
@@ -192,7 +178,7 @@ using namespace beankey;
   }
   auto request = [self envelope];
   request.mutable_commit_composition();
-  [self send:request movement:0];
+  [self send:request];
 }
 - (void)deactivate:(id<IMKTextInput>)client {
   _textClient = client;

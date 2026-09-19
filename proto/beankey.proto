@@ -117,15 +117,13 @@ message CompositeComposingCount {
   ComposingCount right = 2;
 }
 
-message CursorAction {
-  sint32 move = 1;
-}
-
 message Candidate {
+  reserved 4;
+  reserved "actions";
+
   string text = 1;
   float value = 2;
   ComposingCount composing_count = 3;
-  repeated CursorAction actions = 4;
   string annotation = 5;
   uint32 index = 6;
 }

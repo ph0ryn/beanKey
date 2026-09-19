@@ -114,6 +114,52 @@ fn configured_engine(config: ConversionConfig) -> Engine {
 }
 
 #[test]
+fn commits_bracket_candidates_as_plain_text() {
+    let resources = TempDir::new().unwrap();
+    let user_dictionary = resources.path().join("brackets.json");
+    std::fs::write(
+        &user_dictionary,
+        r#"[{"word":"「」","reading":"かっこ"},{"word":"{{}}","reading":"かっこ"}]"#,
+    )
+    .unwrap();
+    let mut engine = configured_engine(ConversionConfig {
+        user_dictionary: Some(user_dictionary),
+        ..Default::default()
+    });
+    let mut request_id = 1;
+    for text in ["「」", "{{}}"] {
+        start_roman_session(&mut engine, request_id);
+        request_id += 1;
+        response(engine.handle(envelope(
+            request_id,
+            Payload::KeyEvent(key_event(0, "kakko")),
+        )));
+        request_id += 1;
+        let selecting = response(engine.handle(envelope(
+            request_id,
+            Payload::KeyEvent(key_event(0x20, " ")),
+        )));
+        request_id += 1;
+        let candidate = selecting
+            .candidates
+            .iter()
+            .find(|c| c.text == text)
+            .unwrap();
+        let committed = response(engine.handle(envelope(
+            request_id,
+            Payload::SelectCandidate(protocol::SelectCandidate {
+                index: candidate.index,
+            }),
+        )));
+        request_id += 1;
+        assert!(committed.consumed);
+        assert_eq!(committed.commit, text);
+        assert!(committed.preedit.is_empty());
+        assert!(committed.candidates.is_empty());
+    }
+}
+
+#[test]
 fn applies_the_desktop_backslash_preference_and_option_inversion() {
     for (type_backslash, option, shift, expected) in [
         (false, false, false, "￥"),

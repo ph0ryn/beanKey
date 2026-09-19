@@ -241,26 +241,21 @@ bool BeanKeyState::processKey(KeyEvent &event) {
   }
   fillSurroundingText(key->mutable_surrounding_text());
 
-  std::vector<beankey::v1::CursorAction> actions;
-  if (selectedCandidate_ >= 0 &&
-      static_cast<std::size_t>(selectedCandidate_) < candidateActions_.size()) {
-    actions = candidateActions_[selectedCandidate_];
-  }
-  return send(std::move(request), actions);
+  return send(std::move(request));
 }
 
 bool BeanKeyState::selectCandidate(std::uint32_t index) {
-  if (!start() || index >= candidateActions_.size()) {
+  if (!start() || !candidateIndices_.contains(index)) {
     failSession();
     return false;
   }
   auto request = envelope();
   request.mutable_select_candidate()->set_index(index);
-  return send(std::move(request), candidateActions_[index]);
+  return send(std::move(request));
 }
 
 bool BeanKeyState::forgetCandidate(std::uint32_t index) {
-  if (!start() || index >= candidateActions_.size()) {
+  if (!start() || !candidateIndices_.contains(index)) {
     failSession();
     return false;
   }
@@ -350,12 +345,12 @@ bool BeanKeyState::start() {
     return false;
   }
   started_ = true;
-  return apply(*response, {});
+  return apply(*response);
 }
 
 bool BeanKeyState::pageCandidates(
     beankey::v1::PageCandidates::Direction direction) {
-  if (candidateActions_.empty()) {
+  if (candidateIndices_.empty()) {
     return false;
   }
   auto request = envelope();
@@ -371,9 +366,7 @@ bool BeanKeyState::commitComposition() {
   return send(std::move(request));
 }
 
-bool BeanKeyState::send(
-    beankey::v1::Envelope request,
-    const std::vector<beankey::v1::CursorAction> &commitActions) {
+bool BeanKeyState::send(beankey::v1::Envelope request) {
   const auto response =
       engine_->client().request(request, engine_->requestTimeout());
   if (!response || response->protocol_version() != kProtocolVersion ||
@@ -382,33 +375,19 @@ bool BeanKeyState::send(
     failSession();
     return false;
   }
-  return apply(*response, commitActions);
+  return apply(*response);
 }
 
-bool BeanKeyState::apply(
-    const beankey::v1::Envelope &response,
-    const std::vector<beankey::v1::CursorAction> &commitActions) {
+bool BeanKeyState::apply(const beankey::v1::Envelope &response) {
   const auto &state = response.state_response();
   lmTypoAvailable_ = state.lm_typo_available();
   learningAvailable_ = state.learning_available();
   learningWritable_ = state.learning_writable();
   if (!state.commit().empty()) {
-    auto cursor = static_cast<std::int64_t>(characterCount(state.commit()));
-    for (const auto &action : commitActions) {
-      cursor += action.move();
-    }
-    cursor =
-        std::clamp<std::int64_t>(cursor, 0, characterCount(state.commit()));
-    if (inputContext_->capabilityFlags().test(
-            CapabilityFlag::CommitStringWithCursor)) {
-      inputContext_->commitStringWithCursor(state.commit(),
-                                            static_cast<std::size_t>(cursor));
-    } else {
-      inputContext_->commitString(state.commit());
-    }
+    inputContext_->commitString(state.commit());
   }
 
-  candidateActions_.clear();
+  candidateIndices_.clear();
   auto candidates = makeCandidateList();
   const bool selecting =
       state.candidate_window() == beankey::v1::CANDIDATE_WINDOW_SELECTING;
@@ -434,16 +413,7 @@ bool BeanKeyState::apply(
       candidateWindowStart_ + static_cast<int>(kCandidatePageSize);
   for (int index = 0; index < state.candidates_size(); ++index) {
     const auto &candidate = state.candidates(index);
-    std::vector<beankey::v1::CursorAction> actions;
-    actions.reserve(candidate.actions_size());
-    for (const auto &action : candidate.actions()) {
-      actions.push_back(action);
-    }
-    const auto sourceIndex = static_cast<std::size_t>(candidate.index());
-    if (candidateActions_.size() <= sourceIndex) {
-      candidateActions_.resize(sourceIndex + 1);
-    }
-    candidateActions_[sourceIndex] = std::move(actions);
+    candidateIndices_.insert(candidate.index());
     if ((selecting && index >= candidateWindowStart_ &&
          index < candidateWindowEnd) ||
         (!selecting && index == 0)) {
@@ -503,7 +473,7 @@ void BeanKeyState::showTypoCorrections(
   if (response.candidates().empty()) {
     return;
   }
-  candidateActions_.clear();
+  candidateIndices_.clear();
   selectedCandidate_ = -1;
   auto candidates = makeCandidateList();
   candidates->setSelectionKey(Key::keyListFromString("1 2 3 4 5 6 7 8 9"));
@@ -530,7 +500,7 @@ void BeanKeyState::fillSurroundingText(
 }
 
 void BeanKeyState::clearUi() {
-  candidateActions_.clear();
+  candidateIndices_.clear();
   selectedCandidate_ = -1;
   candidateWindowStart_ = 0;
   lmTypoAvailable_ = false;
@@ -558,7 +528,8 @@ beankey::v1::Envelope BeanKeyState::envelope() {
 
 BeanKeyEngine::BeanKeyEngine(Instance *instance)
     : instance_(instance), runtimeRoot_(runtimeRootPath()),
-      learningDirectory_(learningDirectoryPath()), client_(socketPath(runtimeRoot_)),
+      learningDirectory_(learningDirectoryPath()),
+      client_(socketPath(runtimeRoot_)),
       factory_([this](InputContext &inputContext) {
         return new BeanKeyState(&inputContext, this);
       }) {

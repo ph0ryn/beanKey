@@ -28,7 +28,7 @@ pub use input::{
     InputTableExportError, InputTableId, InputTableRegistry, KeyElement, ValueElement,
 };
 pub use kana::{to_hiragana, to_katakana};
-pub use lattice::{Candidate, CompleteAction, ConversionContext, LatticeRange, NormalConverter};
+pub use lattice::{Candidate, ConversionContext, LatticeRange, NormalConverter};
 pub use learning::{LearningError, LearningMemory, LearningMode};
 pub use lm_typo::{LmTypoCandidate, LmTypoConfig, experimental_typo_correction};
 pub use ngram::{EfficientNGram, NGramError, NGramLanguageModel, ZenzTokenizer};

@@ -209,13 +209,7 @@ pub struct Candidate {
     pub ruby_count: usize,
     pub is_learning_target: bool,
     pub is_typo_correction: bool,
-    pub actions: Vec<CompleteAction>,
     first_clause: Option<FirstClause>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CompleteAction {
-    MoveCursor(isize),
 }
 
 impl Candidate {
@@ -244,7 +238,6 @@ impl Candidate {
             ruby_count,
             is_learning_target: self.is_learning_target,
             is_typo_correction: self.is_typo_correction,
-            actions: appropriate_actions(&first.text),
             first_clause: None,
         })
     }
@@ -270,7 +263,6 @@ impl Candidate {
             .iter()
             .map(|entry| UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count())
             .sum();
-        let actions = appropriate_actions(&text);
         Self {
             text,
             value,
@@ -280,7 +272,6 @@ impl Candidate {
             ruby_count,
             is_learning_target: true,
             is_typo_correction: false,
-            actions,
             first_clause: None,
         }
     }
@@ -295,7 +286,6 @@ impl Candidate {
         if expanded != self.text {
             self.text = expanded;
             self.is_learning_target = false;
-            self.actions = appropriate_actions(&self.text);
         }
         self
     }
@@ -1161,7 +1151,6 @@ impl<'a> NormalConverter<'a> {
             ranges: clause.ranges.clone(),
             entry_end: clause.entry_end,
         });
-        let actions = appropriate_actions(&text);
         Candidate {
             text,
             value: clauses
@@ -1173,44 +1162,8 @@ impl<'a> NormalConverter<'a> {
             ruby_count,
             is_learning_target: true,
             is_typo_correction,
-            actions,
             first_clause,
         }
-    }
-}
-
-pub fn appropriate_actions(text: &str) -> Vec<CompleteAction> {
-    if [
-        "[]", "()", "｛｝", "〈〉", "〔〕", "（）", "「」", "『』", "【】", "{}", "<>", "《》",
-        "\"\"", "''", "””",
-    ]
-    .contains(&text)
-    {
-        return vec![CompleteAction::MoveCursor(-1)];
-    }
-    if text == "{{}}" {
-        return vec![CompleteAction::MoveCursor(-2)];
-    }
-    Vec::new()
-}
-
-#[cfg(test)]
-mod action_tests {
-    use super::*;
-
-    #[test]
-    fn moves_the_cursor_inside_fixed_upstream_bracket_pairs() {
-        for text in [
-            "[]", "()", "｛｝", "〈〉", "〔〕", "（）", "「」", "『』", "【】", "{}", "<>", "《》",
-            "\"\"", "''", "””",
-        ] {
-            assert_eq!(appropriate_actions(text), [CompleteAction::MoveCursor(-1)]);
-        }
-        assert_eq!(
-            appropriate_actions("{{}}"),
-            [CompleteAction::MoveCursor(-2)]
-        );
-        assert!(appropriate_actions("[text]").is_empty());
     }
 }
 

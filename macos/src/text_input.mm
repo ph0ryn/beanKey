@@ -85,7 +85,7 @@ v1::SurroundingText surroundingText(id<IMKTextInput> client) {
 }
 
 bool applyText(const v1::StateResponse &state, id<IMKTextInput> client,
-               int cursorMovement, bool previousMarked) {
+               bool previousMarked) {
   NSString *preedit = string(state.preedit());
   NSString *commit = string(state.commit());
   const auto cursor = utf16Offset(preedit, state.preedit_cursor());
@@ -96,12 +96,6 @@ bool applyText(const v1::StateResponse &state, id<IMKTextInput> client,
   const NSRange current = NSMakeRange(NSNotFound, NSNotFound);
   if (commit.length) {
     [client insertText:commit replacementRange:current];
-    if (cursorMovement != 0) {
-      // IMKTextInput has no public selection setter. Keep this platform gap
-      // explicit.
-      NSLog(@"beanKey: client %@ cannot apply post-commit cursor movement (%d)",
-            [client bundleIdentifier], cursorMovement);
-    }
   }
   if (preedit.length) {
     NSMutableAttributedString *marked =

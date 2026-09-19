@@ -90,10 +90,10 @@ bool writeFrame(int socket, const std::string &payload) {
          writeAll(socket, payload.data(), payload.size());
 }
 
-class TestInputContext final : public fcitx::InputContext {
+class TestInputContext final : public fcitx::InputContextV2 {
 public:
   explicit TestInputContext(fcitx::InputContextManager &manager)
-      : InputContext(manager, "beankey-engine-test") {
+      : InputContextV2(manager, "beankey-engine-test") {
     created();
   }
 
@@ -102,10 +102,20 @@ public:
   const char *frontend() const override { return "beankey-test"; }
 
   const std::string &committed() const { return committed_; }
+  std::size_t commitCursor() const { return commitCursor_; }
+  bool usedCursorCommit() const { return usedCursorCommit_; }
 
 protected:
   void commitStringImpl(const std::string &text) override {
     committed_ += text;
+    commitCursor_ = text.size();
+    usedCursorCommit_ = false;
+  }
+  void commitStringWithCursorImpl(const std::string &text,
+                                  std::size_t cursor) override {
+    committed_ += text;
+    commitCursor_ = cursor;
+    usedCursorCommit_ = true;
   }
   void deleteSurroundingTextImpl(int, unsigned int) override {}
   void forwardKeyImpl(const fcitx::ForwardKeyEvent &) override {}
@@ -113,6 +123,8 @@ protected:
 
 private:
   std::string committed_;
+  std::size_t commitCursor_ = 0;
+  bool usedCursorCommit_ = false;
 };
 
 bool report(bool condition, const char *message) {
@@ -184,6 +196,7 @@ int main() {
         candidate->mutable_composing_count()->set_input(1);
       }
     };
+    std::string selectedText = "司会";
     const auto exchange = [&](ExpectedRequest expected) {
       beankey::v1::Envelope request;
       if (!request.ParseFromString(readFrame(connection))) {
@@ -244,6 +257,15 @@ int main() {
           state->set_selected_candidate(0);
           state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_SELECTING);
           addCandidates(state);
+          selectedText = request.key_event().input() == "b" ? "[]" : "司会";
+          if (selectedText == "[]") {
+            auto *candidate = state->mutable_candidates(0);
+            candidate->set_text(selectedText);
+            // Legacy field 4: one CursorAction with sint32 move = -1.
+            if (!candidate->MergeFromString("\x22\x02\x08\x01")) {
+              return false;
+            }
+          }
           state->mutable_prediction()->set_display_text("今日");
         } else if (expected == ExpectedRequest::Key &&
                    request.key_event().action() ==
@@ -259,7 +281,7 @@ int main() {
                    request.key_event().action() ==
                        beankey::v1::USER_ACTION_ENTER) {
           state->set_consumed(true);
-          state->set_commit("司会");
+          state->set_commit(selectedText);
           state->set_reset(true);
           state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_HIDDEN);
         } else if (expected == ExpectedRequest::Key &&
@@ -280,7 +302,7 @@ int main() {
           state->set_reset(true);
         } else if (expected == ExpectedRequest::SelectCandidate) {
           state->set_consumed(true);
-          state->set_commit("司会");
+          state->set_commit(selectedText);
           state->set_reset(true);
           state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_HIDDEN);
         } else if (expected != ExpectedRequest::Key) {
@@ -302,6 +324,13 @@ int main() {
     serverValid = exchange(ExpectedRequest::Key) && serverValid;
     serverValid = exchange(ExpectedRequest::SelectCandidate) && serverValid;
     serverValid = exchange(ExpectedRequest::Key) && serverValid;
+    for (int selection = 0; selection < 3; ++selection) {
+      serverValid = exchange(ExpectedRequest::Key) && serverValid;
+      serverValid =
+          exchange(selection == 0 ? ExpectedRequest::Key
+                                  : ExpectedRequest::SelectCandidate) &&
+          serverValid;
+    }
     serverValid = exchange(ExpectedRequest::ResetLearning) && serverValid;
     serverValid = exchange(ExpectedRequest::InvalidResponse) && serverValid;
     close(connection);
@@ -485,6 +514,45 @@ int main() {
     fcitx::KeyEvent tab(&inputContext, fcitx::Key(FcitxKey_Tab));
     engine.keyEvent(entry, tab);
     valid = report(tab.accepted(), "composing Tab was not accepted") && valid;
+
+    inputContext.setCapabilityFlags(fcitx::CapabilityFlags(
+        {fcitx::CapabilityFlag::Preedit,
+         fcitx::CapabilityFlag::CommitStringWithCursor}));
+    for (int selection = 0; selection < 3; ++selection) {
+      const auto expectedCommit = inputContext.committed() + "[]";
+      fcitx::KeyEvent bracketInput(&inputContext, fcitx::Key(FcitxKey_b));
+      engine.keyEvent(entry, bracketInput);
+      valid =
+          report(bracketInput.accepted(), "bracket input was not accepted") &&
+          valid;
+      if (selection == 2) {
+        const auto bracketCandidates =
+            inputContext.inputPanel().candidateList();
+        valid = report(bracketCandidates && bracketCandidates->size() > 0,
+                       "bracket candidates are missing") &&
+                valid;
+        if (bracketCandidates && bracketCandidates->size() > 0) {
+          bracketCandidates->candidate(0).select(&inputContext);
+        }
+      } else {
+        fcitx::KeyEvent commitBracket(
+            &inputContext,
+            fcitx::Key(selection == 0 ? FcitxKey_Return : FcitxKey_1));
+        engine.keyEvent(entry, commitBracket);
+        valid = report(commitBracket.accepted(),
+                       "bracket candidate selection was not accepted") &&
+                valid;
+      }
+      valid = report(inputContext.committed() == expectedCommit &&
+                         inputContext.commitCursor() == 2 &&
+                         !inputContext.usedCursorCommit(),
+                     "bracket candidate must commit normally at the end") &&
+              valid;
+      valid = report(inputContext.inputPanel().clientPreedit().empty() &&
+                         !inputContext.inputPanel().candidateList(),
+                     "bracket commit must clear composition UI") &&
+              valid;
+    }
 
     if (!statusActions.empty()) {
       statusActions.front()->activate(&inputContext);

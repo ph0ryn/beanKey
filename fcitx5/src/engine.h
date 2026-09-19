@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
+#include <unordered_set>
 
 #include "beankey.pb.h"
 #include "client.h"
@@ -42,10 +42,8 @@ private:
   bool start();
   bool pageCandidates(beankey::v1::PageCandidates::Direction direction);
   bool commitComposition();
-  bool send(beankey::v1::Envelope request,
-            const std::vector<beankey::v1::CursorAction> &commitActions = {});
-  bool apply(const beankey::v1::Envelope &response,
-             const std::vector<beankey::v1::CursorAction> &commitActions);
+  bool send(beankey::v1::Envelope request);
+  bool apply(const beankey::v1::Envelope &response);
   void showTypoCorrections(const beankey::v1::TypoCorrectionResponse &response);
   void fillSurroundingText(beankey::v1::SurroundingText *surrounding) const;
   void clearUi();
@@ -62,7 +60,7 @@ private:
   bool lmTypoAvailable_ = false;
   bool learningAvailable_ = false;
   bool learningWritable_ = false;
-  std::vector<std::vector<beankey::v1::CursorAction>> candidateActions_;
+  std::unordered_set<std::uint32_t> candidateIndices_;
 };
 
 class BeanKeyEngine final : public InputMethodEngineV2 {

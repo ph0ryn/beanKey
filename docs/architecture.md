@@ -121,6 +121,8 @@ moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/beankey/config.t
 
 Home Manager moduleは`beankey-install`をactivationで実行します。installerは署名したbundleの実体を`~/Library/Input Methods/beanKey.app`へ置き、公開TIS APIで登録します。有効化・選択は利用者がシステム設定で行い、既存の入力ソースは変更しません。更新後は起動中の旧プロセスを使わないよう、必要に応じて再ログインします。
 
+単体インストールでもNix storeのdaemonと動的ライブラリがGCで削除されないよう、`~/Library/Application Support/beanKey/package`をpackageへの間接GC rootにします。更新時には同じ参照を新packageへ置き換えます。
+
 学習データは`~/Library/Application Support/beanKey/learning`、daemonの起動ログは`~/Library/Logs/beanKey/daemon.log`に保存します。独自設定GUIは提供しません。
 
 ## 配布資産

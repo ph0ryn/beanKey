@@ -104,7 +104,8 @@ let
       doCheck = true;
       postInstall = ''
         substitute ${../macos/install.sh.in} "$out/bin/beankey-install" \
-          --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out"
+          --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out" \
+          --subst-var-by NIX ${pkgs.nix}
         chmod +x "$out/bin/beankey-install"
         install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
       '';

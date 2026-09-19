@@ -90,6 +90,8 @@ nix run .#macos-input-method
 
 `~/Library/Input Methods/beanKey.app`へ実体をコピーし、ローカル署名と入力ソースの登録を行います。Nix storeへのsymlinkではありません。システム設定の「キーボード → テキスト入力 → 編集 → 追加」で、日本語の`beanKey`を追加してください。登録だけでは入力ソースの有効化・選択は行いません。
 
+コピーしたアプリが参照するdaemonとライブラリは、`~/Library/Application Support/beanKey/package`のNix GC rootで保持します。アンインストールするときは、入力ソースからbeanKeyを外し、アプリとこの参照を削除してください。学習データは別の`learning`ディレクトリに残ります。
+
 初回導入や更新後に入力ソースが反映されない場合は、ログアウトして再ログインしてください。更新済みbundleがあっても、起動中の旧プロセスは自動的に置き換わりません。
 
 宣言的な設定には、同じflake inputの`beanKey.homeModules.default`をHome Managerへ読み込みます。

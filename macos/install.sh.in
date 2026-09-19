@@ -4,6 +4,11 @@ set -euo pipefail
 source_bundle='@BUNDLE@/Library/Input Methods/beanKey.app'
 destination="$HOME/Library/Input Methods/beanKey.app"
 parent="$HOME/Library/Input Methods"
+package_root="$HOME/Library/Application Support/beanKey/package"
+if [[ -e "$package_root" && ! -L "$package_root" ]]; then
+  echo 'パッケージ保持用の場所に別のファイルがあります。Library/Application Support/beanKey/packageを確認してください。' >&2
+  exit 1
+fi
 if [[ -e "$destination" ]]; then
   identifier=$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$destination/Contents/Info.plist")
   if [[ "$identifier" != org.ph0ryn.inputmethod.beanKey ]]; then
@@ -24,5 +29,9 @@ if ! mv "$staging/beanKey.app" "$destination"; then
   exit 1
 fi
 '@BUNDLE@/bin/beankey-register-input-method' "$destination"
+# The copied bundle still links to its immutable Nix closure. Keep it alive even
+# when installed with `nix run` instead of a Home Manager generation.
+mkdir -p "$(dirname "$package_root")"
+'@NIX@/bin/nix-store' --realise '@BUNDLE@' --add-root "$package_root" --indirect >/dev/null
 # Only remove this invocation's staging directory after successful registration.
 rm -r -- "$staging"

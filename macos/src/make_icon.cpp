@@ -1,4 +1,5 @@
 #include <CoreGraphics/CoreGraphics.h>
+#include <CoreText/CoreText.h>
 #include <ImageIO/ImageIO.h>
 #include <cstring>
 
@@ -11,18 +12,29 @@ int main(int argc, const char *argv[]) {
   CGColorSpaceRelease(color);
   if (!context)
     return 1;
+  auto systemFont = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem,
+                                                  28, CFSTR("ja"));
+  if (!systemFont) {
+    CGContextRelease(context);
+    return 1;
+  }
+  auto font = CTFontCreateForString(systemFont, CFSTR("豆"), CFRangeMake(0, 1));
+  CFRelease(systemFont);
+  const UniChar character = 0x8C46; // 豆
+  CGGlyph glyph;
+  if (!font || !CTFontGetGlyphsForCharacters(font, &character, &glyph, 1)) {
+    if (font)
+      CFRelease(font);
+    CGContextRelease(context);
+    return 1;
+  }
+  const auto bounds = CTFontGetBoundingRectsForGlyphs(
+      font, kCTFontOrientationHorizontal, &glyph, nullptr, 1);
+  const CGPoint position = {16 - CGRectGetMidX(bounds),
+                            16 - CGRectGetMidY(bounds)};
   CGContextSetRGBFillColor(context, 0, 0, 0, 1);
-  CGContextMoveToPoint(context, 7, 6);
-  CGContextAddCurveToPoint(context, 0, 13, 5, 28, 16, 29);
-  CGContextAddCurveToPoint(context, 28, 31, 34, 18, 25, 13);
-  CGContextAddCurveToPoint(context, 21, 10, 22, 2, 15, 2);
-  CGContextAddCurveToPoint(context, 11, 2, 9, 3, 7, 6);
-  CGContextFillPath(context);
-  CGContextSetBlendMode(context, kCGBlendModeClear);
-  CGContextSetLineWidth(context, 2);
-  CGContextMoveToPoint(context, 10, 7);
-  CGContextAddCurveToPoint(context, 20, 11, 9, 20, 23, 25);
-  CGContextStrokePath(context);
+  CTFontDrawGlyphs(font, &glyph, &position, 1, context);
+  CFRelease(font);
   auto image = CGBitmapContextCreateImage(context);
   auto url = CFURLCreateFromFileSystemRepresentation(
       nullptr, reinterpret_cast<const UInt8 *>(argv[1]), std::strlen(argv[1]),

@@ -17,7 +17,7 @@
   <key>TISInputSourceID</key><string>org.ph0ryn.inputmethod.beanKey</string>
   <key>TISIntendedLanguage</key><string>ja</string>
   <key>TISIconIsTemplate</key><true/>
-  <key>tsInputMethodIconFileKey</key><string>beanKey.tiff</string>
+  <key>tsInputMethodIconFileKey</key><string>beanKey-character.tiff</string>
   <key>tsInputMethodCharacterRepertoireKey</key><array><string>Latn</string><string>Hira</string><string>Kana</string></array>
 </dict>
 </plist>

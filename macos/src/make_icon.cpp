@@ -41,9 +41,25 @@ int main(int argc, const char *argv[]) {
       false);
   auto destination =
       CGImageDestinationCreateWithURL(url, CFSTR("public.tiff"), 1, nullptr);
-  if (destination)
-    CGImageDestinationAddImage(destination, image, nullptr);
-  const bool success = destination && CGImageDestinationFinalize(destination);
+  // Keep the 32-pixel Retina image while exposing a 16-point menu icon.
+  const double dpi = 144;
+  auto resolution = CFNumberCreate(nullptr, kCFNumberDoubleType, &dpi);
+  const void *propertyKeys[] = {kCGImagePropertyDPIWidth,
+                                kCGImagePropertyDPIHeight};
+  const void *propertyValues[] = {resolution, resolution};
+  auto properties =
+      resolution ? CFDictionaryCreate(nullptr, propertyKeys, propertyValues, 2,
+                                      &kCFTypeDictionaryKeyCallBacks,
+                                      &kCFTypeDictionaryValueCallBacks)
+                 : nullptr;
+  if (destination && properties)
+    CGImageDestinationAddImage(destination, image, properties);
+  const bool success =
+      destination && properties && CGImageDestinationFinalize(destination);
+  if (properties)
+    CFRelease(properties);
+  if (resolution)
+    CFRelease(resolution);
   if (destination)
     CFRelease(destination);
   CFRelease(url);

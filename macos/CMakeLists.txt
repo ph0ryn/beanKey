@@ -42,6 +42,13 @@ target_compile_options(beankey-register-input-method PRIVATE -fobjc-arc -Wall -W
 target_link_libraries(beankey-register-input-method PRIVATE ${COCOA_FRAMEWORK} ${CARBON_FRAMEWORK})
 install(TARGETS beankey-register-input-method RUNTIME DESTINATION bin)
 if(BUILD_TESTING)
+  add_executable(beankey-macos-icon-test tests/icon_test.mm)
+  target_compile_options(beankey-macos-icon-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
+  target_compile_definitions(beankey-macos-icon-test PRIVATE
+    BEANKEY_ICON_PATH="${CMAKE_CURRENT_BINARY_DIR}/beanKey-character.tiff")
+  target_link_libraries(beankey-macos-icon-test PRIVATE ${COCOA_FRAMEWORK})
+  add_dependencies(beankey-macos-icon-test beanKey)
+  add_test(NAME beankey-macos-icon COMMAND beankey-macos-icon-test)
   add_executable(beankey-macos-input-test tests/input_test.mm)
   target_compile_options(beankey-macos-input-test PRIVATE -Wall -Wextra -Werror)
   target_link_libraries(beankey-macos-input-test PRIVATE beankey-macos-input)

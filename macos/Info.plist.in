@@ -5,6 +5,7 @@
   <key>CFBundleIdentifier</key><string>org.ph0ryn.inputmethod.beanKey</string>
   <key>CFBundleName</key><string>beanKey</string>
   <key>CFBundleDisplayName</key><string>beanKey</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleExecutable</key><string>beanKey</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>@PROJECT_VERSION@</string>
@@ -16,8 +17,26 @@
   <key>InputMethodServerControllerClass</key><string>BKInputController</string>
   <key>TISInputSourceID</key><string>org.ph0ryn.inputmethod.beanKey</string>
   <key>TISIntendedLanguage</key><string>ja</string>
+  <key>ComponentInputModeDict</key>
+  <dict>
+    <key>tsInputModeListKey</key>
+    <dict>
+      <key>com.apple.inputmethod.Japanese</key>
+      <dict>
+        <key>TISInputSourceID</key><string>org.ph0ryn.inputmethod.beanKey.Japanese</string>
+        <key>TISIntendedLanguage</key><string>ja</string>
+        <key>tsInputModeDefaultStateKey</key><true/>
+        <key>tsInputModeIsVisibleKey</key><true/>
+        <key>tsInputModeJISKeyboardShortcutKey</key><integer>1</integer>
+        <key>tsInputModePrimaryInScriptKey</key><true/>
+        <key>tsInputModeScriptKey</key><string>smJapanese</string>
+      </dict>
+    </dict>
+    <key>tsVisibleInputModeOrderedArrayKey</key>
+    <array><string>com.apple.inputmethod.Japanese</string></array>
+  </dict>
   <key>TISIconIsTemplate</key><true/>
   <key>tsInputMethodIconFileKey</key><string>beanKey-character.tiff</string>
-  <key>tsInputMethodCharacterRepertoireKey</key><array><string>Latn</string><string>Hira</string><string>Kana</string></array>
+  <key>tsInputMethodCharacterRepertoireKey</key><array><string>Hira</string><string>Kana</string></array>
 </dict>
 </plist>

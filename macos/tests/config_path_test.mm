@@ -22,31 +22,17 @@ int main() {
     NSString *support = [NSString stringWithUTF8String:directory];
     NSString *configured =
         [support stringByAppendingPathComponent:@"config.toml"];
-    NSString *packaged = [support
-        stringByAppendingPathComponent:@"package/share/beankey/config.toml"];
     NSFileManager *files = [NSFileManager defaultManager];
-    require([files createDirectoryAtPath:[packaged
-                                             stringByDeletingLastPathComponent]
-                withIntermediateDirectories:YES
-                                 attributes:nil
-                                      error:nil],
-            "Create packaged configuration directory");
-    require([@"default" writeToFile:packaged
-                         atomically:YES
-                           encoding:NSUTF8StringEncoding
-                              error:nil],
-            "Create packaged configuration");
-    require([[BKDaemonConnection configurationPathForSupport:support]
-                isEqualToString:packaged],
-            "Missing user configuration uses packaged default");
-    require([@"custom" writeToFile:configured
+    require([BKDaemonConnection configurationPathForSupport:support] == nil,
+            "Missing configuration fails before installation");
+    require([@"default" writeToFile:configured
                         atomically:YES
                           encoding:NSUTF8StringEncoding
-                             error:nil],
-            "Create user configuration");
+                           error:nil],
+            "Create generated default configuration");
     require([[BKDaemonConnection configurationPathForSupport:support]
                 isEqualToString:configured],
-            "Existing user configuration takes precedence");
+            "Installed configuration is used");
     require([files removeItemAtPath:configured error:nil],
             "Remove user configuration");
     require(symlink("missing.toml", configured.fileSystemRepresentation) == 0,

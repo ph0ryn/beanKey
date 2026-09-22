@@ -1,7 +1,5 @@
 #include "daemon_connection.h"
-#include <cerrno>
 #include <memory>
-#include <sys/stat.h>
 
 @implementation BKDaemonConnection {
   std::shared_ptr<beankey::Client> _client;
@@ -11,19 +9,8 @@
   NSUInteger _generation;
 }
 + (NSString *)configurationPathForSupport:(NSString *)support {
-  NSString *configuredPath =
+  NSString *configPath =
       [support stringByAppendingPathComponent:@"config.toml"];
-  NSString *configPath = configuredPath;
-  struct stat configMetadata;
-  if (lstat(configuredPath.fileSystemRepresentation, &configMetadata) != 0) {
-    if (errno != ENOENT) {
-      NSLog(@"beanKey: cannot inspect configuration: %d", errno);
-      return nil;
-    }
-    configPath = [support
-        stringByAppendingPathComponent:@"package/share/beankey/config.toml"];
-    NSLog(@"beanKey: using packaged default configuration");
-  }
   BOOL isDirectory = NO;
   if (![[NSFileManager defaultManager] fileExistsAtPath:configPath
                                             isDirectory:&isDirectory] ||

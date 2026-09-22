@@ -142,11 +142,16 @@ in
         ];
       }
       ''
-        test -f '${inputMethod}/share/beankey/config.toml'
+        test ! -e '${inputMethod}/share/beankey/config.toml'
+        for asset in dictionary emoji-dictionary model llama-backend hunspell-english hunspell-greek; do
+          test -L '${inputMethod}/share/beankey/'"$asset"
+          test -e '${inputMethod}/share/beankey/'"$asset"
+        done
         bash -n '${inputMethod}/bin/beankey-install'
         grep -aqF 'Library/Application Support/beanKey' '${binary}'
         grep -aqF 'config.toml' '${binary}'
-        grep -aqF 'package/share/beankey/config.toml' '${binary}'
+        grep -qF 'config.toml' '${inputMethod}/bin/beankey-install'
+        grep -qF 'package_root/share/beankey/model' '${inputMethod}/bin/beankey-install'
         if grep -aqE '/nix/store/[a-z0-9]{32}-beankey-config.toml' '${binary}'; then
           echo 'macOS frontend embeds a generated configuration store path' >&2
           exit 1

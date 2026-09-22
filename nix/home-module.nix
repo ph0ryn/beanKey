@@ -16,7 +16,7 @@ let
       packages
       ;
   };
-  inputMethod = packages.macos-input-method.withConfig settings.configFile;
+  inputMethod = packages.macos-input-method;
 in
 {
   options.programs.beanKey = settings.options;
@@ -28,7 +28,8 @@ in
       }
     ];
     home.packages = [ inputMethod ];
-    home.activation.beanKeyInputMethod = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    home.file."Library/Application Support/beanKey/config.toml".source = settings.configFile;
+    home.activation.beanKeyInputMethod = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
       run ${inputMethod}/bin/beankey-install
     '';
   };

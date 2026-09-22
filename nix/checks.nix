@@ -105,6 +105,32 @@ in
         touch "$out"
       '';
 }
+// pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+  macos-config-separation =
+    let
+      inputMethod = self.packages.${system}.macos-input-method;
+      binary = "${inputMethod}/Library/Input Methods/beanKey.app/Contents/MacOS/beanKey";
+    in
+    pkgs.runCommand "beankey-macos-config-separation"
+      {
+        nativeBuildInputs = [
+          pkgs.bash
+          pkgs.gnugrep
+        ];
+      }
+      ''
+        test -f '${inputMethod}/share/beankey/config.toml'
+        bash -n '${inputMethod}/bin/beankey-install'
+        grep -aqF 'Library/Application Support/beanKey' '${binary}'
+        grep -aqF 'config.toml' '${binary}'
+        grep -aqF 'package/share/beankey/config.toml' '${binary}'
+        if grep -aqE '/nix/store/[a-z0-9]{32}-beankey-config.toml' '${binary}'; then
+          echo 'macOS frontend embeds a generated configuration store path' >&2
+          exit 1
+        fi
+        touch "$out"
+      '';
+}
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
   nixos-module = pkgs.runCommand "beankey-nixos-module" { } ''
     config=${moduleConfigSource}

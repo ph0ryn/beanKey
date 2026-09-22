@@ -83,51 +83,46 @@ in
       };
       cfg = (pkgs.lib.evalModules { modules = [ { options = defaultSettings.options; } ]; }).config;
     };
-    makeInputMethod =
-      configFile:
-      pkgs.stdenv.mkDerivation {
-        pname = "beankey-macos-input-method";
-        inherit version;
-        src = sourceFor [
-          "Cargo.toml"
-          "LICENSE"
-          "macos"
-          "ipc"
-          "proto"
-        ];
-        cmakeDir = "../macos";
-        nativeBuildInputs = [
-          pkgs.cmake
-          pkgs.ninja
-          pkgs.protobuf
-        ];
-        buildInputs = [ pkgs.protobuf ];
-        cmakeFlags = [
-          "-DBEANKEY_DAEMON_PATH=${daemon}/bin/beankey-daemon"
-          "-DBEANKEY_CONFIG_PATH=${configFile}"
-        ];
-        doCheck = true;
-        postInstall = ''
-          substitute ${../macos/install.sh.in} "$out/bin/beankey-install" \
-            --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out" \
-            --subst-var-by NIX ${pkgs.nix}
-          chmod +x "$out/bin/beankey-install"
-          install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
-        '';
-        passthru = {
-          withConfig = makeInputMethod;
-          inherit configFile;
-        };
-        meta = {
-          description = "beanKey InputMethodKit frontend";
-          license = pkgs.lib.licenses.mit;
-          platforms = [ "aarch64-darwin" ];
-          mainProgram = "beankey-install";
-        };
+    inputMethod = pkgs.stdenv.mkDerivation {
+      pname = "beankey-macos-input-method";
+      inherit version;
+      src = sourceFor [
+        "Cargo.toml"
+        "LICENSE"
+        "macos"
+        "ipc"
+        "proto"
+      ];
+      cmakeDir = "../macos";
+      nativeBuildInputs = [
+        pkgs.cmake
+        pkgs.ninja
+        pkgs.protobuf
+      ];
+      buildInputs = [ pkgs.protobuf ];
+      cmakeFlags = [
+        "-DBEANKEY_DAEMON_PATH=${daemon}/bin/beankey-daemon"
+      ];
+      doCheck = true;
+      postInstall = ''
+        install -Dm644 ${defaultSettings.configFile} "$out/share/beankey/config.toml"
+        substitute ${../macos/install.sh.in} "$out/bin/beankey-install" \
+          --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out" \
+          --subst-var-by NIX ${pkgs.nix}
+        chmod +x "$out/bin/beankey-install"
+        install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
+      '';
+      passthru.configFile = defaultSettings.configFile;
+      meta = {
+        description = "beanKey InputMethodKit frontend";
+        license = pkgs.lib.licenses.mit;
+        platforms = [ "aarch64-darwin" ];
+        mainProgram = "beankey-install";
       };
+    };
   in
   {
-    macos-input-method = makeInputMethod defaultSettings.configFile;
+    macos-input-method = inputMethod;
   }
 )
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

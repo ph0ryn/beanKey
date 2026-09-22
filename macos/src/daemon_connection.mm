@@ -1,4 +1,5 @@
 #include "daemon_connection.h"
+#include <cerrno>
 #include <memory>
 #include <sys/stat.h>
 
@@ -9,20 +10,48 @@
   BOOL _preparing;
   NSUInteger _generation;
 }
++ (NSString *)configurationPathForSupport:(NSString *)support {
+  NSString *configuredPath =
+      [support stringByAppendingPathComponent:@"config.toml"];
+  NSString *configPath = configuredPath;
+  struct stat configMetadata;
+  if (lstat(configuredPath.fileSystemRepresentation, &configMetadata) != 0) {
+    if (errno != ENOENT) {
+      NSLog(@"beanKey: cannot inspect configuration: %d", errno);
+      return nil;
+    }
+    configPath = [support
+        stringByAppendingPathComponent:@"package/share/beankey/config.toml"];
+    NSLog(@"beanKey: using packaged default configuration");
+  }
+  BOOL isDirectory = NO;
+  if (![[NSFileManager defaultManager] fileExistsAtPath:configPath
+                                            isDirectory:&isDirectory] ||
+      isDirectory ||
+      ![[NSFileManager defaultManager] isReadableFileAtPath:configPath]) {
+    NSLog(@"beanKey: configuration is not a readable file: %@", configPath);
+    return nil;
+  }
+  return configPath;
+}
 + (instancetype)sharedConnection {
   static BKDaemonConnection *connection;
   static dispatch_once_t once;
   dispatch_once(&once, ^{
     NSString *runtime = [NSHomeDirectory()
         stringByAppendingPathComponent:@"Library/Caches/beanKey/runtime"];
-    NSString *learning =
-        [NSHomeDirectory() stringByAppendingPathComponent:
-                               @"Library/Application Support/beanKey/learning"];
+    NSString *support = [NSHomeDirectory()
+        stringByAppendingPathComponent:@"Library/Application Support/beanKey"];
+    NSString *learning = [support stringByAppendingPathComponent:@"learning"];
     connection = [[self alloc]
         initWithSocketPath:
             [runtime stringByAppendingPathComponent:@"beankey/daemon.sock"]
                   launcher:^{
                     NSError *error = nil;
+                    NSString *configPath = [BKDaemonConnection
+                        configurationPathForSupport:support];
+                    if (!configPath)
+                      return;
                     if (![[NSFileManager defaultManager]
                                   createDirectoryAtPath:runtime
                             withIntermediateDirectories:YES
@@ -38,8 +67,8 @@
                     task.executableURL =
                         [NSURL fileURLWithPath:@BEANKEY_DAEMON_PATH];
                     task.arguments = @[
-                      @"--config", @BEANKEY_CONFIG_PATH, @"--runtime-root",
-                      runtime, @"--learning-directory", learning
+                      @"--config", configPath, @"--runtime-root", runtime,
+                      @"--learning-directory", learning
                     ];
                     NSString *logs = [NSHomeDirectory()
                         stringByAppendingPathComponent:@"Library/Logs/beanKey"];

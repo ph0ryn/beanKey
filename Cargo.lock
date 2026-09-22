@@ -54,7 +54,7 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "beankey-converter"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "cc",
  "chrono",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "beankey-daemon"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "beankey-converter",
  "beankey-llama",
@@ -86,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "beankey-llama"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "cc",
  "pkg-config",

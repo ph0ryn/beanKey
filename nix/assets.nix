@@ -22,17 +22,6 @@ let
 in
 {
   dictionary =
-    let
-      attribution = pkgs.writeText "beankey-dictionary-attribution" ''
-        Asset: azooKey dictionary storage
-        Source: azooKey/azooKey_dictionary_storage
-        Fixed revision: ${dictionarySource.rev}
-        License: Apache License 2.0
-        Copyright 2024 Miwa / ensan
-        Changes by beanKey: none; generated dictionary files are copied directly.
-        Upstream NOTICE: none at the fixed revision.
-      '';
-    in
     pkgs.runCommand "beankey-dictionary"
       {
         meta.license = pkgs.lib.licenses.asl20;
@@ -47,7 +36,15 @@ in
           "$out/share/beankey/dictionary/"
         cp ${dictionarySource}/LICENSE \
           "$out/share/licenses/beankey-dictionary/LICENSE"
-        cp ${attribution} "$out/share/licenses/beankey-dictionary/ATTRIBUTION"
+        cat > "$out/share/licenses/beankey-dictionary/ATTRIBUTION" <<'EOF'
+        Asset: azooKey dictionary storage
+        Source: azooKey/azooKey_dictionary_storage
+        Fixed revision: ${dictionarySource.rev}
+        License: Apache License 2.0
+        Copyright 2024 Miwa / ensan
+        Changes by beanKey: none; generated dictionary files are copied directly.
+        Upstream NOTICE: none at the fixed revision.
+        EOF
       '';
 
   emoji =
@@ -60,27 +57,6 @@ in
         url = "https://www.unicode.org/license.txt";
         hash = "sha256-56k7AJVlz85VkZo4FDesTbiD6dohJvoouR0ScyvFPZY=";
       };
-      attribution = pkgs.writeText "beankey-emoji-attribution" ''
-        Asset: generated azooKey emoji dictionary for Unicode Emoji 17.0
-        Source: azooKey/azooKey_emoji_dictionary_storage
-        Fixed revision: ${emojiSource.rev}
-        Packaged file: EmojiDictionary/emoji_all_E17.0.txt
-        Changes by beanKey: none; the generated dictionary is copied directly.
-
-        Mozc-derived data:
-        Source revision: google/mozc 4517e51d53063397222adb5512c7ad972b17c181
-        Copyright 2010-2018, Google Inc. All rights reserved.
-        License: BSD 3-Clause
-
-        Unicode Emoji and CLDR-derived data:
-        Copyright 2022 Unicode, Inc. for emoji data.
-        Copyright 1991-2023 Unicode, Inc. for CLDR data.
-        License: Unicode License V3
-
-        azooKey additional emoji data:
-        Copyright 2023 Miwa / Ensan
-        License: MIT
-      '';
     in
     pkgs.runCommand "beankey-emoji-dictionary"
       {
@@ -104,7 +80,27 @@ in
         cp ${unicodeLicense} "$out/share/licenses/beankey-emoji/Unicode-License-V3.txt"
         cp ${beanKeyUpstream}/LICENSE \
           "$out/share/licenses/beankey-emoji/MIT.txt"
-        cp ${attribution} "$out/share/licenses/beankey-emoji/ATTRIBUTION"
+        cat > "$out/share/licenses/beankey-emoji/ATTRIBUTION" <<'EOF'
+        Asset: generated azooKey emoji dictionary for Unicode Emoji 17.0
+        Source: azooKey/azooKey_emoji_dictionary_storage
+        Fixed revision: ${emojiSource.rev}
+        Packaged file: EmojiDictionary/emoji_all_E17.0.txt
+        Changes by beanKey: none; the generated dictionary is copied directly.
+
+        Mozc-derived data:
+        Source revision: google/mozc 4517e51d53063397222adb5512c7ad972b17c181
+        Copyright 2010-2018, Google Inc. All rights reserved.
+        License: BSD 3-Clause
+
+        Unicode Emoji and CLDR-derived data:
+        Copyright 2022 Unicode, Inc. for emoji data.
+        Copyright 1991-2023 Unicode, Inc. for CLDR data.
+        License: Unicode License V3
+
+        azooKey additional emoji data:
+        Copyright 2023 Miwa / Ensan
+        License: MIT
+        EOF
       '';
 
   model =
@@ -117,16 +113,6 @@ in
         url = "https://www.apache.org/licenses/LICENSE-2.0.txt";
         hash = "sha256-z8d0m5b2O9McPEK1xHG/dWgUBT6EfBDz6wA0F7xSPTA=";
       };
-      attribution = pkgs.writeText "beankey-model-attribution" ''
-        Asset: zenz-v3.2-small GGUF model
-        Source: Miwa-Keita/zenz-v3.2-small-gguf
-        Fixed revision: c67e03e07d215c869f591b274c1631170d3e11fe
-        File: ggml-model-Q5_K_M.gguf
-        Source hash: sha256-KcIj1MIzJ7gP0T67WrJVUFekYxeZfV2jkVhP++8NtnM=
-        License: Apache License 2.0, as declared by the fixed model card metadata.
-        Changes by beanKey: none; the fetched bytes are copied directly.
-        Upstream LICENSE and NOTICE: none at the fixed revision.
-      '';
     in
     pkgs.runCommand "beankey-zenz-v3.2-small-gguf"
       {
@@ -142,19 +128,20 @@ in
           "$out/share/beankey/model/ggml-model-Q5_K_M.gguf"
         cp ${license} \
           "$out/share/licenses/beankey-model/Apache-2.0.txt"
-        cp ${attribution} "$out/share/licenses/beankey-model/ATTRIBUTION"
+        cat > "$out/share/licenses/beankey-model/ATTRIBUTION" <<'EOF'
+        Asset: zenz-v3.2-small GGUF model
+        Source: Miwa-Keita/zenz-v3.2-small-gguf
+        Fixed revision: c67e03e07d215c869f591b274c1631170d3e11fe
+        File: ggml-model-Q5_K_M.gguf
+        Source hash: sha256-KcIj1MIzJ7gP0T67WrJVUFekYxeZfV2jkVhP++8NtnM=
+        License: Apache License 2.0, as declared by the fixed model card metadata.
+        Changes by beanKey: none; the fetched bytes are copied directly.
+        Upstream LICENSE and NOTICE: none at the fixed revision.
+        EOF
       '';
 
   tokenizer =
     let
-      attribution = pkgs.writeText "beankey-tokenizer-attribution" ''
-        Asset: EfficientNGram tokenizer data
-        Source: azooKey/AzooKeyKanaKanjiConverter
-        Fixed revision: 93766c46e31fa6a18b7ced49dab31337780f6f45
-        Original distribution: ku-nlp/gpt2-small-japanese-char
-        License: Creative Commons Attribution-ShareAlike 4.0 International
-        Changes by beanKey: none; files are copied from the fixed azooKey revision.
-      '';
       license = pkgs.fetchurl {
         url = "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt";
         hash = "sha256-KKlSnH0LtNxR9L9cEWo9Fu8kegUvdZFGZ2jd9WP9HPU=";
@@ -173,6 +160,13 @@ in
         cp -r ${beanKeyUpstream}/Sources/EfficientNGram/tokenizer/. \
           "$out/share/beankey/tokenizer/"
         cp ${license} "$out/share/licenses/beankey-tokenizer/CC-BY-SA-4.0.txt"
-        cp ${attribution} "$out/share/licenses/beankey-tokenizer/ATTRIBUTION"
+        cat > "$out/share/licenses/beankey-tokenizer/ATTRIBUTION" <<'EOF'
+        Asset: EfficientNGram tokenizer data
+        Source: azooKey/AzooKeyKanaKanjiConverter
+        Fixed revision: 93766c46e31fa6a18b7ced49dab31337780f6f45
+        Original distribution: ku-nlp/gpt2-small-japanese-char
+        License: Creative Commons Attribution-ShareAlike 4.0 International
+        Changes by beanKey: none; files are copied from the fixed azooKey revision.
+        EOF
       '';
 }

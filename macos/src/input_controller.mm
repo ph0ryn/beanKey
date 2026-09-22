@@ -1,5 +1,6 @@
 #include "input_controller.h"
 #include "input_session.h"
+#import <AppKit/NSWorkspace.h>
 
 @implementation BKInputController {
   BKInputSession *_session;
@@ -41,11 +42,22 @@
                                keyEquivalent:@""];
   reset.target = self;
   reset.enabled = _session.learningAvailable;
+  [menu addItem:[NSMenuItem separatorItem]];
+  NSMenuItem *github = [menu addItemWithTitle:@"GitHub"
+                                       action:@selector(openGitHub:)
+                                keyEquivalent:@""];
+  github.target = self;
+  github.representedObject =
+      [NSURL URLWithString:@"https://github.com/ph0ryn/beanKey"];
   menu.autoenablesItems = NO;
   return menu;
 }
 - (void)resetLearning:(id)sender {
   (void)sender;
   [_session resetLearning];
+}
+- (void)openGitHub:(NSMenuItem *)sender {
+  if (![[NSWorkspace sharedWorkspace] openURL:sender.representedObject])
+    NSLog(@"beanKey: could not open GitHub");
 }
 @end

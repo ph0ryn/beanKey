@@ -14,7 +14,6 @@ find_library(CARBON_FRAMEWORK Carbon REQUIRED)
 find_library(IMAGEIO_FRAMEWORK ImageIO REQUIRED)
 find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
 find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
-find_library(CORETEXT_FRAMEWORK CoreText REQUIRED)
 set(BEANKEY_DAEMON_PATH "" CACHE FILEPATH "Absolute daemon executable path")
 set(BEANKEY_CONFIG_PATH "" CACHE FILEPATH "Internal daemon configuration path")
 
@@ -28,7 +27,7 @@ target_compile_definitions(beankey-macos-input PRIVATE
 target_link_libraries(beankey-macos-input PUBLIC beankey-ipc ${COCOA_FRAMEWORK} ${IMK_FRAMEWORK} ${CARBON_FRAMEWORK})
 add_executable(beanKey MACOSX_BUNDLE src/main.mm src/input_controller.mm)
 add_executable(beankey-make-icon src/make_icon.cpp)
-target_link_libraries(beankey-make-icon PRIVATE ${COREGRAPHICS_FRAMEWORK} ${IMAGEIO_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK} ${CORETEXT_FRAMEWORK})
+target_link_libraries(beankey-make-icon PRIVATE ${COREGRAPHICS_FRAMEWORK} ${IMAGEIO_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK})
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/beanKey-character.tiff
   COMMAND beankey-make-icon ${CMAKE_CURRENT_BINARY_DIR}/beanKey-character.tiff DEPENDS beankey-make-icon)
 target_sources(beanKey PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/beanKey-character.tiff)
@@ -50,7 +49,8 @@ if(BUILD_TESTING)
   add_executable(beankey-macos-icon-test tests/icon_test.mm)
   target_compile_options(beankey-macos-icon-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
   target_compile_definitions(beankey-macos-icon-test PRIVATE
-    BEANKEY_ICON_PATH="${CMAKE_CURRENT_BINARY_DIR}/beanKey-character.tiff")
+    BEANKEY_ICON_PATH="${CMAKE_CURRENT_BINARY_DIR}/beanKey-character.tiff"
+    BEANKEY_INFO_PLIST_PATH="${CMAKE_CURRENT_BINARY_DIR}/beanKey.app/Contents/Info.plist")
   target_link_libraries(beankey-macos-icon-test PRIVATE ${COCOA_FRAMEWORK})
   add_dependencies(beankey-macos-icon-test beanKey)
   add_test(NAME beankey-macos-icon COMMAND beankey-macos-icon-test)

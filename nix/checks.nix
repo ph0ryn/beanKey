@@ -7,6 +7,22 @@
 }:
 
 let
+  assetNames = [
+    "dictionary"
+    "emoji"
+    "model"
+    "tokenizer"
+  ];
+  assetSystems = builtins.attrNames self.packages;
+  referenceSystem = builtins.head assetSystems;
+  sharedAssetPaths = builtins.all (
+    assetName:
+    builtins.all (
+      assetSystem:
+      self.packages.${assetSystem}.${assetName}.outPath
+      == self.packages.${referenceSystem}.${assetName}.outPath
+    ) assetSystems
+  ) assetNames;
   moduleEvaluation = nixpkgs.lib.nixosSystem {
     inherit system;
     modules = [
@@ -54,6 +70,13 @@ let
   classicUIConfigSource = moduleConfig.environment.etc."xdg/fcitx5/conf/classicui.conf".source;
 in
 {
+  shared-asset-paths =
+    assert pkgs.lib.assertMsg sharedAssetPaths
+      "beanKey assets must have the same store paths on all supported systems";
+    pkgs.runCommand "beankey-shared-asset-paths" { } ''
+      touch "$out"
+    '';
+
   default-package =
     let
       packages = self.packages.${system};

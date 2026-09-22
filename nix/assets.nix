@@ -36,6 +36,9 @@ in
     pkgs.runCommand "beankey-dictionary"
       {
         meta.license = pkgs.lib.licenses.asl20;
+        outputHash = "sha256-9vAeYy1EAjxYtQ3MryaNwk0DAIAioWa6eOWok9QThUs=";
+        outputHashAlgo = "sha256";
+        outputHashMode = "recursive";
       }
       ''
         mkdir -p "$out/share/beankey/dictionary"
@@ -86,6 +89,9 @@ in
           unicode-30
           mit
         ];
+        outputHash = "sha256-m2je4y4idA8nLeb9MjUtw6zwskJrliy62bng0q5Dp0A=";
+        outputHashAlgo = "sha256";
+        outputHashMode = "recursive";
       }
       ''
         mkdir -p "$out/share/beankey/emoji"
@@ -125,6 +131,9 @@ in
     pkgs.runCommand "beankey-zenz-v3.2-small-gguf"
       {
         meta.license = pkgs.lib.licenses.asl20;
+        outputHash = "sha256-dOmsJLYpxy6RGZVc0Rfirz8He/CoLXG5J+F61lBSjSM=";
+        outputHashAlgo = "sha256";
+        outputHashMode = "recursive";
       }
       ''
         mkdir -p "$out/share/beankey/model"
@@ -154,6 +163,9 @@ in
     pkgs.runCommand "beankey-zenz-tokenizer"
       {
         meta.license = pkgs.lib.licenses.cc-by-sa-40;
+        outputHash = "sha256-6xZIBXHZzGL3waV7tJf6t8n540XRWCvRQZbNwDFLVQ8=";
+        outputHashAlgo = "sha256";
+        outputHashMode = "recursive";
       }
       ''
         mkdir -p "$out/share/beankey/tokenizer"

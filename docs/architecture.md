@@ -117,7 +117,9 @@ moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/beankey/config.t
 
 ## macOS統合
 
-`nix/settings.nix`がNixOSとHome Managerの共通option、検証条件、内部TOML生成を所有します。macOS packageはdaemonと生成設定のNix store pathをbundleへ埋め込みます。
+`nix/settings.nix`がNixOSとHome Managerの共通option、検証条件、内部TOML生成を所有します。macOS packageはdaemonのNix store pathをbundleへ埋め込み、既定の内部TOMLをpackageに同梱します。利用者ごとの設定はbundleに含めないため、`programs.beanKey`の値を変えてもInputMethodKit packageは変わりません。
+
+Home Manager moduleは生成した内部TOMLを`~/Library/Application Support/beanKey/config.toml`から参照させます。フロントエンドは起動時にこの設定を優先し、パスが存在しない単体インストールでは`~/Library/Application Support/beanKey/package/share/beankey/config.toml`の既定設定を使用します。利用者設定へのリンクが壊れている場合は既定設定へ切り替えず、デーモンの起動を失敗させます。
 
 Home Manager moduleは`beankey-install`をactivationで実行します。installerは署名したbundleの実体を`~/Library/Input Methods/beanKey.app`へ置き、公開TIS APIで登録します。有効化・選択は利用者がシステム設定で行い、既存の入力ソースは変更しません。更新後は起動中の旧プロセスを使わないよう、必要に応じて再ログインします。
 

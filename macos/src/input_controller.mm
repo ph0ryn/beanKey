@@ -42,13 +42,10 @@
                                keyEquivalent:@""];
   reset.target = self;
   reset.enabled = _session.learningAvailable;
-  [menu addItem:[NSMenuItem separatorItem]];
   NSMenuItem *github = [menu addItemWithTitle:@"GitHub"
                                        action:@selector(openGitHub:)
                                 keyEquivalent:@""];
   github.target = self;
-  github.representedObject =
-      [NSURL URLWithString:@"https://github.com/ph0ryn/beanKey"];
   menu.autoenablesItems = NO;
   return menu;
 }
@@ -56,8 +53,10 @@
   (void)sender;
   [_session resetLearning];
 }
-- (void)openGitHub:(NSMenuItem *)sender {
-  if (![[NSWorkspace sharedWorkspace] openURL:sender.representedObject])
+- (void)openGitHub:(id)sender {
+  (void)sender;
+  NSURL *url = [NSURL URLWithString:@"https://github.com/ph0ryn/beanKey"];
+  if (![[NSWorkspace sharedWorkspace] openURL:url])
     NSLog(@"beanKey: could not open GitHub");
 }
 @end

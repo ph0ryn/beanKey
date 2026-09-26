@@ -172,6 +172,12 @@ in
   options = {
     enable = mkEnableOption "beanKey kana-kanji conversion";
 
+    useBeanKeyTheme = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Whether to apply the beanKey Fcitx5 Classic UI theme on NixOS. Ignored on macOS.";
+    };
+
     conversion = {
       inputStyle = mkOption {
         type = inputStyleType;

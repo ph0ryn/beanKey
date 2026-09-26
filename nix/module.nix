@@ -20,13 +20,7 @@ let
   inherit (settings) configFile;
 in
 {
-  options.programs.beanKey = settings.options // {
-    useBeanKeyTheme = lib.mkOption {
-      type = lib.types.bool;
-      default = false;
-      description = "Whether to apply the beanKey Fcitx5 Classic UI theme.";
-    };
-  };
+  options.programs.beanKey = settings.options;
   config = mkIf cfg.enable {
     inherit (settings) assertions;
     i18n.inputMethod = {

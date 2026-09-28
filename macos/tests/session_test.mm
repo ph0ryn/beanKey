@@ -264,6 +264,7 @@ static void candidateAnnotationTest() {
   state.set_selected_candidate(1);
   auto *first = state.add_candidates();
   first->set_text("これ");
+  first->set_annotation("辞書");
   first->set_index(0);
   auto *second = state.add_candidates();
   second->set_text("これやろうかな");
@@ -271,6 +272,9 @@ static void candidateAnnotationTest() {
   second->set_index(1);
   BKCandidatePanel *panel = [[BKCandidatePanel alloc] init];
   [panel showState:state client:(id<IMKTextInput>)view];
+  NSButton *unselectedRow = (NSButton *)panel.contentView.subviews[0];
+  NSTextField *unselectedCandidate = (NSTextField *)unselectedRow.subviews[1];
+  NSTextField *unselectedAnnotation = (NSTextField *)unselectedRow.subviews[2];
   NSButton *row = (NSButton *)panel.contentView.subviews[1];
   NSTextField *candidate = (NSTextField *)row.subviews[1];
   NSTextField *annotation = (NSTextField *)row.subviews[2];
@@ -278,6 +282,11 @@ static void candidateAnnotationTest() {
               [annotation.stringValue isEqualToString:@"Zenzai"] &&
               annotation.frame.size.width >= annotation.fittingSize.width,
           "Zenzai annotation must fit without truncation");
+  require(
+      ![unselectedAnnotation.textColor isEqual:unselectedCandidate.textColor] &&
+          annotation.textColor.alphaComponent <
+              candidate.textColor.alphaComponent,
+      "annotations must be visually quieter than candidate text");
   [panel reset];
 }
 

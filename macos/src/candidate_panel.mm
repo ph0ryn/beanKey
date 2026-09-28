@@ -157,6 +157,8 @@ static CGFloat labelWidth(NSString *text, NSFont *font) {
                                        green:107.0 / 255
                                         blue:112.0 / 255
                                        alpha:1];
+  NSColor *selectedAnnotation =
+      [NSColor.whiteColor colorWithAlphaComponent:0.8];
   for (NSUInteger index = 0; index < rows.count; ++index) {
     const BOOL highlighted = static_cast<NSInteger>(index) == selected;
     BKCandidateRow *row = [[BKCandidateRow alloc]
@@ -205,8 +207,11 @@ static CGFloat labelWidth(NSString *text, NSFont *font) {
       NSTextField *field = [BKCandidateLabel labelWithString:texts[part]];
       field.frame = NSMakeRect(starts[part], 6, widths[part], 18);
       field.font = (NSFont *)font;
-      field.textColor =
-          highlighted ? NSColor.whiteColor : (part == 0 ? label : normal);
+      if (part == 2)
+        field.textColor = highlighted ? selectedAnnotation : label;
+      else
+        field.textColor =
+            highlighted ? NSColor.whiteColor : (part == 0 ? label : normal);
       field.lineBreakMode = NSLineBreakByTruncatingTail;
       [row addSubview:field];
     }

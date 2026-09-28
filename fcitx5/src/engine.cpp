@@ -19,8 +19,11 @@
 #include <fcitx/text.h>
 #include <fcitx/userinterfacemanager.h>
 
+#include <sys/stat.h>
+
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -46,6 +49,25 @@ std::string absoluteEnvironmentPath(const char *name) {
 
 std::string runtimeRootPath() {
   return absoluteEnvironmentPath("XDG_RUNTIME_DIR");
+}
+
+std::string configFilePath() {
+  auto configRoot = absoluteEnvironmentPath("XDG_CONFIG_HOME");
+  if (configRoot.empty()) {
+    const auto home = absoluteEnvironmentPath("HOME");
+    if (home.empty()) {
+      return BEANKEY_CONFIG_PATH;
+    }
+    configRoot = home + "/.config";
+  }
+  const auto userConfig = configRoot + "/beankey/config.toml";
+  struct stat status {};
+  // Preserve invalid user configuration (including dangling links) so the
+  // daemon reports the error instead of silently using system settings.
+  if (lstat(userConfig.c_str(), &status) == 0 || errno != ENOENT) {
+    return userConfig;
+  }
+  return BEANKEY_CONFIG_PATH;
 }
 
 std::string learningDirectoryPath() {
@@ -586,7 +608,7 @@ bool BeanKeyEngine::ensureConnected() {
         if (learningDirectory.empty()) {
           return;
         }
-        startProcess({BEANKEY_DAEMON_PATH, "--config", BEANKEY_CONFIG_PATH,
+        startProcess({BEANKEY_DAEMON_PATH, "--config", configFilePath(),
                       "--runtime-root", runtimeRoot, "--learning-directory",
                       learningDirectory});
       },

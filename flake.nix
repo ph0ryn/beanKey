@@ -3,10 +3,19 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs, ... }:
+    {
+      self,
+      nixpkgs,
+      home-manager,
+      ...
+    }:
     let
       systems = [
         "aarch64-darwin"
@@ -15,6 +24,17 @@
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       pkgsFor = system: import nixpkgs { inherit system; };
+      developmentFor =
+        system:
+        import ./nix/dev-shell.nix {
+          pkgs = pkgsFor system;
+          inherit (self.packages.${system})
+            dictionary
+            emoji
+            model
+            tokenizer
+            ;
+        };
     in
     {
       nixosModules.default = import ./nix/module.nix { inherit self; };
@@ -36,42 +56,20 @@
         }
       );
 
-      devShells = forAllSystems (
-        system:
-        let
-          pkgs = pkgsFor system;
-          development = import ./nix/dev-shell.nix {
-            inherit pkgs;
-            dictionary = self.packages.${system}.dictionary;
-            emoji = self.packages.${system}.emoji;
-            model = self.packages.${system}.model;
-            tokenizer = self.packages.${system}.tokenizer;
-          };
-        in
-        {
-          default = development.shell;
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = (developmentFor system).shell;
+      });
 
       formatter = forAllSystems (system: (pkgsFor system).nixfmt);
 
       checks = forAllSystems (
         system:
-        let
-          pkgs = pkgsFor system;
-          development = import ./nix/dev-shell.nix {
-            inherit pkgs;
-            dictionary = self.packages.${system}.dictionary;
-            emoji = self.packages.${system}.emoji;
-            model = self.packages.${system}.model;
-            tokenizer = self.packages.${system}.tokenizer;
-          };
-        in
         import ./nix/checks.nix {
-          developmentPackages = development.packages;
+          pkgs = pkgsFor system;
+          developmentPackages = (developmentFor system).packages;
           inherit
+            home-manager
             nixpkgs
-            pkgs
             self
             system
             ;

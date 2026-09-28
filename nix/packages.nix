@@ -73,55 +73,50 @@ in
 {
   inherit daemon;
 }
-// pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin (
-  let
-    inputMethod = pkgs.stdenv.mkDerivation {
-      pname = "beankey-macos-input-method";
-      inherit version;
-      src = sourceFor [
-        "Cargo.toml"
-        "LICENSE"
-        "macos"
-        "ipc"
-        "proto"
-      ];
-      cmakeDir = "../macos";
-      nativeBuildInputs = [
-        pkgs.cmake
-        pkgs.ninja
-        pkgs.protobuf
-      ];
-      buildInputs = [ pkgs.protobuf ];
-      cmakeFlags = [
-        "-DBEANKEY_DAEMON_PATH=${daemon}/bin/beankey-daemon"
-      ];
-      doCheck = true;
-      postInstall = ''
-        mkdir -p "$out/share/beankey"
-        ln -s ${assets.dictionary}/share/beankey/dictionary "$out/share/beankey/dictionary"
-        ln -s ${assets.emoji}/share/beankey/emoji/emoji_all_E17.0.txt "$out/share/beankey/emoji-dictionary"
-        ln -s ${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf "$out/share/beankey/model"
-        ln -s ${daemon.llamaCpp}/bin "$out/share/beankey/llama-backend"
-        ln -s ${daemon.hunspellEnglish}/share/hunspell "$out/share/beankey/hunspell-english"
-        ln -s ${daemon.hunspellGreek}/share/hunspell "$out/share/beankey/hunspell-greek"
-        substitute ${../macos/install.sh.in} "$out/bin/beankey-install" \
-          --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out" \
-          --subst-var-by NIX ${pkgs.nix}
-        chmod +x "$out/bin/beankey-install"
-        install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
-      '';
-      meta = {
-        description = "beanKey InputMethodKit frontend";
-        license = pkgs.lib.licenses.mit;
-        platforms = [ "aarch64-darwin" ];
-        mainProgram = "beankey-install";
-      };
+// pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+  macos-input-method = pkgs.stdenv.mkDerivation {
+    pname = "beankey-macos-input-method";
+    inherit version;
+    src = sourceFor [
+      "Cargo.toml"
+      "LICENSE"
+      "macos"
+      "ipc"
+      "proto"
+    ];
+    cmakeDir = "../macos";
+    nativeBuildInputs = [
+      pkgs.cmake
+      pkgs.ninja
+      pkgs.protobuf
+    ];
+    buildInputs = [ pkgs.protobuf ];
+    cmakeFlags = [
+      "-DBEANKEY_DAEMON_PATH=${daemon}/bin/beankey-daemon"
+    ];
+    doCheck = true;
+    postInstall = ''
+      mkdir -p "$out/share/beankey"
+      ln -s ${assets.dictionary}/share/beankey/dictionary "$out/share/beankey/dictionary"
+      ln -s ${assets.emoji}/share/beankey/emoji/emoji_all_E17.0.txt "$out/share/beankey/emoji-dictionary"
+      ln -s ${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf "$out/share/beankey/model"
+      ln -s ${daemon.llamaCpp}/bin "$out/share/beankey/llama-backend"
+      ln -s ${daemon.hunspellEnglish}/share/hunspell "$out/share/beankey/hunspell-english"
+      ln -s ${daemon.hunspellGreek}/share/hunspell "$out/share/beankey/hunspell-greek"
+      substitute ${../macos/install.sh.in} "$out/bin/beankey-install" \
+        --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out" \
+        --subst-var-by NIX ${pkgs.nix}
+      chmod +x "$out/bin/beankey-install"
+      install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
+    '';
+    meta = {
+      description = "beanKey InputMethodKit frontend";
+      license = pkgs.lib.licenses.mit;
+      platforms = [ "aarch64-darwin" ];
+      mainProgram = "beankey-install";
     };
-  in
-  {
-    macos-input-method = inputMethod;
-  }
-)
+  };
+}
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
   fcitx5-addon = pkgs.stdenv.mkDerivation {
     pname = "fcitx5-beankey";

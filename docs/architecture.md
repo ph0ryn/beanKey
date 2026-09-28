@@ -22,7 +22,8 @@ flowchart LR
     nix --> daemon
     nix --> dictionary
     nix --> model
-    home["Home Manager module"] --> imk
+    home["Home Manager module"] -->|"macOS"| imk
+    home -->|"Linux"| addon
     home --> daemon
 ```
 
@@ -101,7 +102,7 @@ wire上のUnicode scalar offsetとCocoaのUTF-16 offsetは`macos`内で変換し
 
 候補の確定は、固定したazooKey Desktopと同様に文字列の挿入だけを行います。Fcitx5でも通常のcommit APIを使い、確定後にカーソル位置を調整する追加アクションは生成・転送しません。
 
-## NixOS統合
+## Linux統合
 
 公開設定は`programs.beanKey`だけです。NixOS moduleは次のものを導入します。
 
@@ -111,15 +112,19 @@ wire上のUnicode scalar offsetとCocoaのUTF-16 offsetは`macos`内で変換し
 - 固定GGUFモデルとtokenizer
 - nixpkgsのllama.cpp、Hunspell、英語・ギリシャ語辞書
 
-moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させます。アドオンは、この設定ファイルを指定してデーモンを起動します。
+NixOS moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させます。Linux用Home Manager moduleは同じ設定を`xdg.configHome`配下の`beankey/config.toml`へ配置します。option、検証条件、TOML生成は`nix/settings.nix`、Fcitx5の導入とテーマ設定は`nix/fcitx5.nix`を共有します。
+
+アドオンは`$XDG_CONFIG_HOME/beankey/config.toml`（未指定・空・相対パスの場合は`$HOME/.config/beankey/config.toml`）を優先し、未配置の場合だけ`/etc/beankey/config.toml`を指定してデーモンを起動します。ユーザー設定へのリンク切れやアクセスエラーを、システム設定への切り替えで隠しません。利用者の設定値や生成TOMLのstore pathはアドオンへ埋め込みません。
+
+Fcitx5はNixOSかHome Managerの一方で管理します。beanKey daemonはどちらの場合もアドオンが必要時に直接起動し、専用のsystemd unitは作成しません。
 
 モデル、辞書、tokenizer、実行ファイルはNix storeへ置きます。学習データなどの可変状態はユーザーのXDG state directoryに置き、Nix管理の不変資産と分離します。
 
 ## macOS統合
 
-`nix/settings.nix`がNixOSとHome Managerの共通option、検証条件、内部TOML生成を所有します。macOS packageはdaemonのNix store pathをbundleへ埋め込み、既定の内部TOMLをpackageに同梱します。利用者ごとの設定はbundleに含めないため、`programs.beanKey`の値を変えてもInputMethodKit packageは変わりません。
+`nix/settings.nix`がNixOSとHome Managerの共通option、検証条件、内部TOML生成を所有します。macOS packageはdaemonのNix store pathをbundleへ埋め込みます。利用者ごとの設定はbundleに含めないため、`programs.beanKey`の値を変えてもInputMethodKit packageは変わりません。
 
-Home Manager moduleは生成した内部TOMLを`~/Library/Application Support/beanKey/config.toml`から参照させます。フロントエンドは起動時にこの設定を優先し、パスが存在しない単体インストールでは`~/Library/Application Support/beanKey/package/share/beankey/config.toml`の既定設定を使用します。利用者設定へのリンクが壊れている場合は既定設定へ切り替えず、デーモンの起動を失敗させます。
+Home Manager moduleは生成した内部TOMLを`~/Library/Application Support/beanKey/config.toml`から参照させます。単体インストールでは、このパスに設定もリンクもない場合にinstallerが初期設定を生成します。フロントエンドは起動時にこの設定を読み、設定の欠損、リンク切れや読み取り不能ではデーモンの起動を失敗させます。
 
 Home Manager moduleは`beankey-install`をactivationで実行します。installerは署名したbundleの実体を`~/Library/Input Methods/beanKey.app`へ置き、公開TIS APIで登録します。有効化・選択は利用者がシステム設定で行い、既存の入力ソースは変更しません。更新後は起動中の旧プロセスを使わないよう、必要に応じて再ログインします。
 

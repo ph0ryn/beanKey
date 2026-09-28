@@ -16,28 +16,15 @@ let
       packages
       ;
   };
-  inherit (lib) mkIf optionalAttrs;
-  inherit (settings) configFile;
 in
 {
   options.programs.beanKey = settings.options;
-  config = mkIf cfg.enable {
+  config = lib.mkIf cfg.enable {
     inherit (settings) assertions;
-    i18n.inputMethod = {
-      enable = true;
-      type = "fcitx5";
-      fcitx5 = {
-        addons = [ packages.fcitx5-addon ];
-        settings.addons = optionalAttrs cfg.useBeanKeyTheme {
-          classicui.globalSection = {
-            Font = lib.mkDefault "Sans 13";
-            Theme = lib.mkDefault "beanKey";
-            UseAccentColor = lib.mkDefault "False";
-          };
-        };
-      };
+    i18n.inputMethod = import ./fcitx5.nix {
+      inherit cfg lib packages;
     };
     environment.systemPackages = [ packages.daemon ];
-    environment.etc."beankey/config.toml".source = configFile;
+    environment.etc."beankey/config.toml".source = settings.configFile;
   };
 }

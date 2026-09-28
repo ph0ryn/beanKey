@@ -17,7 +17,7 @@ Fcitx5とmacOSは共通のRustバックエンドを使う横並びのフロン�
 - 日本語、英語、ギリシャ語の入力中予測
 - 学習、ユーザー辞書、入力訂正
 - LinuxではFcitx5標準UI、macOSではInputMethodKitと同梱Fcitx5テーマに合わせた候補パネル
-- NixOS moduleとmacOS用Home Manager moduleによる宣言的な導入と設定
+- NixOS moduleとLinux/macOS共通のHome Manager moduleによる宣言的な導入と設定
 
 azooKey DesktopのAI変換や設定GUIは実装しません。
 
@@ -99,6 +99,21 @@ NixOS flakeへbeanKeyを追加し、NixOS moduleを読み込みます。
 
 Switch後にFcitx5を再起動し、Fcitx5の入力メソッド設定から`beanKey`を追加してください。
 
+### Home Manager（Linux / macOS）
+
+LinuxとmacOSでは、同じflake inputの`beanKey.homeModules.default`をHome Managerへ読み込み、同じ`programs.beanKey`で設定できます。
+
+```nix
+{
+  imports = [ beanKey.homeModules.default ];
+  programs.beanKey.enable = true;
+}
+```
+
+LinuxではFcitx5とbeanKeyアドオン、ユーザーごとの変換設定を導入します。NixOS moduleによる管理も引き続き利用できます。NixOS管理からHome Managerへ移す場合は、`programs.beanKey`と既存の`i18n.inputMethod`設定をHome Manager側へ移し、NixOS側ではFcitx5を有効にしないでください。適用後はFcitx5を再起動し、入力メソッドに`beanKey`を追加します。
+
+macOSではactivationが下記と同じインストーラーを実行します。入力ソースへの追加はシステム設定で行ってください。変換・学習設定は両OSで共通です。`useBeanKeyTheme`はLinux専用で、macOSは常に同梱テーマに合わせた表示を使用します。
+
 ### macOS（Apple Silicon）
 
 Nixを導入した環境で、checkoutから実行します。
@@ -113,17 +128,6 @@ nix run .#macos-input-method
 
 初回導入や更新後に入力ソースが反映されない場合は、ログアウトして再ログインしてください。更新済みbundleがあっても、起動中の旧プロセスは自動的に置き換わりません。
 
-宣言的な設定には、同じflake inputの`beanKey.homeModules.default`をHome Managerへ読み込みます。
-
-```nix
-{
-  imports = [ beanKey.homeModules.default ];
-  programs.beanKey.enable = true;
-}
-```
-
-Home Managerのactivationが同じインストーラーを実行します。変換・学習設定はNixOSと共通です。`useBeanKeyTheme`はLinux専用で、macOSは常に同梱テーマに合わせた表示を使用します。
-
 daemonは入力メソッドが必要時に起動します。初回のモデル読み込みが終わるまでは、キーを溜めずにアプリへ返します。起動診断ログは`~/Library/Logs/beanKey/daemon.log`にあります。
 
 ## 設定
@@ -133,7 +137,7 @@ daemonは入力メソッドが必要時に起動します。初回のモデル�
 ```nix
 programs.beanKey = {
   enable = true;
-  useBeanKeyTheme = true; # NixOSのみ。macOSではこの行を省略します。
+  useBeanKeyTheme = true; # Linuxのみ。macOSではこの行を省略します。
 
   conversion = {
     inputStyle = "roman_to_kana";

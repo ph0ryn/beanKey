@@ -119,13 +119,14 @@
 - 製品は取得した生成済み辞書を直接packageし、辞書生成器や別形式への変換を含めない。更新は互換性を確認したうえでrevisionとhashを明示的に変更する。
 - 開発環境とpackageのテストは、同じ辞書packageのNix store pathをテスト専用の`BEANKEY_TEST_DICTIONARY`と`BEANKEY_TEST_EMOJI_DICTIONARY`で渡す。これらをdaemonの利用者向け設定には使用しない。
 - NixOS moduleで`programs.beanKey.enable`を公開する。
-- 今後追加する利用者向けoptionも`programs.beanKey`配下に置く。NixOS moduleとmacOS用Home Manager moduleは、option定義と内部TOML生成を共有する。
+- 今後追加する利用者向けoptionも`programs.beanKey`配下に置く。NixOS moduleとLinux/macOS用Home Manager moduleは、option定義と内部TOML生成を共有する。LinuxのFcitx5導入とテーマ設定も両moduleで共有する。
 - モデルはflakeが固定した`pkgs.fetchurl { url; hash; }` derivationとしてNixOS moduleから参照し、利用者向けoptionにしない。
 - NixOS moduleはFcitx5 addon、daemon、辞書および固定モデルを導入し、`programs.beanKey`から内部用のdaemon設定を生成する。
 - NixOS moduleはHunspellと固定nixpkgsの英語・ギリシャ語辞書を導入し、そのNix store pathを内部用daemon設定へ書く。辞書pathを利用者向けoptionにしない。
 - 直接packageする辞書、モデル、tokenizerおよび絵文字には、資産ごとのlicense本文、取得元、固定revision、attributionおよび変更有無を添付する。通常依存の`pkgs.llama-cpp`、`pkgs.hunspell`および`pkgs.hunspellDicts`をこの資産台帳へ重複登録しない。
-- flakeは`packages.<system>.daemon`、`packages.<system>.model`、Linux向け`fcitx5-addon`、Darwin向け`macos-input-method`、`nixosModules.default`、macOS用`homeModules.default`を公開する。
-- NixOS moduleは内部設定をTOMLとして生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させる。addonはdaemonを`--config /etc/beankey/config.toml`付きで起動する。
+- flakeは`packages.<system>.daemon`、`packages.<system>.model`、Linux向け`fcitx5-addon`、Darwin向け`macos-input-method`、`nixosModules.default`、Linux/macOS共通の`homeModules.default`を公開する。
+- NixOS moduleは内部設定をTOMLとして生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させる。Linux用Home Manager moduleは同じ内部設定を`xdg.configHome`配下の`beankey/config.toml`へ配置する。
+- Linux addonはXDGのユーザー設定を優先し、未配置の場合だけNixOSの内部設定をdaemonの`--config`へ渡す。リンク切れやアクセスエラーではシステム設定へ切り替えない。利用者設定をアドオンへ埋め込まず、Fcitx5の管理元はNixOSまたはHome Managerの一方へ揃える。
 - package境界は [fcitx5-mozc](https://github.com/NixOS/nixpkgs/blob/8c91a71d13451abc40eb9dae8910f972f979852f/pkgs/by-name/fc/fcitx5-mozc/package.nix#L36-L45) と [mozc](https://github.com/NixOS/nixpkgs/blob/8c91a71d13451abc40eb9dae8910f972f979852f/pkgs/by-name/mo/mozc/package.nix#L69-L105) を基準とする。
 - daemonとFcitx5 addonを別のpackageとして定義し、addon packageからdaemon packageを参照する。
 - addonにはdaemon executableのNix store pathを埋め込み、runtimeの`PATH`検索に依存させない。

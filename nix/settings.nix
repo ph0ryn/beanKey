@@ -175,7 +175,7 @@ in
     useBeanKeyTheme = mkOption {
       type = types.bool;
       default = false;
-      description = "Whether to apply the beanKey Fcitx5 Classic UI theme on NixOS. Ignored on macOS.";
+      description = "Whether to apply the beanKey Fcitx5 Classic UI theme on Linux. Ignored on macOS.";
     };
 
     conversion = {

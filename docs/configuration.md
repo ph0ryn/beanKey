@@ -2,7 +2,7 @@
 
 beanKeyの設定は、すべて`programs.beanKey`配下にあります。
 
-NixOSとmacOSでは同じ変換・学習設定を使用します。OS固有の導入先、runtime directory、学習directoryは各moduleとフロントエンドが決め、変換の公開設定と分離します。
+LinuxとmacOSでは同じ変換・学習設定を使用します。OS固有の導入先、runtime directory、学習directoryは各moduleとフロントエンドが決め、変換の公開設定と分離します。
 
 ## 最小設定
 
@@ -10,14 +10,18 @@ NixOSとmacOSでは同じ変換・学習設定を使用します。OS固有の�
 programs.beanKey.enable = true;
 ```
 
-NixOSでは`beanKey.nixosModules.default`がFcitx5とbeanKeyアドオンを導入します。macOSではHome Managerへ`beanKey.homeModules.default`を読み込むと、InputMethodKitアプリを`~/Library/Input Methods/beanKey.app`へ導入します。どちらも共通の変換デーモン、辞書、GGUFモデルを使用します。macOSの入力ソースへの追加はシステム設定で行います。
+NixOSでは`beanKey.nixosModules.default`がFcitx5とbeanKeyアドオンを導入します。Home Managerでは、LinuxとmacOSの両方で`beanKey.homeModules.default`を読み込めます。LinuxではFcitx5とbeanKeyアドオンを、macOSではInputMethodKitアプリを`~/Library/Input Methods/beanKey.app`へ導入します。どのmoduleも共通の変換デーモン、辞書、GGUFモデルを使用します。macOSの入力ソースへの追加はシステム設定で行います。
+
+LinuxでHome Managerを使う場合は、Fcitx5の`i18n.inputMethod`設定もHome Manager側で管理します。NixOS側と同時にFcitx5を有効にせず、どちらか一方へ管理を揃えてください。
+
+内部TOMLはmoduleが生成するため、手書きする必要はありません。LinuxのHome Managerでは`xdg.configHome`配下の`beankey/config.toml`へ配置します。フロントエンドは`$XDG_CONFIG_HOME/beankey/config.toml`を優先し、環境変数が未指定・空・相対パスの場合は`$HOME/.config/beankey/config.toml`を使います。配置先を変更する場合は、Home Managerの`xdg.configHome`と実行環境の`XDG_CONFIG_HOME`を揃えてください。ユーザー設定がない場合だけ、NixOS moduleが配置する`/etc/beankey/config.toml`を使います。ユーザー設定へのリンク切れやアクセスエラーでは、システム設定へ切り替えずに起動を失敗させます。
 
 ## 設定例
 
 ```nix
 programs.beanKey = {
   enable = true;
-  useBeanKeyTheme = true; # NixOSのみ。macOSではこの行を省略します。
+  useBeanKeyTheme = true; # Linuxのみ。macOSではこの行を省略します。
 
   conversion = {
     inputStyle = "roman_to_kana";
@@ -45,9 +49,9 @@ programs.beanKey = {
 | option | 型 | 初期値 | 説明 |
 | --- | --- | --- | --- |
 | `enable` | `bool` | `false` | OSに対応するbeanKeyフロントエンドを導入 |
-| `useBeanKeyTheme` | `bool` | `false` | NixOS専用。同梱のFcitx5 Classic UIテーマを適用 |
+| `useBeanKeyTheme` | `bool` | `false` | Linux専用。同梱のFcitx5 Classic UIテーマを適用 |
 
-`useBeanKeyTheme`はClassic UIのテーマ、フォント、accent color設定に既定値を設定します。ほかのNixOS設定で明示した値がある場合は、そちらが優先されます。
+`useBeanKeyTheme`はClassic UIのテーマ、フォント、accent color設定に既定値を設定します。ほかのNixOSまたはHome Manager設定で明示した値がある場合は、そちらが優先されます。
 
 macOSの候補パネルは常に同梱テーマの配色と余白を使用します。独自設定GUIやOS別の変換設定namespaceはありません。
 
@@ -112,7 +116,7 @@ programs.beanKey.conversion = {
 };
 ```
 
-`customInputTable`が`customInputTables`に存在しない場合は、NixOS moduleの評価が失敗します。
+`customInputTable`が`customInputTables`に存在しない場合は、moduleの評価が失敗します。
 
 ### ユーザー辞書
 

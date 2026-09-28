@@ -66,4 +66,16 @@ if(BUILD_TESTING)
   target_compile_options(beankey-engine-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   target_link_libraries(beankey-engine-test PRIVATE beankey-engine Threads::Threads)
   add_test(NAME beankey-engine COMMAND beankey-engine-test)
+
+  add_executable(beankey-startup-test tests/startup_test.cpp src/engine.cpp)
+  target_compile_features(beankey-startup-test PRIVATE cxx_std_20)
+  target_compile_options(beankey-startup-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_compile_definitions(beankey-startup-test PRIVATE
+    BEANKEY_DAEMON_PATH="$<TARGET_FILE:beankey-startup-test>"
+    BEANKEY_CONFIG_PATH="${BEANKEY_CONFIG_PATH}"
+    BEANKEY_REQUEST_TIMEOUT_MS=${BEANKEY_REQUEST_TIMEOUT_MS}
+  )
+  target_link_libraries(beankey-startup-test PRIVATE beankey-key-event)
+  add_test(NAME beankey-startup COMMAND beankey-startup-test)
+  set_tests_properties(beankey-startup PROPERTIES TIMEOUT 40)
 endif()

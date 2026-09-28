@@ -1,5 +1,6 @@
 {
   developmentPackages,
+  home-manager,
   nixpkgs,
   pkgs,
   self,
@@ -70,6 +71,15 @@ let
   classicUIConfigSource = moduleConfig.environment.etc."xdg/fcitx5/conf/classicui.conf".source;
 in
 {
+  home-module = import ./home-module-check.nix {
+    inherit
+      home-manager
+      pkgs
+      self
+      system
+      ;
+  };
+
   shared-asset-paths =
     assert pkgs.lib.assertMsg sharedAssetPaths
       "beanKey assets must have the same store paths on all supported systems";

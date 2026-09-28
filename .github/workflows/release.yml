@@ -1,0 +1,40 @@
+name: Release notes
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  draft-release:
+    name: Draft GitHub Release
+    runs-on: ubuntu-slim
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Find previous tag
+        id: previous
+        run: |
+          previous_tag=$(git describe --tags --match 'v[0-9]*' --abbrev=0 "${GITHUB_REF_NAME}^")
+          printf 'tag=%s\n' "$previous_tag" >> "$GITHUB_OUTPUT"
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@v4.8.0
+        with:
+          version: v2.13.1
+          args: ${{ steps.previous.outputs.tag }}..${{ github.ref_name }}
+        env:
+          OUTPUT: release-notes.md
+      - name: Remove emoji from headings
+        run: |
+          test -s release-notes.md
+          sed -i -E 's/^(### )[^[:alnum:]]+ /\1/' release-notes.md
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3.0.3
+        with:
+          body_path: release-notes.md
+          draft: true

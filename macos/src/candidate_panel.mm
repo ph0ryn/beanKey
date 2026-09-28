@@ -12,6 +12,12 @@
 }
 @end
 
+static CGFloat labelWidth(NSString *text, NSFont *font) {
+  NSTextField *field = [BKCandidateLabel labelWithString:text];
+  field.font = font;
+  return field.fittingSize.width;
+}
+
 @interface BKCandidateRow : NSButton
 @property(nonatomic, copy) void (^forget)(void);
 @property(nonatomic, copy) void (^correct)(void);
@@ -184,9 +190,7 @@
     const CGFloat annotationWidth =
         annotations[index].length
             ? std::min(width / 2,
-                       [annotations[index]
-                           sizeWithAttributes:@{NSFontAttributeName : font}]
-                           .width)
+                       labelWidth(annotations[index], (NSFont *)font))
             : 0;
     const NSArray *texts = @[
       _selecting ? [NSString stringWithFormat:@"%lu", (unsigned long)index + 1]

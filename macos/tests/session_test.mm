@@ -256,6 +256,31 @@ static void fakeDaemonTest() {
   rmdir(pattern.data());
 }
 
+static void candidateAnnotationTest() {
+  BKTestTextView *view =
+      [[BKTestTextView alloc] initWithFrame:NSMakeRect(0, 0, 500, 300)];
+  beankey::v1::StateResponse state;
+  state.set_candidate_window(beankey::v1::CANDIDATE_WINDOW_SELECTING);
+  state.set_selected_candidate(1);
+  auto *first = state.add_candidates();
+  first->set_text("これ");
+  first->set_index(0);
+  auto *second = state.add_candidates();
+  second->set_text("これやろうかな");
+  second->set_annotation("Zenzai");
+  second->set_index(1);
+  BKCandidatePanel *panel = [[BKCandidatePanel alloc] init];
+  [panel showState:state client:(id<IMKTextInput>)view];
+  NSButton *row = (NSButton *)panel.contentView.subviews[1];
+  NSTextField *candidate = (NSTextField *)row.subviews[1];
+  NSTextField *annotation = (NSTextField *)row.subviews[2];
+  require(candidate.frame.size.width >= candidate.fittingSize.width &&
+              [annotation.stringValue isEqualToString:@"Zenzai"] &&
+              annotation.frame.size.width >= annotation.fittingSize.width,
+          "Zenzai annotation must fit without truncation");
+  [panel reset];
+}
+
 static void realDaemonTest(NSString *socketPath) {
   BKDaemonConnection *connection =
       [[BKDaemonConnection alloc] initWithSocketPath:socketPath
@@ -301,6 +326,7 @@ int main(int argc, const char *argv[]) {
   @autoreleasepool {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    candidateAnnotationTest();
     fakeDaemonTest();
     if (argc == 2)
       realDaemonTest([NSString stringWithUTF8String:argv[1]]);

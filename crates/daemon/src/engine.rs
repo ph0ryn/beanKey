@@ -1383,6 +1383,7 @@ impl Engine {
             .desktop_additional_candidates(selected, &self.tables);
         let shown = (session.additional_candidate_count + 1).min(additional.len());
         let base_candidates = session.display_candidates[base_start..].to_vec();
+        let base_annotations = session.candidate_annotations[base_start..].to_vec();
         let mut candidates = additional[additional.len() - shown..]
             .iter()
             .map(|(candidate, _)| candidate.clone())
@@ -1392,10 +1393,7 @@ impl Engine {
             .map(|(_, annotation)| (*annotation).to_owned())
             .collect::<Vec<_>>();
         candidates.extend(base_candidates);
-        annotations.extend(std::iter::repeat_n(
-            String::new(),
-            candidates.len() - annotations.len(),
-        ));
+        annotations.extend(base_annotations);
         session.display_candidates = candidates;
         session.candidate_annotations = annotations;
         session.candidate_remainders = session
@@ -1639,10 +1637,10 @@ impl Engine {
             )
         })?;
         let converter = NormalConverter::new(&self.dictionary);
-        let result = if let Some(model) = self.zenz_model.as_deref_mut() {
+        let (result, evaluated_candidate) = if let Some(model) = self.zenz_model.as_deref_mut() {
             let surrounding = surrounding_with_left_context(&session.surrounding, left_context);
             let version = version_with_context(&self.zenz_version, &surrounding);
-            zenz::convert(
+            let evaluated_candidate = zenz::convert(
                 &mut session.conversion,
                 &converter,
                 &self.tables,
@@ -1698,6 +1696,7 @@ impl Engine {
                                         beankey_converter::ZenzPredictionError::Inference(error)
                                     }
                                 })
+                                .map(|_| ())
                             },
                         )
                         .map_err(|error| {
@@ -1710,7 +1709,7 @@ impl Engine {
             } else {
                 None
             };
-            session
+            let result = session
                 .conversion
                 .finalize_zenz_request_with_prediction_override(
                     &converter,
@@ -1723,9 +1722,10 @@ impl Engine {
                         Code::Internal,
                         format!("candidate assembly failed: {error}"),
                     )
-                })?
+                })?;
+            (result, evaluated_candidate)
         } else {
-            session
+            let result = session
                 .conversion
                 .request(&converter, &self.tables, session.request_options.clone())
                 .map_err(|error| {
@@ -1733,7 +1733,8 @@ impl Engine {
                         Code::Internal,
                         format!("candidate generation failed: {error}"),
                     )
-                })?
+                })?;
+            (result, None)
         };
         let live_candidate = if self.live_conversion
             && session.input_mode == InputMode::Composing
@@ -1761,7 +1762,20 @@ impl Engine {
                     .remaining_after_candidate(candidate, &self.tables)
             })
             .collect();
-        session.candidate_annotations = vec![String::new(); session.display_candidates.len()];
+        session.candidate_annotations = session
+            .display_candidates
+            .iter()
+            .map(|candidate| {
+                if evaluated_candidate.as_ref().is_some_and(|evaluated| {
+                    candidate.composing_count == evaluated.composing_count
+                        && candidate.entries == evaluated.entries
+                }) {
+                    "Zenzai".to_owned()
+                } else {
+                    String::new()
+                }
+            })
+            .collect();
         session.preview_candidate_index = result
             .main_results
             .first()

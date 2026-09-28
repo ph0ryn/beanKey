@@ -199,7 +199,7 @@ pub fn convert(
     evaluator: &mut ZenzEvaluator,
     cache: &mut ZenzConversionCache,
     options: ZenzConversionOptions<'_>,
-) -> Result<(), ZenzConversionError> {
+) -> Result<Option<Candidate>, ZenzConversionError> {
     let lattice_input = to_katakana(&session.composing().surface());
     let model_input = to_katakana(&session.zenz_model_composing().surface());
     let input_cursor_position = Some(session.zenz_model_composing().cursor());
@@ -230,14 +230,14 @@ pub fn convert(
         let Some((mut candidate_index, mut candidate)) = best_candidate(&draft) else {
             session.set_zenz_candidates(inserted_candidates);
             cache.update(lattice_input, PrefixConstraint::default(), None, None);
-            return Ok(());
+            return Ok(None);
         };
         'review: loop {
             inserted_candidates.insert(0, candidate.clone());
             if remaining_inferences == 0 {
                 cache.update(lattice_input, constraint, Some(candidate), None);
                 session.set_zenz_candidates(inserted_candidates);
-                return Ok(());
+                return Ok(None);
             }
             if defers_evaluation_for_pending_input {
                 let evaluated = (!constraint.is_empty())
@@ -245,7 +245,7 @@ pub fn convert(
                     .flatten();
                 cache.update(lattice_input, constraint, evaluated.clone(), evaluated);
                 session.set_zenz_candidates(inserted_candidates);
-                return Ok(());
+                return Ok(None);
             }
 
             let evaluation = evaluator.evaluate(
@@ -279,10 +279,10 @@ pub fn convert(
                         lattice_input,
                         constraint,
                         Some(candidate.clone()),
-                        Some(candidate),
+                        Some(candidate.clone()),
                     );
                     session.set_zenz_candidates(inserted_candidates);
-                    return Ok(());
+                    return Ok(Some(candidate));
                 }
                 CandidateEvaluation::FixRequired(bytes) => {
                     let next = PrefixConstraint::normalized(
@@ -300,7 +300,7 @@ pub fn convert(
                         ReviewAction::Fail => {
                             cache.update(lattice_input, PrefixConstraint::default(), None, None);
                             session.set_zenz_candidates(inserted_candidates);
-                            return Ok(());
+                            return Ok(None);
                         }
                         ReviewAction::Retry(index) => {
                             candidate_index = index;
@@ -326,7 +326,7 @@ pub fn convert(
                         ReviewAction::Fail => {
                             cache.update(lattice_input, PrefixConstraint::default(), None, None);
                             session.set_zenz_candidates(inserted_candidates);
-                            return Ok(());
+                            return Ok(None);
                         }
                         ReviewAction::Retry(index) => {
                             candidate_index = index;
@@ -714,7 +714,7 @@ mod tests {
 
         session.insert_str("n", InputStyle::RomanToKana, &tables);
         assert_eq!(session.pending_zenz_suffix_count(&tables), 1);
-        convert(
+        let reused = convert(
             &mut session,
             &converter,
             &tables,
@@ -726,6 +726,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(model.evaluations, evaluations);
+        assert!(reused.is_none());
+        assert_ne!(session.candidates()[0].text, evaluated.text);
         assert_eq!(
             cache
                 .evaluated_satisfying_candidate

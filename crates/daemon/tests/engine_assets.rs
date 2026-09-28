@@ -1832,6 +1832,70 @@ fn applies_zenz_prefix_correction_through_the_session_engine() {
             .take(5)
             .any(|candidate| candidate.text == "箸")
     );
+    assert_eq!(
+        converted
+            .candidates
+            .iter()
+            .find(|candidate| candidate.text == "箸")
+            .unwrap()
+            .annotation,
+        "Zenzai"
+    );
+    assert!(
+        converted
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.text != "箸")
+            .all(|candidate| candidate.annotation.is_empty())
+    );
+
+    let selecting = response(engine.handle(envelope(3, Payload::KeyEvent(key_event(0xff54, "")))));
+    assert_eq!(
+        selecting
+            .candidates
+            .iter()
+            .find(|candidate| candidate.text == "箸")
+            .unwrap()
+            .annotation,
+        "Zenzai"
+    );
+    let revealed = response(engine.handle(envelope(4, Payload::KeyEvent(key_event(0xff52, "")))));
+    assert_eq!(
+        revealed
+            .candidates
+            .iter()
+            .find(|candidate| candidate.text == "箸")
+            .unwrap()
+            .annotation,
+        "Zenzai"
+    );
+}
+
+#[test]
+fn does_not_label_unevaluated_candidates_while_roman_input_is_pending() {
+    let mut engine =
+        Engine::open_with_zenz_model(dictionary_root(), Box::new(PrefixModel::default())).unwrap();
+    start_roman_session(&mut engine, 1);
+
+    let evaluated = response(engine.handle(envelope(2, Payload::KeyEvent(key_event(0, "hashi")))));
+    assert_eq!(
+        evaluated
+            .candidates
+            .iter()
+            .find(|candidate| candidate.text == "箸")
+            .unwrap()
+            .annotation,
+        "Zenzai"
+    );
+
+    let pending = response(engine.handle(envelope(3, Payload::KeyEvent(key_event(0, "n")))));
+    assert_eq!(pending.preedit, "はしn");
+    assert!(
+        pending
+            .candidates
+            .iter()
+            .all(|candidate| candidate.annotation.is_empty())
+    );
 }
 
 #[test]

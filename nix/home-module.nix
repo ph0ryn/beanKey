@@ -50,7 +50,51 @@ in
         '';
         home.file."Library/Application Support/beanKey/config.toml".source = settings.configFile;
         home.activation.beanKeyInputMethod = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+          package_root="$HOME/Library/Application Support/beanKey/package"
+          previous_package=
+          if [[ -L "$package_root" ]]; then
+            previous_package=$(readlink "$package_root")
+          fi
+          previous_config=
+          if [[ -v oldGenPath ]]; then
+            old_config="$oldGenPath/home-files/Library/Application Support/beanKey/config.toml"
+            if [[ -L "$old_config" ]]; then
+              previous_config=$(readlink "$old_config")
+            fi
+          fi
           run ${packages.macos-input-method}/bin/beankey-install
+          restart=false
+          if [[ ! -v DRY_RUN ]]; then
+            if [[ "$previous_package" != "${packages.macos-input-method}" || "$previous_config" != "${settings.configFile}" ]]; then
+              restart=true
+            elif daemon_pids=$(/usr/bin/pgrep -x -u "$(id -u)" beankey-daemon); then
+              for pid in $daemon_pids; do
+                if daemon_path=$(/bin/ps -ww -p "$pid" -o comm=); then
+                  if [[ "$daemon_path" != "${packages.daemon}/bin/beankey-daemon" ]]; then
+                    restart=true
+                    break
+                  fi
+                fi
+              done
+            else
+              status=$?
+              if [[ "$status" -ne 1 ]]; then
+                exit "$status"
+              fi
+            fi
+          fi
+          if [[ "$restart" == true ]]; then
+            for process in beanKey beankey-daemon; do
+              if /usr/bin/pkill -x -u "$(id -u)" "$process"; then
+                continue
+              else
+                status=$?
+                if [[ "$status" -ne 1 ]]; then
+                  exit "$status"
+                fi
+              fi
+            done
+          fi
         '';
       })
     ]

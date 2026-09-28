@@ -21,12 +21,14 @@ jobs:
         id: previous
         run: |
           previous_tag=$(git describe --tags --match 'v[0-9]*' --abbrev=0 "${GITHUB_REF_NAME}^")
+          skip_args=$(git log --format='%H %s' "${previous_tag}..${GITHUB_REF_NAME}" | awk '$2 ~ /^[[:alpha:]]+\(release\)!?:$/ { printf "--skip-commit %s ", $1 }')
           printf 'tag=%s\n' "$previous_tag" >> "$GITHUB_OUTPUT"
+          printf 'skip_args=%s\n' "$skip_args" >> "$GITHUB_OUTPUT"
       - name: Generate release notes
         uses: orhun/git-cliff-action@v4.8.0
         with:
           version: v2.13.1
-          args: ${{ steps.previous.outputs.tag }}..${{ github.ref_name }}
+          args: ${{ steps.previous.outputs.tag }}..${{ github.ref_name }} ${{ steps.previous.outputs.skip_args }}
         env:
           OUTPUT: release-notes.md
       - name: Remove emoji from headings

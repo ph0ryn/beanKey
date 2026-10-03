@@ -156,6 +156,7 @@ pub struct ConversionSession {
     learning_memory: Option<LearningMemory>,
     stable_prediction_cache: Option<StablePredictionCache>,
     zenz_prediction_cache: Option<ZenzPredictionCache>,
+    accepted_prediction: Option<Candidate>,
     foreign_completion_provider: Option<Arc<dyn ForeignCompletionProvider>>,
 }
 
@@ -203,12 +204,76 @@ impl ConversionSession {
         predictive_input_source(self.zenz_model_composing(), tables).dropped_suffix_count
     }
 
+    /// Completes an applicable prediction's reading without committing it.
+    /// Its spelling constrains later Zenzai conversion while the reading remains intact.
+    pub fn accept_prediction_candidate(
+        &mut self,
+        candidate: &Candidate,
+        tables: &InputTableRegistry,
+    ) -> bool {
+        if self.composing.is_empty() || !self.composing.is_at_end() {
+            return false;
+        }
+        let reading = to_hiragana(&candidate_reading(candidate));
+        let source = predictive_input_source(&self.composing, tables);
+        let current_reading = to_hiragana(&source.base_surface);
+        let Some(remaining) = reading.strip_prefix(&current_reading) else {
+            return false;
+        };
+        if remaining.is_empty() {
+            return false;
+        }
+        if source.dropped_suffix_count > 0 {
+            self.composing
+                .delete_backward(source.dropped_suffix_count, tables);
+        }
+        self.composing
+            .insert_str(remaining, InputStyle::Direct, tables);
+        self.candidates.clear();
+        self.last_committed = None;
+        self.stable_prediction_cache = None;
+        self.zenz_prediction_cache = None;
+        self.accepted_prediction = Some(candidate.clone());
+        true
+    }
+
+    /// Preserves an accepted spelling ahead of the model's replaceable constraint.
+    pub fn constrain_zenz_prefix(&self, mut constraint: PrefixConstraint) -> PrefixConstraint {
+        let Some(candidate) = self.accepted_prediction() else {
+            return constraint;
+        };
+        let bytes = candidate_dictionary_text(candidate).into_bytes();
+        let fixed_prefix = crate::FixedPrefix {
+            byte_count: bytes.len(),
+            ruby_count: UnicodeSegmentation::graphemes(candidate_reading(candidate).as_str(), true)
+                .count(),
+        };
+        if !constraint.bytes.starts_with(&bytes) {
+            constraint = PrefixConstraint::new(bytes);
+        }
+        constraint.fixed_prefix = Some(fixed_prefix);
+        constraint
+    }
+
+    fn accepted_prediction(&self) -> Option<&Candidate> {
+        self.accepted_prediction.as_ref().filter(|candidate| {
+            to_katakana(&self.composing.surface()).starts_with(&candidate_reading(candidate))
+        })
+    }
+
+    fn retain_prediction_prefix(&mut self) {
+        if self.accepted_prediction().is_none() {
+            self.accepted_prediction = None;
+        }
+    }
+
     pub fn begin_segment_request(&mut self, tables: &InputTableRegistry) {
         if self.full_composing.is_some() || self.composing.is_at_end() {
             return;
         }
         let target = self.composing.prefix_to_cursor(tables);
         self.full_composing = Some(std::mem::replace(&mut self.composing, target));
+        self.retain_prediction_prefix();
     }
 
     pub fn end_segment_request(&mut self) {
@@ -306,6 +371,7 @@ impl ConversionSession {
         tables: &InputTableRegistry,
     ) {
         self.composing.insert_str(value, input_style, tables);
+        self.retain_prediction_prefix();
         self.candidates.clear();
         self.last_committed = None;
     }
@@ -329,6 +395,7 @@ impl ConversionSession {
             )],
             tables,
         );
+        self.retain_prediction_prefix();
         self.candidates.clear();
         self.last_committed = None;
     }
@@ -359,6 +426,7 @@ impl ConversionSession {
 
     pub fn delete_backward(&mut self, count: usize, tables: &InputTableRegistry) {
         self.composing.delete_backward(count, tables);
+        self.retain_prediction_prefix();
         self.candidates.clear();
         self.last_committed = None;
         if self.composing.is_empty() {
@@ -368,6 +436,7 @@ impl ConversionSession {
 
     pub fn delete_forward(&mut self, count: usize, tables: &InputTableRegistry) {
         self.composing.delete_forward(count, tables);
+        self.retain_prediction_prefix();
         self.candidates.clear();
         self.last_committed = None;
         if self.composing.is_empty() {
@@ -499,6 +568,7 @@ impl ConversionSession {
         n_best: usize,
         constraint: &PrefixConstraint,
     ) -> Result<&[Candidate], DictionaryError> {
+        let constraint = self.constrain_zenz_prefix(constraint.clone());
         let additional = self.additional_dictionary();
         let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         self.candidates = if constraint.is_empty() {
@@ -516,7 +586,7 @@ impl ConversionSession {
                 n_best,
                 self.context,
                 &additional,
-                constraint,
+                &constraint,
             )?
         };
         Ok(&self.candidates)
@@ -552,7 +622,15 @@ impl ConversionSession {
         for (candidate, value) in full.iter_mut().take(5).zip(leading_values) {
             candidate.value = value;
         }
-        self.assemble_request(converter, tables, options, full, prediction_override)
+        let prefix_candidate = self.accepted_prediction().cloned();
+        self.assemble_request(
+            converter,
+            tables,
+            options,
+            full,
+            prediction_override,
+            prefix_candidate,
+        )
     }
 
     pub fn request_predictions(
@@ -562,7 +640,7 @@ impl ConversionSession {
         n_best: usize,
     ) -> Result<Vec<Candidate>, DictionaryError> {
         let additional = self.additional_dictionary();
-        self.predictions(converter, tables, n_best, &additional)
+        self.predictions(converter, tables, n_best, &additional, None)
     }
 
     pub fn predict_next_input_text(
@@ -629,7 +707,9 @@ impl ConversionSession {
         ) -> Result<(), ZenzPredictionError>,
     {
         let additional = self.additional_dictionary();
-        let predictions = self.predictions(converter, tables, 5, &additional)?;
+        let prefix_text = self.accepted_prediction().map(candidate_dictionary_text);
+        let predictions =
+            self.predictions(converter, tables, 5, &additional, prefix_text.as_deref())?;
         if !predictions.is_empty() {
             return Ok(predictions);
         }
@@ -686,7 +766,7 @@ impl ConversionSession {
             &additional,
             options.typo_correction == TypoCorrectionMode::Enabled,
         )?;
-        self.assemble_request(&converter, tables, options, full, None)
+        self.assemble_request(&converter, tables, options, full, None, None)
     }
 
     fn assemble_request(
@@ -694,9 +774,17 @@ impl ConversionSession {
         converter: &NormalConverter<'_>,
         tables: &InputTableRegistry,
         options: RequestOptions,
-        full: Vec<Candidate>,
+        mut full: Vec<Candidate>,
         prediction_override: Option<Vec<Candidate>>,
+        prefix_candidate: Option<Candidate>,
     ) -> Result<ConversionResult, DictionaryError> {
+        let prefix_text = prefix_candidate.as_ref().map(candidate_dictionary_text);
+        let matches_prefix = |candidate: &Candidate| {
+            prefix_text
+                .as_ref()
+                .is_none_or(|prefix| candidate.text.starts_with(prefix))
+        };
+        full.retain(&matches_prefix);
         let additional = self.additional_dictionary();
         let mut first_clauses = unique(
             full.iter()
@@ -709,16 +797,18 @@ impl ConversionSession {
                 .cmp(&left.ruby_count)
                 .then_with(|| right.value.total_cmp(&left.value))
         });
+        first_clauses.retain(&matches_prefix);
         first_clauses.truncate(5);
 
-        let predictions = if options.japanese_prediction == PredictionMode::Disabled {
+        let mut predictions = if options.japanese_prediction == PredictionMode::Disabled {
             self.stable_prediction_cache = None;
             Vec::new()
         } else if let Some(predictions) = prediction_override {
             predictions
         } else {
-            self.predictions(converter, tables, 3, &additional)?
+            self.predictions(converter, tables, 3, &additional, prefix_text.as_deref())?
         };
+        predictions.retain(&matches_prefix);
         let foreign_predictions = if options.foreign_prediction == PredictionMode::Disabled {
             Vec::new()
         } else {
@@ -767,6 +857,7 @@ impl ConversionSession {
             leading.extend(foreign_predictions.iter().cloned());
             leading = unique(leading);
         }
+        leading.retain(&matches_prefix);
         leading.sort_by(|left, right| right.value.total_cmp(&left.value));
         leading.truncate(5);
         if !leading.iter().take(3).any(|candidate| {
@@ -826,9 +917,11 @@ impl ConversionSession {
         let mut main_results = leading;
         main_results.extend(first_for_main);
         main_results.extend(words);
-        let main_results = finalize_candidates(main_results);
-        let predictions = finalize_candidates(predictions);
-        let first_clauses = finalize_candidates(first_clauses);
+        main_results.retain(&matches_prefix);
+        let prepare = |candidate| prepare_candidate(candidate, prefix_candidate.as_ref());
+        let main_results = main_results.into_iter().map(&prepare).collect::<Vec<_>>();
+        let predictions = predictions.into_iter().map(&prepare).collect();
+        let first_clauses = first_clauses.into_iter().map(&prepare).collect();
         self.candidates = main_results.clone();
         Ok(ConversionResult {
             main_results,
@@ -861,6 +954,7 @@ impl ConversionSession {
     ) -> Result<String, SelectionError> {
         self.composing
             .complete_prefix(candidate.composing_count.clone(), tables);
+        self.accepted_prediction = None;
         if let Some(last) = candidate.entries.last() {
             self.context = ConversionContext {
                 right_id: last.right_id,
@@ -939,6 +1033,7 @@ impl ConversionSession {
         self.last_committed = None;
         self.stable_prediction_cache = None;
         self.zenz_prediction_cache = None;
+        self.accepted_prediction = None;
     }
 
     fn predictions(
@@ -947,6 +1042,7 @@ impl ConversionSession {
         tables: &InputTableRegistry,
         n_best: usize,
         additional: &[DictionaryEntry],
+        prefix_text: Option<&str>,
     ) -> Result<Vec<Candidate>, DictionaryError> {
         if n_best == 0 {
             self.stable_prediction_cache = None;
@@ -976,6 +1072,9 @@ impl ConversionSession {
                 .into_iter()
                 .filter(|candidate| seen.insert(candidate.text.clone())),
         );
+        if let Some(prefix) = prefix_text {
+            predictions.retain(|candidate| candidate.text.starts_with(prefix));
+        }
         predictions.truncate(n_best);
         if predictions.is_empty() {
             self.stable_prediction_cache = None;
@@ -1167,11 +1266,38 @@ fn predictive_input_source(
     }
 }
 
-fn finalize_candidates(candidates: Vec<Candidate>) -> Vec<Candidate> {
-    candidates
-        .into_iter()
-        .map(Candidate::expand_templates)
+fn candidate_reading(candidate: &Candidate) -> String {
+    candidate
+        .entries
+        .iter()
+        .map(|entry| entry.ruby.as_str())
         .collect()
+}
+
+fn candidate_dictionary_text(candidate: &Candidate) -> String {
+    let text = candidate
+        .entries
+        .iter()
+        .map(|entry| entry.word.as_str())
+        .collect::<String>();
+    if text.is_empty() {
+        candidate.text.clone()
+    } else {
+        text
+    }
+}
+
+fn prepare_candidate(mut candidate: Candidate, prefix_candidate: Option<&Candidate>) -> Candidate {
+    if let Some(prefix) = prefix_candidate {
+        let raw_prefix = candidate_dictionary_text(prefix);
+        if raw_prefix != prefix.text
+            && let Some(remaining) = candidate.text.strip_prefix(&raw_prefix)
+        {
+            candidate.text = format!("{}{remaining}", prefix.text);
+            candidate.is_learning_target = false;
+        }
+    }
+    candidate.expand_templates()
 }
 
 fn unique(candidates: Vec<Candidate>) -> Vec<Candidate> {

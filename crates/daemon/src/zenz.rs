@@ -56,6 +56,7 @@ impl ZenzConversionCache {
                 ignore_memory_and_user_dictionary: self
                     .constraint
                     .ignore_memory_and_user_dictionary,
+                ..PrefixConstraint::default()
             };
         }
         PrefixConstraint::default()
@@ -206,7 +207,7 @@ pub fn convert(
     let defers_evaluation_for_pending_input = !options.request_rich_candidates
         && options.personalization.is_none()
         && session.pending_zenz_suffix_count(tables) > 0;
-    let mut constraint = cache.constraint_for(&lattice_input);
+    let mut constraint = session.constrain_zenz_prefix(cache.constraint_for(&lattice_input));
     let mut constructed_candidates = Vec::<Candidate>::new();
     let mut inserted_candidates = Vec::<Candidate>::new();
     let mut remaining_inferences = options.inference_limit;
@@ -285,11 +286,12 @@ pub fn convert(
                     return Ok(Some(candidate));
                 }
                 CandidateEvaluation::FixRequired(bytes) => {
-                    let next = PrefixConstraint::normalized(
+                    let mut next = PrefixConstraint::normalized(
                         bytes,
                         false,
                         constraint.ignore_memory_and_user_dictionary,
                     );
+                    next.fixed_prefix = constraint.fixed_prefix;
                     match review_rejection(
                         &mut constraint,
                         next,
@@ -311,11 +313,12 @@ pub fn convert(
                     }
                 }
                 CandidateEvaluation::WholeResult(result) => {
-                    let next = PrefixConstraint::normalized(
+                    let mut next = PrefixConstraint::normalized(
                         result.into_bytes(),
                         true,
                         constraint.ignore_memory_and_user_dictionary,
                     );
+                    next.fixed_prefix = constraint.fixed_prefix;
                     match review_rejection(
                         &mut constraint,
                         next,

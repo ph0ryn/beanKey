@@ -52,6 +52,7 @@ struct InputPrediction {
     display_text: String,
     append_text: String,
     delete_count: usize,
+    candidate: Option<ConverterCandidate>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1221,16 +1222,25 @@ impl Engine {
                     && let Some(prediction) = session.prediction.clone()
                 {
                     session.last_was_backspace = false;
-                    if prediction.delete_count > 0 {
-                        session
+                    if let Some(candidate) = prediction.candidate {
+                        if !session
                             .conversion
-                            .delete_backward(prediction.delete_count, &self.tables);
+                            .accept_prediction_candidate(&candidate, &self.tables)
+                        {
+                            return Ok(make_state(session, true, String::new(), false));
+                        }
+                    } else {
+                        if prediction.delete_count > 0 {
+                            session
+                                .conversion
+                                .delete_backward(prediction.delete_count, &self.tables);
+                        }
+                        session.conversion.insert_str(
+                            &prediction.append_text,
+                            ConverterInputStyle::Direct,
+                            &self.tables,
+                        );
                     }
-                    session.conversion.insert_str(
-                        &prediction.append_text,
-                        session.input_style.clone(),
-                        &self.tables,
-                    );
                     self.request_candidates(session)?;
                 }
                 return Ok(make_state(session, true, String::new(), false));
@@ -1897,6 +1907,7 @@ fn input_prediction(session: &SessionState, result: &ConversionResult) -> Option
                 display_text: candidate.text.clone(),
                 append_text: corrected_reading,
                 delete_count: session.conversion.composing().surface_graphemes().len(),
+                candidate: None,
             });
         }
     }
@@ -1931,6 +1942,7 @@ fn input_prediction(session: &SessionState, result: &ConversionResult) -> Option
             display_text: candidate.text.clone(),
             append_text: append_text.to_owned(),
             delete_count,
+            candidate: Some(candidate.clone()),
         })
     })
 }
@@ -2586,6 +2598,96 @@ mod tests {
             entry.base_value == DESKTOP_USER_DICTIONARY_VALUE
                 && entry.metadata.contains(DictionaryMetadata::USER_DICTIONARY)
         }));
+    }
+
+    #[test]
+    fn tab_keeps_the_accepted_prediction_in_following_zenz_candidates() {
+        let dictionary = PathBuf::from(
+            std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
+        );
+        let mut engine =
+            Engine::open_with_zenz_model(dictionary, Box::new(LivePrefixModel)).unwrap();
+        engine.zenz_inference_limit = 0;
+        engine.request_options.japanese_prediction = PredictionMode::Manual;
+        let request = |request_id, payload| protocol::Envelope {
+            protocol_version: PROTOCOL_VERSION,
+            request_id,
+            session_id: "accepted-prediction".into(),
+            payload: Some(payload),
+            trace: Vec::new(),
+        };
+        let state = |response: protocol::Envelope| {
+            let Payload::StateResponse(state) = response.payload.unwrap() else {
+                panic!("prediction acceptance did not return state");
+            };
+            state
+        };
+        engine.handle(request(
+            1,
+            Payload::StartSession(protocol::StartSession {
+                input_style: protocol::InputStyle::Direct as i32,
+                keyboard_language: protocol::KeyboardLanguage::Japanese as i32,
+                ..Default::default()
+            }),
+        ));
+        let composing = state(engine.handle(request(
+            2,
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Input as i32,
+                text: "かみ".into(),
+                ..Default::default()
+            }),
+        )));
+        let prediction = composing.prediction.expect("prediction was not exposed");
+        let accepted = state(engine.handle(request(
+            3,
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Tab as i32,
+                ..Default::default()
+            }),
+        )));
+        assert!(accepted.consumed);
+        assert!(!accepted.candidates.is_empty());
+        assert_eq!(accepted.candidates[0].text, prediction.display_text);
+        assert!(
+            accepted
+                .candidates
+                .iter()
+                .all(|candidate| { candidate.text.starts_with(&prediction.display_text) })
+        );
+        let extended = state(engine.handle(request(
+            4,
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Input as i32,
+                text: "さま".into(),
+                ..Default::default()
+            }),
+        )));
+        assert!(!extended.candidates.is_empty());
+        assert!(
+            extended
+                .candidates
+                .iter()
+                .all(|candidate| { candidate.text.starts_with(&prediction.display_text) })
+        );
+        let selecting = state(engine.handle(request(
+            5,
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Space as i32,
+                ..Default::default()
+            }),
+        )));
+        assert!(selecting.preedit.starts_with(&prediction.display_text));
+        let committed = state(engine.handle(request(
+            6,
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Enter as i32,
+                ..Default::default()
+            }),
+        )));
+        assert!(committed.commit.starts_with(&prediction.display_text));
+        assert!(committed.preedit.is_empty());
     }
 
     #[test]

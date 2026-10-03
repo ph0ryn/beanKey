@@ -23,6 +23,13 @@ pub struct PrefixConstraint {
     pub bytes: Vec<u8>,
     pub has_eos: bool,
     pub ignore_memory_and_user_dictionary: bool,
+    pub fixed_prefix: Option<FixedPrefix>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct FixedPrefix {
+    pub byte_count: usize,
+    pub ruby_count: usize,
 }
 
 impl PrefixConstraint {
@@ -47,11 +54,13 @@ impl PrefixConstraint {
                 bytes: bytes[..index].to_vec(),
                 has_eos: true,
                 ignore_memory_and_user_dictionary,
+                fixed_prefix: None,
             },
             None => Self {
                 bytes,
                 has_eos: default_has_eos,
                 ignore_memory_and_user_dictionary,
+                fixed_prefix: None,
             },
         }
     }
@@ -412,6 +421,64 @@ impl ZenzEvaluator {
         model: &mut dyn ZenzLanguageModel,
         request: ZenzEvaluationRequest<'_>,
     ) -> Result<CandidateEvaluation, ZenzInferenceError> {
+        let Some(fixed_prefix) = request.prefix_constraint.fixed_prefix else {
+            return self.evaluate_as_is(model, request);
+        };
+        if fixed_prefix.byte_count == 0
+            || request.candidate.text.len() < fixed_prefix.byte_count
+            || request.prefix_constraint.bytes.len() < fixed_prefix.byte_count
+            || !request
+                .candidate
+                .text
+                .as_bytes()
+                .starts_with(&request.prefix_constraint.bytes[..fixed_prefix.byte_count])
+            || UnicodeSegmentation::graphemes(request.input, true).count() < fixed_prefix.ruby_count
+            || request
+                .input_cursor_position
+                .is_some_and(|position| position < fixed_prefix.ruby_count)
+        {
+            return self.evaluate_as_is(model, request);
+        }
+
+        let fixed = request.prefix_constraint.bytes[..fixed_prefix.byte_count].to_vec();
+        let fixed_text = std::str::from_utf8(&fixed)
+            .map_err(|error| ZenzInferenceError(format!("fixed prefix is not UTF-8: {error}")))?;
+        let remaining_input = drop_graphemes(request.input, fixed_prefix.ruby_count)
+            .expect("fixed prefix ruby count was checked above");
+        let remaining_text = request
+            .candidate
+            .text
+            .get(fixed_prefix.byte_count..)
+            .expect("fixed prefix byte count must be on a UTF-8 boundary")
+            .to_owned();
+        let mut remaining_candidate = request.candidate.clone();
+        remaining_candidate.text = remaining_text;
+        remaining_candidate.entries =
+            dropping_fixed_entries(&request.candidate.entries, fixed_prefix.byte_count);
+        let mut remaining_constraint = request.prefix_constraint.clone();
+        remaining_constraint.bytes.drain(..fixed_prefix.byte_count);
+        remaining_constraint.fixed_prefix = None;
+        let remaining_version = appending_left_context(request.version, fixed_text);
+        let remaining_request = ZenzEvaluationRequest {
+            input: &remaining_input,
+            input_cursor_position: request
+                .input_cursor_position
+                .map(|position| position - fixed_prefix.ruby_count),
+            candidate: &remaining_candidate,
+            request_rich_candidates: request.request_rich_candidates,
+            prefix_constraint: &remaining_constraint,
+            personalization: request.personalization,
+            version: &remaining_version,
+        };
+        let result = self.evaluate_as_is(model, remaining_request)?;
+        Ok(prepend_fixed(&fixed, fixed_text, result))
+    }
+
+    fn evaluate_as_is(
+        &mut self,
+        model: &mut dyn ZenzLanguageModel,
+        request: ZenzEvaluationRequest<'_>,
+    ) -> Result<CandidateEvaluation, ZenzInferenceError> {
         let user_dictionary_prompt = request
             .candidate
             .entries
@@ -495,6 +562,80 @@ impl ZenzEvaluator {
             self.evaluations.insert(cache_key, result.clone());
         }
         Ok(result)
+    }
+}
+
+fn drop_graphemes(value: &str, count: usize) -> Option<String> {
+    let graphemes: Vec<_> = UnicodeSegmentation::graphemes(value, true).collect();
+    (count <= graphemes.len()).then(|| graphemes[count..].concat())
+}
+
+fn dropping_fixed_entries(
+    entries: &[crate::DictionaryEntry],
+    byte_count: usize,
+) -> Vec<crate::DictionaryEntry> {
+    let mut covered = 0;
+    let mut first_remaining = 0;
+    for entry in entries {
+        let next = covered + entry.word.len();
+        if next > byte_count {
+            break;
+        }
+        covered = next;
+        first_remaining += 1;
+    }
+    entries[first_remaining..].to_vec()
+}
+
+fn appending_left_context(version: &ZenzVersionConfig, fixed: &str) -> ZenzVersionConfig {
+    let append = |context: &Option<String>| {
+        let mut value = context.clone().unwrap_or_default();
+        value.push_str(fixed);
+        value
+    };
+    match version {
+        ZenzVersionConfig::V2(config) => ZenzVersionConfig::V2(ZenzV2Config {
+            left_context: Some(append(&config.left_context)),
+            ..config.clone()
+        }),
+        ZenzVersionConfig::V3(config) => ZenzVersionConfig::V3(ZenzV3Config {
+            left_context: Some(append(&config.left_context)),
+            ..config.clone()
+        }),
+    }
+}
+
+fn prepend_fixed(
+    fixed: &[u8],
+    fixed_text: &str,
+    result: CandidateEvaluation,
+) -> CandidateEvaluation {
+    match result {
+        CandidateEvaluation::Pass {
+            score,
+            alternatives,
+        } => CandidateEvaluation::Pass {
+            score,
+            alternatives: alternatives
+                .into_iter()
+                .map(|alternative| {
+                    let mut bytes = fixed.to_vec();
+                    bytes.extend(alternative.bytes);
+                    AlternativeConstraint {
+                        probability_ratio: alternative.probability_ratio,
+                        bytes,
+                    }
+                })
+                .collect(),
+        },
+        CandidateEvaluation::FixRequired(mut bytes) => {
+            let mut prefix = fixed.to_vec();
+            prefix.append(&mut bytes);
+            CandidateEvaluation::FixRequired(prefix)
+        }
+        CandidateEvaluation::WholeResult(result) => {
+            CandidateEvaluation::WholeResult(format!("{fixed_text}{result}"))
+        }
     }
 }
 
@@ -916,6 +1057,10 @@ mod tests {
         start_indices: Vec<usize>,
     }
 
+    struct FixedPrefixModel {
+        tokenized: Vec<String>,
+    }
+
     impl ZenzLanguageModel for InputPredictionModel {
         fn vocabulary_size(&self) -> usize {
             5
@@ -1050,6 +1195,41 @@ mod tests {
         }
     }
 
+    impl ZenzLanguageModel for FixedPrefixModel {
+        fn vocabulary_size(&self) -> usize {
+            6
+        }
+
+        fn eos_token(&self) -> i32 {
+            2
+        }
+
+        fn tokenize(
+            &mut self,
+            text: &str,
+            _add_special: bool,
+        ) -> Result<Vec<i32>, ZenzInferenceError> {
+            self.tokenized.push(text.to_owned());
+            Ok(if text == "ab" { vec![3, 4] } else { vec![1] })
+        }
+
+        fn token_to_piece(&mut self, token: i32) -> Result<Vec<u8>, ZenzInferenceError> {
+            Ok(match token {
+                3 => b"a".to_vec(),
+                4 => b"b".to_vec(),
+                5 => b"x".to_vec(),
+                _ => Vec::new(),
+            })
+        }
+
+        fn next_logits(&mut self, tokens: &[i32]) -> Result<Vec<f32>, ZenzInferenceError> {
+            let desired = if tokens == [1] { 5 } else { 4 };
+            let mut logits = vec![-10.0; 6];
+            logits[desired] = 2.0;
+            Ok(logits)
+        }
+    }
+
     fn evaluation_candidate() -> Candidate {
         Candidate::single(
             "ab".into(),
@@ -1123,6 +1303,135 @@ mod tests {
         assert_eq!(model.suffix_evaluations, 2);
         assert_eq!(model.prompt_tokenizations, 1);
         assert_eq!(model.start_indices, [0, 0]);
+    }
+
+    #[test]
+    fn fixed_prefix_evaluation_moves_text_to_context_and_restores_result() {
+        let mut model = FixedPrefixModel {
+            tokenized: Vec::new(),
+        };
+        let candidate = Candidate::single(
+            "xab".into(),
+            -1.0,
+            ComposingCount::Surface(2),
+            500,
+            vec![
+                DictionaryEntry {
+                    word: "x".into(),
+                    ruby: "エ".into(),
+                    left_id: 0,
+                    right_id: 0,
+                    meaning_id: 500,
+                    base_value: -1.0,
+                    adjustment: 0.0,
+                    metadata: DictionaryMetadata::default(),
+                },
+                DictionaryEntry {
+                    word: "ab".into(),
+                    ruby: "ービー".into(),
+                    left_id: 0,
+                    right_id: 0,
+                    meaning_id: 500,
+                    base_value: -1.0,
+                    adjustment: 0.0,
+                    metadata: DictionaryMetadata::default(),
+                },
+            ],
+        );
+        let constraint = PrefixConstraint {
+            bytes: b"xab".to_vec(),
+            has_eos: false,
+            ignore_memory_and_user_dictionary: false,
+            fixed_prefix: Some(FixedPrefix {
+                byte_count: 1,
+                ruby_count: 1,
+            }),
+        };
+        let version = ZenzVersionConfig::V3(ZenzV3Config {
+            left_context: Some("ctx".into()),
+            ..Default::default()
+        });
+
+        let result = evaluate_candidate(
+            &mut model,
+            ZenzEvaluationRequest {
+                input: "エービー",
+                input_cursor_position: None,
+                candidate: &candidate,
+                request_rich_candidates: false,
+                prefix_constraint: &constraint,
+                personalization: None,
+                version: &version,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result, CandidateEvaluation::FixRequired(b"xx".to_vec()));
+        assert!(model.tokenized.iter().any(|value| value.contains("ctxx")));
+        assert!(model.tokenized.iter().any(|value| value == "ab"));
+    }
+
+    #[test]
+    fn fixed_prefix_keeps_an_entry_crossing_the_boundary() {
+        let entries = vec![
+            DictionaryEntry {
+                word: "xy".into(),
+                ruby: "エ".into(),
+                left_id: 0,
+                right_id: 0,
+                meaning_id: 500,
+                base_value: -1.0,
+                adjustment: 0.0,
+                metadata: DictionaryMetadata::default(),
+            },
+            DictionaryEntry {
+                word: "z".into(),
+                ruby: "ゼ".into(),
+                left_id: 0,
+                right_id: 0,
+                meaning_id: 500,
+                base_value: -1.0,
+                adjustment: 0.0,
+                metadata: DictionaryMetadata::default(),
+            },
+        ];
+
+        let remaining = dropping_fixed_entries(&entries, 1);
+
+        assert_eq!(remaining, entries);
+    }
+
+    #[test]
+    fn fixed_prefix_is_restored_to_every_evaluation_result() {
+        let pass = prepend_fixed(
+            b"x",
+            "x",
+            CandidateEvaluation::Pass {
+                score: 1.0,
+                alternatives: vec![AlternativeConstraint {
+                    probability_ratio: 0.5,
+                    bytes: b"ab".to_vec(),
+                }],
+            },
+        );
+        assert_eq!(
+            pass,
+            CandidateEvaluation::Pass {
+                score: 1.0,
+                alternatives: vec![AlternativeConstraint {
+                    probability_ratio: 0.5,
+                    bytes: b"xab".to_vec(),
+                }],
+            }
+        );
+        assert_eq!(
+            prepend_fixed(b"x", "x", CandidateEvaluation::FixRequired(b"y".to_vec())),
+            CandidateEvaluation::FixRequired(b"xy".to_vec())
+        );
+        assert_eq!(
+            prepend_fixed(b"x", "x", CandidateEvaluation::WholeResult("y".into())),
+            CandidateEvaluation::WholeResult("xy".into())
+        );
     }
 
     #[test]

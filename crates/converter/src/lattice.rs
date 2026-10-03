@@ -646,8 +646,11 @@ impl<'a> NormalConverter<'a> {
                         total,
                     });
                     if modifiers.constraint.is_none_or(|constraint| {
-                        !enforces_constraint(constraint, &entry)
-                            || path_can_continue(&completed_path, constraint)
+                        if enforces_constraint(constraint, &entry) {
+                            path_can_continue(&completed_path, constraint)
+                        } else {
+                            path_matches_fixed_prefix(&completed_path, constraint)
+                        }
                     }) {
                         completed.push(completed_path);
                     }
@@ -659,8 +662,11 @@ impl<'a> NormalConverter<'a> {
                 {
                     results.extend(completed.into_iter().filter(|path| {
                         modifiers.constraint.is_none_or(|constraint| {
-                            !enforces_constraint(constraint, &entry)
-                                || path_satisfies(path, constraint)
+                            if enforces_constraint(constraint, &entry) {
+                                path_satisfies(path, constraint)
+                            } else {
+                                path_matches_fixed_prefix(path, constraint)
+                            }
                         })
                     }));
                     continue;
@@ -679,12 +685,19 @@ impl<'a> NormalConverter<'a> {
                     )?;
                     for path in &completed {
                         if modifiers.constraint.is_some_and(|constraint| {
-                            enforces_constraint(constraint, &nodes[next_node_index].entry)
-                                && !path_and_word_can_continue(
+                            if enforces_constraint(constraint, &nodes[next_node_index].entry) {
+                                !path_and_word_can_continue(
                                     path,
                                     &nodes[next_node_index].entry.word,
                                     constraint,
                                 )
+                            } else {
+                                !path_and_word_matches_fixed_prefix(
+                                    path,
+                                    &nodes[next_node_index].entry.word,
+                                    constraint,
+                                )
+                            }
                         }) {
                             continue;
                         }
@@ -1316,6 +1329,13 @@ fn path_can_continue(path: &Arc<RegisteredPath>, constraint: &PrefixConstraint) 
     constraint.can_continue(&path_bytes(path))
 }
 
+fn path_matches_fixed_prefix(path: &Arc<RegisteredPath>, constraint: &PrefixConstraint) -> bool {
+    if constraint.fixed_prefix.is_none() {
+        return true;
+    }
+    bytes_match_fixed_prefix(&path_bytes(path), constraint)
+}
+
 fn path_and_word_can_continue(
     path: &Arc<RegisteredPath>,
     word: &str,
@@ -1324,6 +1344,30 @@ fn path_and_word_can_continue(
     let mut bytes = path_bytes(path);
     bytes.extend_from_slice(word.as_bytes());
     constraint.can_continue(&bytes)
+}
+
+fn path_and_word_matches_fixed_prefix(
+    path: &Arc<RegisteredPath>,
+    word: &str,
+    constraint: &PrefixConstraint,
+) -> bool {
+    if constraint.fixed_prefix.is_none() {
+        return true;
+    }
+    let mut bytes = path_bytes(path);
+    bytes.extend_from_slice(word.as_bytes());
+    bytes_match_fixed_prefix(&bytes, constraint)
+}
+
+fn bytes_match_fixed_prefix(candidate: &[u8], constraint: &PrefixConstraint) -> bool {
+    let Some(fixed_prefix) = constraint.fixed_prefix else {
+        return true;
+    };
+    let Some(expected) = constraint.bytes.get(..fixed_prefix.byte_count) else {
+        return false;
+    };
+    let compared = candidate.len().min(fixed_prefix.byte_count);
+    expected.get(..compared) == candidate.get(..compared)
 }
 
 fn path_satisfies(path: &Arc<RegisteredPath>, constraint: &PrefixConstraint) -> bool {

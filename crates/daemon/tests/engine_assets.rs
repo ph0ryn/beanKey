@@ -983,6 +983,48 @@ fn exposes_manual_prediction_from_a_katakana_prefix() {
 }
 
 #[test]
+fn tab_completes_a_pending_roman_reading_and_allows_further_input() {
+    let mut engine = Engine::open_with_conversion_resources(
+        dictionary_root(),
+        &ConversionConfig {
+            japanese_prediction: beankey_daemon::PredictionConfig::Manual,
+            live_conversion: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    start_roman_session(&mut engine, 1);
+    let mut composing = protocol::StateResponse::default();
+    for (index, character) in "arigat".chars().enumerate() {
+        composing = response(engine.handle(envelope(
+            index as u64 + 2,
+            Payload::KeyEvent(key_event(0, &character.to_string())),
+        )));
+    }
+    assert_eq!(composing.preedit, "ありがt");
+    let prediction = composing
+        .prediction
+        .expect("pending roman input did not expose a prediction");
+    let accepted = response(engine.handle(envelope(8, Payload::KeyEvent(key_event(0xff09, "")))));
+    assert!(accepted.consumed);
+    assert_eq!(
+        accepted.preedit,
+        format!("ありが{}", prediction.append_text)
+    );
+    let mut extended = accepted.clone();
+    for (index, character) in "gozaimasu".chars().enumerate() {
+        extended = response(engine.handle(envelope(
+            index as u64 + 9,
+            Payload::KeyEvent(key_event(0, &character.to_string())),
+        )));
+    }
+    assert_eq!(extended.preedit, format!("{}ございます", accepted.preedit));
+    let committed = response(engine.handle(envelope(18, Payload::KeyEvent(key_event(0xff0d, "")))));
+    assert_eq!(committed.commit, extended.preedit);
+    assert!(committed.preedit.is_empty());
+}
+
+#[test]
 fn shift_navigation_edits_the_selected_segment_length() {
     let mut engine = Engine::open(dictionary_root()).unwrap();
     response(engine.handle(envelope(

@@ -173,6 +173,8 @@ programs.beanKey = {
 | `Tab` | 表示中の予測を受け入れる |
 | `1`から`9` | 表示中の候補を番号で選択 |
 
+日本語の補完予測を`Tab`で受け入れると、残りの読みを補って入力を続けられます。Zenzaiによる変換では、受け入れた部分の表記を以降の候補にも維持します。
+
 操作の詳しい一覧と状態ごとの動作は、[usage.md](docs/usage.md)を参照してください。
 
 ## ライセンス
@@ -186,6 +188,8 @@ beanKeyは、次の実装を設計と動作の基準として参照していま�
 - [AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter/tree/93766c46e31fa6a18b7ced49dab31337780f6f45): かな漢字変換とZenzai
 - [azooKey Desktop](https://github.com/azooKey/azooKey-Desktop/tree/3ae5a4651c329d48fee9b9ec7ac1bcd60b940a12): 日本語入力の操作と表示
 - [fcitx5-mozc](https://github.com/fcitx/mozc/tree/3f8dea4bdf72c6af200ecdbe3d456871fb1d5e03/src/unix/fcitx5): Fcitx5連携とデーモン起動
+
+予測受理後の表記維持は、上記スナップショット以降の[azooKey Desktop #373](https://github.com/azooKey/azooKey-Desktop/pull/373)と[AzooKeyKanaKanjiConverter #357](https://github.com/azooKey/AzooKeyKanaKanjiConverter/pull/357)を取り込んでいます。
 
 ### 再配布資産
 

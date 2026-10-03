@@ -61,6 +61,7 @@
 ### `crates/converter`
 
 - 辞書形式の読込、候補生成、経路探索、Zenzai prompt構築およびprefix制約付き再探索などの変換ロジックを所有する。
+- 予測候補の読みの補完と、受理した表記をZenzai変換の先頭へ固定する制約を所有する。固定部分はモデルの左文脈として扱い、その読みを評価対象から除く。受理した読みが変換対象の先頭に残らない場合や、確定・reset時には制約を破棄する。
 - Hunspell C APIの最小binding、辞書encoding変換、英語・ギリシャ語候補合成を所有し、C pointerをcrate外へ露出させない。handleは生成した専用worker thread内に固定する。
 - Fcitx5、IPC、daemon のライフサイクル、llama.cpp の C API に依存させない。
 - OS 固有処理を持ち込まない。

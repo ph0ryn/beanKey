@@ -117,8 +117,15 @@ v1::UserAction keyAction(const fcitx::KeyEvent &source) {
 } // namespace
 
 void populateKeyEvent(const fcitx::KeyEvent &source, v1::KeyEvent *target) {
-  target->set_action(keyAction(source));
   const auto states = source.rawKey().states();
+  const fcitx::KeyStates nonImeModifiers(
+      {fcitx::KeyState::Super, fcitx::KeyState::Super2,
+       fcitx::KeyState::Hyper, fcitx::KeyState::Meta});
+  if (states.testAny(nonImeModifiers)) {
+    target->set_action(v1::USER_ACTION_UNSPECIFIED);
+    return;
+  }
+  target->set_action(keyAction(source));
   if (states.test(fcitx::KeyState::Shift)) {
     target->set_shift(true);
   }
@@ -128,13 +135,9 @@ void populateKeyEvent(const fcitx::KeyEvent &source, v1::KeyEvent *target) {
     target->set_shift(true);
   }
   const fcitx::KeyStates shortcutModifiers(
-      {fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Super,
-       fcitx::KeyState::Super2, fcitx::KeyState::Hyper, fcitx::KeyState::Meta});
-  const fcitx::KeyStates nonOptionModifiers(
-      {fcitx::KeyState::Ctrl, fcitx::KeyState::Super, fcitx::KeyState::Super2,
-       fcitx::KeyState::Hyper, fcitx::KeyState::Meta});
+      {fcitx::KeyState::Ctrl, fcitx::KeyState::Alt});
   target->set_option(states.test(fcitx::KeyState::Alt) &&
-                     !states.testAny(nonOptionModifiers));
+                     !states.test(fcitx::KeyState::Ctrl));
   if (target->action() == v1::USER_ACTION_INPUT &&
       !states.testAny(shortcutModifiers)) {
     target->set_text(japaneseInputText(printableKeyText(source.key().sym())));

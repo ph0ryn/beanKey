@@ -393,6 +393,24 @@ int main() {
                      "candidate annotation did not reach Fcitx") &&
               valid;
     }
+    for (const auto &shortcut : {
+             fcitx::Key(FcitxKey_a, fcitx::KeyState::Super),
+             fcitx::Key(FcitxKey_period, fcitx::KeyState::Super),
+             fcitx::Key(FcitxKey_1, fcitx::KeyState::Super),
+             fcitx::Key(FcitxKey_1, fcitx::KeyState::Meta),
+             fcitx::Key(FcitxKey_1, fcitx::KeyState::Hyper),
+             fcitx::Key(FcitxKey_j,
+                        {fcitx::KeyState::Ctrl, fcitx::KeyState::Super})}) {
+      fcitx::KeyEvent shortcutEvent(&inputContext, shortcut);
+      engine.keyEvent(entry, shortcutEvent);
+      valid = report(!shortcutEvent.accepted() &&
+                         inputContext.inputPanel().clientPreedit().toString() ==
+                             "かな" &&
+                         inputContext.inputPanel().candidateList() == candidates &&
+                         inputContext.committed().empty(),
+                     "system shortcut changed the IME session or candidate UI") &&
+              valid;
+    }
     auto *actionable = candidates ? candidates->toActionable() : nullptr;
     valid = report(actionable != nullptr,
                    "candidate forgetting is not reachable from Fcitx") &&

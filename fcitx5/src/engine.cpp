@@ -234,6 +234,11 @@ bool BeanKeyState::processKey(KeyEvent &event) {
   if (event.isRelease()) {
     return false;
   }
+  beankey::v1::KeyEvent key;
+  beankey::populateKeyEvent(event, &key);
+  if (key.action() == beankey::v1::USER_ACTION_UNSPECIFIED) {
+    return false;
+  }
   if (!start()) {
     failSession();
     return false;
@@ -256,12 +261,8 @@ bool BeanKeyState::processKey(KeyEvent &event) {
   }
 
   auto request = envelope();
-  auto *key = request.mutable_key_event();
-  beankey::populateKeyEvent(event, key);
-  if (key->action() == beankey::v1::USER_ACTION_UNSPECIFIED) {
-    return false;
-  }
-  fillSurroundingText(key->mutable_surrounding_text());
+  *request.mutable_key_event() = std::move(key);
+  fillSurroundingText(request.mutable_key_event()->mutable_surrounding_text());
 
   return send(std::move(request));
 }

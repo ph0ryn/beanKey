@@ -65,6 +65,25 @@ int main() {
       KeyCase{"ISO_Left_Tab", FcitxKey_ISO_Left_Tab},
   };
   bool valid = true;
+  for (const auto modifier : {fcitx::KeyState::Super, fcitx::KeyState::Super2,
+                              fcitx::KeyState::Meta, fcitx::KeyState::Hyper}) {
+    for (const auto states : {fcitx::KeyStates{modifier},
+                              fcitx::KeyStates{modifier, fcitx::KeyState::Ctrl},
+                              fcitx::KeyStates{modifier, fcitx::KeyState::Alt}}) {
+      for (const auto symbol : {FcitxKey_a, FcitxKey_period, FcitxKey_1,
+                                FcitxKey_j, FcitxKey_Return}) {
+        fcitx::KeyEvent source(nullptr, fcitx::Key(symbol, states));
+        beankey::v1::KeyEvent target;
+        beankey::populateKeyEvent(source, &target);
+        if (target.action() != beankey::v1::USER_ACTION_UNSPECIFIED ||
+            !target.text().empty() || !target.input().empty() ||
+            !target.intention().empty() || target.option()) {
+          std::cerr << "non-IME modifier leaked an input action or text\n";
+          valid = false;
+        }
+      }
+    }
+  }
   for (const auto &keyCase : controlKeys) {
     valid = rejectsControlText(keyCase) && valid;
   }

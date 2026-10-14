@@ -1,5 +1,8 @@
+use std::fs::{self, OpenOptions};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::process::Command;
 use std::thread;
 
 use beankey_daemon::protocol::envelope::Payload;
@@ -90,5 +93,86 @@ fn serves_isolated_connections_and_exits_after_the_last_disconnect() {
     drop(first);
     drop(second);
     worker.join().unwrap();
+    assert!(!socket.exists());
+}
+
+#[test]
+fn duplicate_launch_checks_the_lock_before_opening_resources() {
+    let runtime = TempDir::new().unwrap();
+    let socket = runtime.path().join("beankey/daemon.sock");
+    let owner = DaemonServer::bind(
+        Engine::open(dictionary_root()).unwrap(),
+        runtime.path(),
+        "beankey/daemon.sock",
+    )
+    .unwrap();
+    let config = runtime.path().join("config.toml");
+    fs::write(
+        &config,
+        format!(
+            r#"
+dictionary = "{}"
+model = "/missing/beankey/model.gguf"
+emoji_dictionary = "/missing/beankey/emoji.txt"
+llama_backend_directory = "/missing/beankey/backend"
+runtime_socket = "beankey/daemon.sock"
+[hunspell]
+english_dictionary = "/missing/beankey/en_US"
+greek_dictionary = "/missing/beankey/el_GR"
+[conversion]
+[zenz]
+[inference]
+context_size = 512
+batch_size = 512
+micro_batch_size = 64
+flash_attention = true
+"#,
+            dictionary_root().display()
+        ),
+    )
+    .unwrap();
+    beankey_daemon::DaemonConfig::load(&config).unwrap();
+    let learning = runtime.path().join("learning");
+    let launch = || {
+        Command::new(env!("CARGO_BIN_EXE_beankey-daemon"))
+            .arg("--config")
+            .arg(&config)
+            .arg("--runtime-root")
+            .arg(runtime.path())
+            .arg("--learning-directory")
+            .arg(&learning)
+            .output()
+            .unwrap()
+    };
+    let duplicate = launch();
+    assert!(
+        duplicate.status.success(),
+        "duplicate daemon opened resources: {}",
+        String::from_utf8_lossy(&duplicate.stderr)
+    );
+    assert!(!learning.exists());
+    assert!(UnixStream::connect(&socket).is_ok());
+    drop(owner);
+    assert!(!socket.exists());
+
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(runtime.path().join("beankey/daemon.lock"))
+        .unwrap();
+    // SAFETY: flock receives this live file descriptor and retains no pointers.
+    assert_eq!(
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
+    let initializing_duplicate = launch();
+    assert!(!initializing_duplicate.status.success());
+    assert!(
+        String::from_utf8_lossy(&initializing_duplicate.stderr)
+            .contains("daemon lock is held but its socket is unavailable"),
+        "initializing duplicate opened resources: {}",
+        String::from_utf8_lossy(&initializing_duplicate.stderr)
+    );
+    assert!(!learning.exists());
     assert!(!socket.exists());
 }

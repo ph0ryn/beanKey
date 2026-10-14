@@ -85,19 +85,13 @@ struct RuntimeEndpoint {
 }
 
 impl RuntimeEndpoint {
-    fn bind(runtime_root: &Path, relative_socket: &Path) -> Result<Self, ServerError> {
-        let uid = effective_uid();
-        let runtime_directory_path = runtime_root.join(
-            relative_socket
-                .parent()
-                .expect("validated socket has a parent"),
-        );
-        let runtime_directory = prepare_runtime_directory(&runtime_directory_path, uid)?;
-        let socket_path = runtime_root.join(relative_socket);
-        let lock_path = runtime_directory_path.join("daemon.lock");
-        let lock = open_lock(&lock_path, uid)?;
-        acquire_lock(&lock, &socket_path)?;
-        remove_stale_socket(&socket_path, uid)?;
+    fn bind(reservation: DaemonServerReservation) -> Result<Self, ServerError> {
+        let DaemonServerReservation {
+            socket_path,
+            runtime_directory,
+            lock,
+            uid,
+        } = reservation;
 
         let listener = UnixListener::bind(&socket_path).map_err(ServerError::Socket)?;
         fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))
@@ -137,6 +131,27 @@ impl Drop for RuntimeEndpoint {
     }
 }
 
+/// Holds the process lock during resource initialization without publishing a socket.
+/// Dropping an unused reservation releases the lock.
+pub struct DaemonServerReservation {
+    socket_path: PathBuf,
+    runtime_directory: File,
+    lock: File,
+    uid: u32,
+}
+
+impl DaemonServerReservation {
+    /// Publishes the listener only once the engine is ready, retaining the same lock.
+    pub fn bind(self, engine: Engine) -> Result<DaemonServer, ServerError> {
+        let uid = self.uid;
+        Ok(DaemonServer {
+            endpoint: RuntimeEndpoint::bind(self)?,
+            engine: Arc::new(Mutex::new(engine)),
+            uid,
+        })
+    }
+}
+
 pub struct DaemonServer {
     endpoint: RuntimeEndpoint,
     engine: Arc<Mutex<Engine>>,
@@ -144,19 +159,39 @@ pub struct DaemonServer {
 }
 
 impl DaemonServer {
+    pub fn reserve(
+        runtime_root: impl AsRef<Path>,
+        relative_socket: impl AsRef<Path>,
+    ) -> Result<DaemonServerReservation, ServerError> {
+        let relative_socket = relative_socket.as_ref();
+        if relative_socket != Path::new("beankey/daemon.sock") {
+            return Err(ServerError::InvalidSocketPath);
+        }
+        let uid = effective_uid();
+        let runtime_directory_path = runtime_root.as_ref().join(
+            relative_socket
+                .parent()
+                .expect("validated socket has a parent"),
+        );
+        let runtime_directory = prepare_runtime_directory(&runtime_directory_path, uid)?;
+        let socket_path = runtime_root.as_ref().join(relative_socket);
+        let lock = open_lock(&runtime_directory_path.join("daemon.lock"), uid)?;
+        acquire_lock(&lock, &socket_path)?;
+        remove_stale_socket(&socket_path, uid)?;
+        Ok(DaemonServerReservation {
+            socket_path,
+            runtime_directory,
+            lock,
+            uid,
+        })
+    }
+
     pub fn bind(
         engine: Engine,
         runtime_root: impl AsRef<Path>,
         relative_socket: impl AsRef<Path>,
     ) -> Result<Self, ServerError> {
-        if relative_socket.as_ref() != Path::new("beankey/daemon.sock") {
-            return Err(ServerError::InvalidSocketPath);
-        }
-        Ok(Self {
-            endpoint: RuntimeEndpoint::bind(runtime_root.as_ref(), relative_socket.as_ref())?,
-            engine: Arc::new(Mutex::new(engine)),
-            uid: effective_uid(),
-        })
+        Self::reserve(runtime_root, relative_socket)?.bind(engine)
     }
 
     pub fn run(self) -> Result<(), ServerError> {
@@ -526,6 +561,31 @@ mod tests {
     }
 
     #[test]
+    fn reserves_the_lock_without_publishing_an_unready_socket() {
+        let root = TempDir::new().unwrap();
+        let socket = root.path().join("beankey/daemon.sock");
+        let reservation = DaemonServer::reserve(root.path(), "beankey/daemon.sock").unwrap();
+        assert!(!socket.exists());
+        assert!(matches!(
+            DaemonServer::reserve(root.path(), "beankey/daemon.sock"),
+            Err(ServerError::LockBusy)
+        ));
+        let endpoint = RuntimeEndpoint::bind(reservation).unwrap();
+        assert!(UnixStream::connect(&socket).is_ok());
+        assert!(matches!(
+            DaemonServer::reserve(root.path(), "beankey/daemon.sock"),
+            Err(ServerError::AlreadyRunning)
+        ));
+        drop(endpoint);
+        assert!(!socket.exists());
+
+        let unused = DaemonServer::reserve(root.path(), "beankey/daemon.sock").unwrap();
+        drop(unused);
+        assert!(DaemonServer::reserve(root.path(), "beankey/daemon.sock").is_ok());
+        assert!(!socket.exists());
+    }
+
+    #[test]
     fn replaces_only_an_owned_stale_socket_and_sets_private_modes() {
         let root = TempDir::new().unwrap();
         let runtime = root.path().join("beankey");
@@ -533,14 +593,16 @@ mod tests {
         let stale_path = runtime.join("daemon.sock");
         drop(UnixListener::bind(&stale_path).unwrap());
 
-        let endpoint =
-            RuntimeEndpoint::bind(root.path(), Path::new("beankey/daemon.sock")).unwrap();
+        let endpoint = DaemonServer::reserve(root.path(), "beankey/daemon.sock")
+            .and_then(RuntimeEndpoint::bind)
+            .unwrap();
         let directory = fs::metadata(&runtime).unwrap();
         let socket = fs::symlink_metadata(&stale_path).unwrap();
         assert_eq!(directory.mode() & 0o777, 0o700);
         assert_eq!(socket.mode() & 0o777, 0o600);
         assert!(matches!(
-            RuntimeEndpoint::bind(root.path(), Path::new("beankey/daemon.sock")),
+            DaemonServer::reserve(root.path(), "beankey/daemon.sock")
+                .and_then(RuntimeEndpoint::bind),
             Err(ServerError::AlreadyRunning)
         ));
         drop(endpoint);
@@ -555,7 +617,8 @@ mod tests {
         File::create(runtime.join("daemon.sock")).unwrap();
 
         assert!(matches!(
-            RuntimeEndpoint::bind(root.path(), Path::new("beankey/daemon.sock")),
+            DaemonServer::reserve(root.path(), "beankey/daemon.sock")
+                .and_then(RuntimeEndpoint::bind),
             Err(ServerError::UnsafeSocket)
         ));
         assert!(runtime.join("daemon.sock").is_file());

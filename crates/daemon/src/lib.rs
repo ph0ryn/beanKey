@@ -23,7 +23,7 @@ pub use config::{
     TypoCorrectionConfig, TypoNGramConfig, ZenzConfig,
 };
 pub use engine::{ConversionResourceError, Engine, EngineOpenError};
-pub use server::{DaemonServer, ServerError};
+pub use server::{DaemonServer, DaemonServerReservation, ServerError};
 pub use zenz::{DEFAULT_INFERENCE_LIMIT, LlamaModel, ZenzConversionError};
 
 #[derive(Debug)]

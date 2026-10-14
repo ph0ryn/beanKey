@@ -14,13 +14,13 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let arguments = parse_arguments(std::env::args_os().skip(1))?;
     let config = DaemonConfig::load(arguments.config_path)?;
-    let engine = Engine::open_with_config(&config, arguments.learning_directory)?;
-    let server = match DaemonServer::bind(engine, arguments.runtime_root, &config.runtime_socket) {
-        Ok(server) => server,
+    let reservation = match DaemonServer::reserve(arguments.runtime_root, &config.runtime_socket) {
+        Ok(reservation) => reservation,
         Err(ServerError::AlreadyRunning) => return Ok(()),
         Err(error) => return Err(error.into()),
     };
-    server.run()?;
+    let engine = Engine::open_with_config(&config, arguments.learning_directory)?;
+    reservation.bind(engine)?.run()?;
     Ok(())
 }
 

@@ -35,7 +35,9 @@ namespace {
 
 constexpr std::uint32_t kProtocolVersion = 1;
 constexpr std::uint32_t kCandidatePageSize = 9;
-constexpr auto kStartupTimeout = std::chrono::milliseconds(5000);
+constexpr auto kStartupTimeout = std::chrono::seconds(30);
+constexpr auto kStartupPollInterval = std::chrono::milliseconds(25);
+constexpr auto kStartupRetryDelay = std::chrono::seconds(1);
 
 std::atomic<std::uint64_t> nextSessionId{1};
 
@@ -407,6 +409,7 @@ bool BeanKeyState::apply(const beankey::v1::Envelope &response) {
   lmTypoAvailable_ = state.lm_typo_available();
   learningAvailable_ = state.learning_available();
   learningWritable_ = state.learning_writable();
+  engine_->syncLearningAction(inputContext_);
   if (!state.commit().empty()) {
     inputContext_->commitString(state.commit());
   }
@@ -530,6 +533,7 @@ void BeanKeyState::clearUi() {
   lmTypoAvailable_ = false;
   learningAvailable_ = false;
   learningWritable_ = false;
+  engine_->syncLearningAction(inputContext_);
   inputContext_->inputPanel().reset();
   inputContext_->updatePreedit();
   inputContext_->updateUserInterface(UserInterfaceComponent::InputPanel);
@@ -553,10 +557,11 @@ beankey::v1::Envelope BeanKeyState::envelope() {
 BeanKeyEngine::BeanKeyEngine(Instance *instance)
     : instance_(instance), runtimeRoot_(runtimeRootPath()),
       learningDirectory_(learningDirectoryPath()),
-      client_(socketPath(runtimeRoot_)),
+      client_(std::make_shared<beankey::Client>(socketPath(runtimeRoot_))),
       factory_([this](InputContext &inputContext) {
         return new BeanKeyState(&inputContext, this);
       }) {
+  preparationDispatcher_.attach(&instance_->eventLoop());
   instance_->inputContextManager().registerProperty("beanKeyState", &factory_);
   resetLearningAction_.setIcon("edit-clear-history");
   resetLearningAction_.setShortText("Reset learning");
@@ -569,14 +574,32 @@ BeanKeyEngine::BeanKeyEngine(Instance *instance)
                                       &instance_->userInterfaceManager());
 }
 
+BeanKeyEngine::~BeanKeyEngine() {
+  preparationThread_.request_stop();
+  if (preparationThread_.joinable()) {
+    preparationThread_.join();
+  }
+  preparationDispatcher_.detach();
+}
+
+void BeanKeyEngine::syncLearningAction(InputContext *inputContext) {
+  const auto actions =
+      inputContext->statusArea().actions(StatusGroup::InputMethod);
+  if (state(inputContext)->learningAvailable()) {
+    if (std::find(actions.begin(), actions.end(), &resetLearningAction_) ==
+        actions.end()) {
+      inputContext->statusArea().addAction(StatusGroup::InputMethod,
+                                           &resetLearningAction_);
+    }
+  } else {
+    inputContext->statusArea().removeAction(&resetLearningAction_);
+  }
+}
+
 void BeanKeyEngine::activate(const InputMethodEntry &,
                              InputContextEvent &event) {
-  auto *beanKeyState = state(event.inputContext());
-  beanKeyState->focusIn();
-  if (beanKeyState->learningAvailable()) {
-    event.inputContext()->statusArea().addAction(StatusGroup::InputMethod,
-                                                 &resetLearningAction_);
-  }
+  state(event.inputContext())->focusIn();
+  syncLearningAction(event.inputContext());
 }
 
 void BeanKeyEngine::deactivate(const InputMethodEntry &,
@@ -599,22 +622,56 @@ BeanKeyState *BeanKeyEngine::state(InputContext *inputContext) {
   return inputContext->propertyFor(&factory_);
 }
 
-beankey::Client &BeanKeyEngine::client() { return client_; }
+beankey::Client &BeanKeyEngine::client() { return *client_; }
 
 bool BeanKeyEngine::ensureConnected() {
   if (runtimeRoot_.empty()) {
     return false;
   }
-  return client_.ensureConnected(
-      [runtimeRoot = runtimeRoot_, learningDirectory = learningDirectory_] {
-        if (learningDirectory.empty()) {
-          return;
+  if (client_->connected()) {
+    return true;
+  }
+  if (preparing_ || std::chrono::steady_clock::now() < retryAfter_) {
+    return false;
+  }
+  // Keep an already-running daemon's first key synchronous, but never wait here.
+  if (client_->ensureConnected([] {}, std::chrono::milliseconds(0))) {
+    return true;
+  }
+  if (learningDirectory_.empty()) {
+    return false;
+  }
+  preparing_ = true;
+  // This waits only for Fcitx's intermediate launcher, not daemon readiness.
+  startProcess({BEANKEY_DAEMON_PATH, "--config", configFilePath(),
+                "--runtime-root", runtimeRoot_, "--learning-directory",
+                learningDirectory_});
+  auto prepared = std::make_shared<beankey::Client>(socketPath(runtimeRoot_));
+  preparationThread_ = std::jthread([this, prepared](std::stop_token stop) {
+    const auto deadline = std::chrono::steady_clock::now() + kStartupTimeout;
+    bool ready = false;
+    while (!stop.stop_requested() &&
+           std::chrono::steady_clock::now() < deadline) {
+      if (prepared->ensureConnected([] {}, std::chrono::milliseconds(0))) {
+        ready = true;
+        break;
+      }
+      std::this_thread::sleep_for(kStartupPollInterval);
+    }
+    if (!stop.stop_requested()) {
+      preparationDispatcher_.schedule([this, prepared, ready] {
+        preparationThread_.join();
+        preparing_ = false;
+        if (ready) {
+          client_ = prepared;
+          retryAfter_ = {};
+        } else {
+          retryAfter_ = std::chrono::steady_clock::now() + kStartupRetryDelay;
         }
-        startProcess({BEANKEY_DAEMON_PATH, "--config", configFilePath(),
-                      "--runtime-root", runtimeRoot, "--learning-directory",
-                      learningDirectory});
-      },
-      kStartupTimeout);
+      });
+    }
+  });
+  return false;
 }
 
 std::chrono::milliseconds BeanKeyEngine::requestTimeout() const {

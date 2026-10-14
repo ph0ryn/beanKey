@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fcitx-utils/eventdispatcher.h>
 #include <fcitx/action.h>
 #include <fcitx/inputcontextproperty.h>
 #include <fcitx/inputmethodengine.h>
@@ -8,6 +9,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unordered_set>
 
 #include "beankey.pb.h"
@@ -66,6 +68,7 @@ private:
 class BeanKeyEngine final : public InputMethodEngineV2 {
 public:
   explicit BeanKeyEngine(Instance *instance);
+  ~BeanKeyEngine() override;
 
   void activate(const InputMethodEntry &entry,
                 InputContextEvent &event) override;
@@ -80,10 +83,17 @@ public:
   std::chrono::milliseconds requestTimeout() const;
 
 private:
+  friend class BeanKeyState;
+  void syncLearningAction(InputContext *inputContext);
+
   Instance *instance_;
   std::string runtimeRoot_;
   std::string learningDirectory_;
-  beankey::Client client_;
+  std::shared_ptr<beankey::Client> client_;
+  EventDispatcher preparationDispatcher_;
+  std::jthread preparationThread_;
+  bool preparing_ = false;
+  std::chrono::steady_clock::time_point retryAfter_{};
   FactoryFor<BeanKeyState> factory_;
   SimpleAction resetLearningAction_;
 };

@@ -235,7 +235,7 @@ fn western_to_japanese_era(value: &str) -> Vec<String> {
         1868 => vec!["明治元年".into(), "慶應4年".into()],
         1990..=2018 => vec![format!("平成{}年", year - 1988)],
         1927..=1988 => vec![format!("昭和{}年", year - 1925)],
-        1869..=1911 => vec![format!("明治{}年", year - 1967)],
+        1869..=1911 => vec![format!("明治{}年", year - 1867)],
         1913..=1925 => vec![format!("大正{}年", year - 1911)],
         2020.. => vec![format!("令和{}年", year - 2018)],
         _ => Vec::new(),

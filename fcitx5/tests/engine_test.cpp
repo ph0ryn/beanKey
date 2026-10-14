@@ -170,7 +170,7 @@ int main() {
 
   bool serverValid = true;
   std::thread server([listener, &serverValid] {
-    const int connection = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
+    int connection = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
     if (connection < 0) {
       serverValid = false;
       close(listener);
@@ -179,6 +179,8 @@ int main() {
     enum class ExpectedRequest {
       Start,
       Key,
+      RecoveredKey,
+      End,
       Forget,
       ResetLearning,
       Typo,
@@ -208,6 +210,11 @@ int main() {
           return request.has_start_session();
         case ExpectedRequest::Key:
           return request.has_key_event();
+        case ExpectedRequest::RecoveredKey:
+          return request.has_key_event() && request.request_id() == 2 &&
+                 request.key_event().input() == "a";
+        case ExpectedRequest::End:
+          return request.has_end_session();
         case ExpectedRequest::Forget:
           return request.has_forget_candidate();
         case ExpectedRequest::ResetLearning:
@@ -246,8 +253,10 @@ int main() {
         state->set_learning_available(true);
         state->set_learning_writable(true);
         if (expected == ExpectedRequest::Start) {
-          state->set_consumed(true);
-        } else if (expected == ExpectedRequest::Key &&
+          state->set_consumed(false);
+          state->set_reset(true);
+        } else if ((expected == ExpectedRequest::Key ||
+                    expected == ExpectedRequest::RecoveredKey) &&
                    request.key_event().action() ==
                        beankey::v1::USER_ACTION_INPUT) {
           state->set_consumed(true);
@@ -334,6 +343,15 @@ int main() {
     serverValid = exchange(ExpectedRequest::ResetLearning) && serverValid;
     serverValid = exchange(ExpectedRequest::InvalidResponse) && serverValid;
     close(connection);
+    connection = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
+    if (connection >= 0) {
+      serverValid = exchange(ExpectedRequest::Start) && serverValid;
+      serverValid = exchange(ExpectedRequest::RecoveredKey) && serverValid;
+      serverValid = exchange(ExpectedRequest::End) && serverValid;
+      close(connection);
+    } else {
+      serverValid = false;
+    }
     close(listener);
   });
 
@@ -587,6 +605,17 @@ int main() {
     valid = report(inputContext.inputPanel().candidateList() == nullptr,
                    "a mismatched daemon response left stale candidates") &&
             valid;
+
+    fcitx::KeyEvent recoveredInput(&inputContext, fcitx::Key(FcitxKey_a));
+    engine.keyEvent(entry, recoveredInput);
+    valid = report(recoveredInput.accepted() &&
+                       inputContext.inputPanel().clientPreedit().toString() ==
+                           "かな",
+                   "first fresh key was lost after reconnecting the session") &&
+            valid;
+    fcitx::InputContextEvent focusOut(
+        &inputContext, fcitx::EventType::InputContextFocusOut);
+    engine.deactivate(entry, focusOut);
   }
 
   server.join();

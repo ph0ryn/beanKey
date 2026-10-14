@@ -368,7 +368,8 @@ bool BeanKeyState::start() {
     return false;
   }
   started_ = true;
-  return apply(*response);
+  static_cast<void>(apply(*response));
+  return true;
 }
 
 bool BeanKeyState::pageCandidates(

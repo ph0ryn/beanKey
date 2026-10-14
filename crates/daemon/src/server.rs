@@ -347,14 +347,14 @@ fn serve_connection(mut stream: UnixStream, engine: Arc<Mutex<Engine>>, connecti
             .handle(request);
         let succeeded = matches!(response.payload, Some(Payload::StateResponse(_)));
         response.session_id = external_session;
-        if write_envelope(&mut stream, &response).is_err() {
-            break;
-        }
         if succeeded && starts {
             sessions.insert(internal_session.clone());
         }
         if succeeded && ends {
             sessions.remove(&internal_session);
+        }
+        if write_envelope(&mut stream, &response).is_err() {
+            break;
         }
     }
     let mut engine = engine
@@ -470,6 +470,60 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn removes_a_started_session_when_the_response_cannot_be_written() {
+        let engine = Arc::new(Mutex::new(
+            Engine::open(PathBuf::from(
+                std::env::var_os("BEANKEY_TEST_DICTIONARY")
+                    .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
+            ))
+            .unwrap(),
+        ));
+        let start = protocol::Envelope {
+            protocol_version: PROTOCOL_VERSION,
+            request_id: 1,
+            session_id: "orphan".into(),
+            payload: Some(Payload::StartSession(protocol::StartSession {
+                input_style: protocol::InputStyle::Direct as i32,
+                keyboard_language: protocol::KeyboardLanguage::Japanese as i32,
+                ..Default::default()
+            })),
+            trace: Vec::new(),
+        };
+        let response = engine.lock().unwrap().handle(start.clone());
+        assert!(matches!(response.payload, Some(Payload::StateResponse(_))));
+        engine.lock().unwrap().remove_session("orphan");
+
+        let (mut client, server) = UnixStream::pair().unwrap();
+        write_envelope(&mut client, &start).unwrap();
+        // Darwin rejects SO_RCVTIMEO after peer closure, so let serving configure
+        // the socket first. Hold the engine until the peer closes to force EPIPE.
+        let observer = server.try_clone().unwrap();
+        let held_engine = engine.lock().unwrap();
+        let serving_engine = Arc::clone(&engine);
+        let worker = thread::spawn(move || serve_connection(server, serving_engine, 42));
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while observer.read_timeout().unwrap() != Some(Duration::from_secs(5)) {
+            assert!(std::time::Instant::now() < deadline, "server did not start");
+            thread::sleep(Duration::from_millis(1));
+        }
+        drop(client);
+        drop(held_engine);
+        worker.join().unwrap();
+
+        let response = engine.lock().unwrap().handle(protocol::Envelope {
+            protocol_version: PROTOCOL_VERSION,
+            request_id: 2,
+            session_id: "42:orphan".into(),
+            payload: Some(Payload::ResetSession(protocol::ResetSession {})),
+            trace: Vec::new(),
+        });
+        assert!(matches!(
+            response.payload,
+            Some(Payload::ProtocolError(error)) if error.code == Code::UnknownSession as i32
+        ));
+    }
 
     #[test]
     fn replaces_only_an_owned_stale_socket_and_sets_private_modes() {

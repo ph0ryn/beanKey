@@ -59,7 +59,8 @@ fn expand_date_template(tag: &str, now: ChronoDateTime<Local>) -> Option<String>
     let language = attribute(tag, "language")?;
     let delta = attribute(tag, "delta")?.parse::<i64>().unwrap_or(0);
     let delta_unit = attribute(tag, "deltaunit")?.parse::<i64>().unwrap_or(0);
-    let date = now.checked_add_signed(Duration::seconds(delta.checked_mul(delta_unit)?))?;
+    let duration = Duration::try_seconds(delta.checked_mul(delta_unit)?)?;
+    let date = now.checked_add_signed(duration)?;
     format_date(&format, calendar, language, date)
 }
 
@@ -273,6 +274,52 @@ mod tests {
             expand_templates_with(japanese, fixed_now(), &mut rng),
             "令和7年01月16日"
         );
+    }
+
+    #[test]
+    fn leaves_out_of_range_date_templates_unchanged() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let seconds_limit = i64::MAX / 1_000;
+        for (delta, unit) in [
+            (i64::MAX, 1),
+            (i64::MIN, 1),
+            (seconds_limit, 1),
+            (seconds_limit + 1, 1),
+            (-seconds_limit, 1),
+            (-seconds_limit - 1, 1),
+            (i64::MAX, 2),
+            (i64::MIN, -1),
+            (i64::MIN, 2),
+        ] {
+            let text = format!(
+                "before/<date format=\"yyyy-MM-dd\" type=\"western\" language=\"ja_JP\" delta=\"{delta}\" deltaunit=\"{unit}\">/after"
+            );
+            assert_eq!(
+                expand_templates_with(&text, fixed_now(), &mut rng),
+                text,
+                "delta={delta}, deltaunit={unit}"
+            );
+        }
+    }
+
+    #[test]
+    fn expands_valid_dates_after_an_invalid_date_template() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let invalid = "<date format=\"yyyy\" type=\"western\" language=\"ja_JP\" delta=\"9223372036854775807\" deltaunit=\"1\">";
+        for (delta, unit, expected) in [
+            (-1, 86_400, "2025-01-14"),
+            (1, -86_400, "2025-01-14"),
+            (i64::MAX, 0, "2025-01-15"),
+            (i64::MIN, 0, "2025-01-15"),
+        ] {
+            let text = format!(
+                "{invalid}/<date format=\"yyyy-MM-dd\" type=\"western\" language=\"ja_JP\" delta=\"{delta}\" deltaunit=\"{unit}\">"
+            );
+            assert_eq!(
+                expand_templates_with(&text, fixed_now(), &mut rng),
+                format!("{invalid}/{expected}")
+            );
+        }
     }
 
     #[test]

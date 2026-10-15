@@ -127,26 +127,26 @@ const DESKTOP_GENERAL_MID: u16 = 501;
 const DESKTOP_USER_DICTIONARY_VALUE: f32 = -5.0;
 
 pub struct Engine {
-    dictionary: DictionaryStore,
-    tables: InputTableRegistry,
+    dictionary: Arc<DictionaryStore>,
+    tables: Arc<InputTableRegistry>,
     sessions: HashMap<String, SessionState>,
-    zenz_model: Option<Box<dyn ZenzLanguageModel>>,
+    zenz_model: Option<zenz::SharedZenzModel>,
     zenz_evaluator: ZenzEvaluator,
     zenz_version: ZenzVersionConfig,
     zenz_rich_candidates: bool,
     zenz_inference_limit: usize,
     zenz_predictive_input: bool,
-    zenz_personalization: Option<zenz::ZenzPersonalizationModels>,
+    zenz_personalization: Option<Arc<zenz::ZenzPersonalizationModels>>,
     lm_typo_enabled: bool,
     lm_typo_language_model: LmTypoLanguageModel,
     lm_typo_config: LmTypoConfig,
-    lm_typo_ngram: Option<NGramLanguageModel>,
+    lm_typo_ngram: Option<zenz::SharedZenzModel>,
     foreign_completion_provider: Option<Arc<dyn ForeignCompletionProvider>>,
     learning_memory: Option<LearningMemory>,
     learning_available: bool,
     learning_writable: bool,
-    text_replacer: Option<TextReplacer>,
-    user_dictionary: Vec<DictionaryEntry>,
+    text_replacer: Option<Arc<TextReplacer>>,
+    user_dictionary: Arc<Vec<DictionaryEntry>>,
     user_dictionary_directory: Option<PathBuf>,
     request_options: RequestOptions,
     live_conversion: bool,
@@ -284,10 +284,45 @@ struct UserDictionaryItem {
 }
 
 impl Engine {
+    /// Creates a connection-owned session registry and evaluation cache, retaining
+    /// the already-open shared resources. Native model operations alone serialize.
+    pub(crate) fn for_connection(&self) -> Self {
+        Self {
+            dictionary: Arc::clone(&self.dictionary),
+            tables: Arc::clone(&self.tables),
+            sessions: HashMap::new(),
+            zenz_model: self.zenz_model.clone(),
+            zenz_evaluator: ZenzEvaluator::default(),
+            zenz_version: self.zenz_version.clone(),
+            zenz_rich_candidates: self.zenz_rich_candidates,
+            zenz_inference_limit: self.zenz_inference_limit,
+            zenz_predictive_input: self.zenz_predictive_input,
+            zenz_personalization: self.zenz_personalization.clone(),
+            lm_typo_enabled: self.lm_typo_enabled,
+            lm_typo_language_model: self.lm_typo_language_model,
+            lm_typo_config: self.lm_typo_config.clone(),
+            lm_typo_ngram: self.lm_typo_ngram.clone(),
+            foreign_completion_provider: self.foreign_completion_provider.clone(),
+            learning_memory: self.learning_memory.clone(),
+            learning_available: self.learning_available,
+            learning_writable: self.learning_writable,
+            text_replacer: self.text_replacer.clone(),
+            user_dictionary: Arc::clone(&self.user_dictionary),
+            user_dictionary_directory: self.user_dictionary_directory.clone(),
+            request_options: self.request_options.clone(),
+            live_conversion: self.live_conversion,
+            default_input_style: self.default_input_style.clone(),
+            default_keyboard_language: self.default_keyboard_language,
+            input_behavior: self.input_behavior,
+        }
+    }
+
     pub fn open(dictionary_path: impl AsRef<Path>) -> Result<Self, DictionaryError> {
         Ok(Self {
-            dictionary: DictionaryStore::open(dictionary_path.as_ref().to_path_buf())?,
-            tables: InputTableRegistry::new(),
+            dictionary: Arc::new(DictionaryStore::open(
+                dictionary_path.as_ref().to_path_buf(),
+            )?),
+            tables: Arc::new(InputTableRegistry::new()),
             sessions: HashMap::new(),
             zenz_model: None,
             zenz_evaluator: ZenzEvaluator::default(),
@@ -305,7 +340,7 @@ impl Engine {
             learning_available: false,
             learning_writable: false,
             text_replacer: None,
-            user_dictionary: default_user_dictionary(),
+            user_dictionary: Arc::new(default_user_dictionary()),
             user_dictionary_directory: None,
             request_options: default_request_options(),
             live_conversion: false,
@@ -320,7 +355,7 @@ impl Engine {
         model: Box<dyn ZenzLanguageModel>,
     ) -> Result<Self, DictionaryError> {
         let mut engine = Self::open(dictionary_path)?;
-        engine.zenz_model = Some(model);
+        engine.zenz_model = Some(zenz::SharedZenzModel::new(model));
         Ok(engine)
     }
 
@@ -434,7 +469,7 @@ impl Engine {
         &mut self,
         emoji_dictionary: impl AsRef<Path>,
     ) -> Result<(), TextReplacerError> {
-        self.text_replacer = Some(TextReplacer::open(emoji_dictionary)?);
+        self.text_replacer = Some(Arc::new(TextReplacer::open(emoji_dictionary)?));
         Ok(())
     }
 
@@ -450,7 +485,7 @@ impl Engine {
                 })?;
             let items: Vec<UserDictionaryItem> =
                 serde_json::from_str(&source).map_err(ConversionResourceError::UserDictionary)?;
-            self.user_dictionary.extend(
+            Arc::make_mut(&mut self.user_dictionary).extend(
                 items.into_iter().map(|item| {
                     desktop_user_dictionary_entry(item.word, to_katakana(&item.reading))
                 }),
@@ -475,7 +510,7 @@ impl Engine {
             {
                 return Err(ConversionResourceError::InvalidInputTable { name: name.clone() });
             }
-            self.tables
+            Arc::make_mut(&mut self.tables)
                 .register(name.clone(), InputTable::from_custom_tsv(&source));
         }
         Ok(())
@@ -556,7 +591,8 @@ impl Engine {
                     personalization.alpha,
                 )
             })
-            .transpose()?;
+            .transpose()?
+            .map(Arc::new);
         Ok(())
     }
 
@@ -589,6 +625,7 @@ impl Engine {
                         )
                     })
                     .transpose()?
+                    .map(|model| zenz::SharedZenzModel::new(Box::new(model)))
             } else {
                 None
             };
@@ -667,7 +704,7 @@ impl Engine {
                 };
                 let mut conversion = ConversionSession::new();
                 conversion.import_dynamic_user_dictionary(
-                    self.user_dictionary.clone(),
+                    self.user_dictionary.as_ref().clone(),
                     desktop_dynamic_shortcuts(),
                 );
                 if let Some(path) = &self.user_dictionary_directory
@@ -749,10 +786,6 @@ impl Engine {
             ),
             request => self.handle_session_request(request_id, session_id, request),
         }
-    }
-
-    pub fn remove_session(&mut self, session_id: &str) {
-        self.sessions.remove(session_id);
     }
 
     fn handle_session_request(
@@ -917,7 +950,7 @@ impl Engine {
             ));
         }
         let model: &mut dyn ZenzLanguageModel = match self.lm_typo_language_model {
-            LmTypoLanguageModel::Zenz => self.zenz_model.as_deref_mut().ok_or_else(|| {
+            LmTypoLanguageModel::Zenz => self.zenz_model.as_mut().ok_or_else(|| {
                 (
                     Code::Internal,
                     "Zenz model is unavailable for LM typo correction".into(),
@@ -1647,7 +1680,7 @@ impl Engine {
             )
         })?;
         let converter = NormalConverter::new(&self.dictionary);
-        let (result, evaluated_candidate) = if let Some(model) = self.zenz_model.as_deref_mut() {
+        let (result, evaluated_candidate) = if let Some(model) = self.zenz_model.as_mut() {
             let surrounding = surrounding_with_left_context(&session.surrounding, left_context);
             let version = version_with_context(&self.zenz_version, &surrounding);
             let evaluated_candidate = zenz::convert(
@@ -1661,7 +1694,7 @@ impl Engine {
                     version: &version,
                     request_rich_candidates: self.zenz_rich_candidates || request_rich_candidates,
                     inference_limit: self.zenz_inference_limit,
-                    personalization: self.zenz_personalization.as_ref(),
+                    personalization: self.zenz_personalization.as_deref(),
                 },
             )
             .map_err(|error| {
@@ -1695,7 +1728,7 @@ impl Engine {
                                         version: &version,
                                         request_rich_candidates: false,
                                         inference_limit: self.zenz_inference_limit,
-                                        personalization: self.zenz_personalization.as_ref(),
+                                        personalization: self.zenz_personalization.as_deref(),
                                     },
                                 )
                                 .map_err(|error| match error {

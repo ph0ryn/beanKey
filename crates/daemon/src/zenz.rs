@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use beankey_converter::{
     Candidate, CandidateEvaluation, ConversionSession, DictionaryError, DictionaryMetadata,
@@ -95,6 +96,58 @@ impl ZenzPersonalizationModels {
             base: &self.base,
             personal: &self.personal,
         }
+    }
+}
+
+/// Connection-local handle to the single model context. Holding a handle never
+/// locks the context across converter dictionary work or session state changes.
+#[derive(Clone)]
+pub(crate) struct SharedZenzModel {
+    model: Arc<Mutex<Box<dyn ZenzLanguageModel>>>,
+}
+
+impl SharedZenzModel {
+    pub(crate) fn new(model: Box<dyn ZenzLanguageModel>) -> Self {
+        Self {
+            model: Arc::new(Mutex::new(model)),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Box<dyn ZenzLanguageModel>> {
+        self.model
+            .lock()
+            .expect("a poisoned model cannot preserve inference state")
+    }
+}
+
+impl ZenzLanguageModel for SharedZenzModel {
+    fn vocabulary_size(&self) -> usize {
+        self.lock().vocabulary_size()
+    }
+
+    fn eos_token(&self) -> i32 {
+        self.lock().eos_token()
+    }
+
+    fn tokenize(&mut self, text: &str, add_special: bool) -> Result<Vec<i32>, ZenzInferenceError> {
+        self.lock().tokenize(text, add_special)
+    }
+
+    fn token_to_piece(&mut self, token: i32) -> Result<Vec<u8>, ZenzInferenceError> {
+        self.lock().token_to_piece(token)
+    }
+
+    fn next_logits(&mut self, tokens: &[i32]) -> Result<Vec<f32>, ZenzInferenceError> {
+        self.lock().next_logits(tokens)
+    }
+
+    fn logits_for_suffix(
+        &mut self,
+        tokens: &[i32],
+        start_index: usize,
+        sequence: ZenzInferenceSequence,
+    ) -> Result<Vec<f32>, ZenzInferenceError> {
+        self.lock().logits_for_suffix(tokens, start_index, sequence)
     }
 }
 

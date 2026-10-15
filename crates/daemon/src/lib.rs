@@ -116,6 +116,9 @@ fn read_varint(reader: &mut impl Read) -> Result<usize, FrameError> {
     for shift in (0..=63).step_by(7) {
         let mut byte = [0];
         reader.read_exact(&mut byte)?;
+        if shift == 63 && byte[0] > 1 {
+            return Err(FrameError::InvalidLength);
+        }
         value |= u64::from(byte[0] & 0x7f) << shift;
         if byte[0] & 0x80 == 0 {
             return usize::try_from(value).map_err(|_| FrameError::InvalidLength);
@@ -162,6 +165,73 @@ mod tests {
         let mut frame = Vec::new();
         write_envelope(&mut frame, &expected).unwrap();
         assert_eq!(read_envelope(&mut Cursor::new(frame)).unwrap(), expected);
+    }
+
+    #[test]
+    fn round_trips_varint_length_boundaries() {
+        for expected in [
+            0,
+            127,
+            128,
+            16_383,
+            16_384,
+            MAXIMUM_MESSAGE_SIZE,
+            MAXIMUM_MESSAGE_SIZE + 1,
+            usize::MAX,
+        ] {
+            let mut encoded = Vec::new();
+            write_varint(&mut encoded, expected).unwrap();
+            let mut reader = Cursor::new(encoded);
+            assert_eq!(read_varint(&mut reader).unwrap(), expected);
+            assert_eq!(reader.position(), reader.get_ref().len() as u64);
+        }
+    }
+
+    #[test]
+    fn rejects_every_overflowing_or_continued_tenth_varint_byte() {
+        for terminal in 2..=u8::MAX {
+            let mut frame = vec![0x80; 9];
+            frame.extend([terminal, 0xde, 0xad]);
+            let mut reader = Cursor::new(frame);
+            assert!(
+                matches!(read_envelope(&mut reader), Err(FrameError::InvalidLength)),
+                "accepted invalid tenth byte {terminal:#04x}"
+            );
+            assert_eq!(reader.position(), 10, "read past invalid frame length");
+        }
+    }
+
+    #[test]
+    fn accepts_the_full_u64_varint_range_without_truncation() {
+        let mut frame = vec![0xff; 9];
+        frame.push(0x01);
+        match usize::try_from(u64::MAX) {
+            Ok(expected) => assert_eq!(read_varint(&mut Cursor::new(frame)).unwrap(), expected),
+            Err(_) => assert!(matches!(
+                read_varint(&mut Cursor::new(frame)),
+                Err(FrameError::InvalidLength)
+            )),
+        }
+    }
+
+    #[test]
+    fn rejects_truncated_varint_lengths() {
+        for count in 0..10 {
+            assert!(matches!(
+                read_varint(&mut Cursor::new(vec![0x80; count])),
+                Err(FrameError::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof
+            ));
+        }
+    }
+
+    #[test]
+    fn accepts_zero_extended_lengths_without_reading_the_next_frame() {
+        let mut frame = vec![0x80; 9];
+        frame.extend([0, 42]);
+        let mut reader = Cursor::new(frame);
+        assert_eq!(read_varint(&mut reader).unwrap(), 0);
+        assert_eq!(reader.position(), 10);
+        assert_eq!(read_varint(&mut reader).unwrap(), 42);
     }
 
     #[test]

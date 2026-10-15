@@ -198,6 +198,30 @@ int main() {
   malformedServer.join();
   assert(unlink(socketPath.c_str()) == 0);
 
+  for (const auto terminal :
+       std::array<std::uint8_t, 4>{0x10, 0x7f, 0x80, 0xff}) {
+    const int invalidLengthListener = createListenerSocket();
+    assert(invalidLengthListener >= 0);
+    assert(bind(invalidLengthListener, reinterpret_cast<const sockaddr *>(&address),
+                sizeof(address)) == 0);
+    assert(listen(invalidLengthListener, 1) == 0);
+    std::thread invalidLengthServer([invalidLengthListener, terminal] {
+      const int connection = acceptConnection(invalidLengthListener);
+      assert(connection >= 0);
+      assert(!readFrame(connection).empty());
+      const std::array<std::uint8_t, 5> prefix{0x80, 0x80, 0x80, 0x80, terminal};
+      assert(writeAll(connection, prefix.data(), prefix.size()));
+      close(connection);
+      close(invalidLengthListener);
+    });
+    beankey::Client invalidLength(socketPath);
+    assert(invalidLength.ensureConnected([] {}, std::chrono::milliseconds(500)));
+    assert(!invalidLength.request(request, std::chrono::milliseconds(500)));
+    assert(!invalidLength.connected());
+    invalidLengthServer.join();
+    assert(unlink(socketPath.c_str()) == 0);
+  }
+
   assert(rmdir(directory) == 0);
 
   bool missingLaunch = false;

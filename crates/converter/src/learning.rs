@@ -77,7 +77,10 @@ pub struct LearningMemory {
     inner: Arc<Mutex<LearningState>>,
 }
 
+type DayClock = Arc<dyn Fn() -> u16 + Send + Sync>;
+
 struct LearningState {
+    clock: DayClock,
     directory: PathBuf,
     character_ids: CharacterIdMap,
     mode: LearningMode,
@@ -104,22 +107,23 @@ impl LearningMemory {
         max_count: usize,
         character_ids: CharacterIdMap,
     ) -> Result<Self, LearningError> {
-        Self::open_on_day(
+        Self::open_with_clock(
             directory.into(),
             mode,
             max_count,
             character_ids,
-            current_day(),
+            Arc::new(current_day),
         )
     }
 
-    fn open_on_day(
+    fn open_with_clock(
         directory: PathBuf,
         mode: LearningMode,
         max_count: usize,
         character_ids: CharacterIdMap,
-        today: u16,
+        clock: DayClock,
     ) -> Result<Self, LearningError> {
+        let today = clock();
         fs::create_dir_all(&directory).map_err(|source| LearningError::Io {
             path: directory.clone(),
             source,
@@ -138,6 +142,7 @@ impl LearningMemory {
             inner: Arc::new(Mutex::new(LearningState {
                 persisted_index: MemoryLouds::new(&persisted, &character_ids),
                 temporary_index: MemoryTrie::default(),
+                clock,
                 directory,
                 character_ids,
                 mode,
@@ -333,7 +338,11 @@ impl LearningMemory {
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, LearningState>, LearningError> {
-        self.inner.lock().map_err(|_| LearningError::Poisoned)
+        let mut state = self.inner.lock().map_err(|_| LearningError::Poisoned)?;
+        // Use one clock snapshot for all decay and learning in this operation.
+        let today = (state.clock)();
+        state.refresh_day(today);
+        Ok(state)
     }
 }
 
@@ -401,6 +410,18 @@ fn join_entries(entries: &[DictionaryEntry]) -> DictionaryEntry {
 }
 
 impl LearningState {
+    fn refresh_day(&mut self, today: u16) {
+        if self.today == today {
+            return;
+        }
+        decay(&mut self.persisted, today);
+        decay(&mut self.temporary, today);
+        // Decay can remove records, changing the positions stored in both indexes.
+        self.persisted_index = MemoryLouds::new(&self.persisted, &self.character_ids);
+        self.temporary_index = MemoryTrie::new(&self.temporary, &self.character_ids);
+        self.today = today;
+    }
+
     fn memorize(&mut self, entry: DictionaryEntry) {
         if !valid_learning_entry(&entry, &self.character_ids) {
             return;
@@ -843,6 +864,7 @@ fn current_day() -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU16, Ordering};
 
     fn character_ids() -> CharacterIdMap {
         let path = PathBuf::from(
@@ -877,6 +899,7 @@ mod tests {
     fn memory(mode: LearningMode, persisted: Vec<LearningRecord>) -> LearningMemory {
         LearningMemory {
             inner: Arc::new(Mutex::new(LearningState {
+                clock: Arc::new(|| 10),
                 directory: PathBuf::new(),
                 persisted_index: MemoryLouds::new(&persisted, &character_ids()),
                 temporary_index: MemoryTrie::default(),
@@ -976,6 +999,162 @@ mod tests {
         memory.lock().unwrap().mode = LearningMode::Nothing;
         assert!(memory.matches_from_start("カナ", 20).unwrap().is_empty());
         assert!(memory.predict("カ").unwrap().is_empty());
+    }
+
+    fn controlled_memory(directory: &Path, day: &Arc<AtomicU16>) -> LearningMemory {
+        let day = Arc::clone(day);
+        LearningMemory::open_with_clock(
+            directory.to_owned(),
+            LearningMode::InputAndOutput,
+            128,
+            CharacterIdMap::parse("\0カナニガク").unwrap(),
+            Arc::new(move || day.load(Ordering::SeqCst)),
+        )
+        .unwrap()
+    }
+
+    fn single_candidate(word: &str, ruby: &str) -> Candidate {
+        Candidate::single(
+            word.into(),
+            -12.0,
+            crate::ComposingCount::Surface(ruby.chars().count()),
+            501,
+            vec![entry(word, ruby)],
+        )
+    }
+
+    #[test]
+    fn learning_after_a_long_idle_period_survives_commit_and_reopen() {
+        let directory = temporary_directory("learning-current-day");
+        let day = Arc::new(AtomicU16::new(100));
+        let memory = controlled_memory(&directory, &day);
+        memory.learn(&single_candidate("古い語", "カナ")).unwrap();
+
+        day.store(133, Ordering::SeqCst);
+        memory.learn(&single_candidate("新しい語", "カニ")).unwrap();
+        assert!(memory.commit().unwrap());
+
+        let records = decode_directory(&directory).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].entry.word, "新しい語");
+        assert_eq!(records[0].last_used_day, 133);
+        assert_eq!(records[0].last_updated_day, 133);
+        assert_eq!(records[0].count, 1);
+        let reopened = controlled_memory(&directory, &day);
+        assert!(reopened.exact_match("カナ").unwrap().is_empty());
+        assert_eq!(reopened.exact_match("カニ").unwrap()[0].word, "新しい語");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn recently_reused_learning_survives_in_both_shared_memory_layers() {
+        let directory = temporary_directory("learning-reused-day");
+        let day = Arc::new(AtomicU16::new(100));
+        let memory = controlled_memory(&directory, &day);
+        let persisted = single_candidate("保存語", "カナ");
+        let pending = single_candidate("一時語", "カニ");
+        for _ in 0..4 {
+            memory.learn(&persisted).unwrap();
+        }
+        assert!(memory.commit().unwrap());
+        for _ in 0..4 {
+            memory.learn(&pending).unwrap();
+        }
+
+        day.store(133, Ordering::SeqCst);
+        let shared = memory.clone();
+        shared.learn(&persisted).unwrap();
+        shared.learn(&pending).unwrap();
+        assert!(memory.commit().unwrap());
+
+        let records = decode_directory(&directory).unwrap();
+        assert_eq!(records.len(), 2);
+        for record in &records {
+            assert_eq!(record.last_used_day, 133);
+            // Existing counts decay before the new use is added, exactly once.
+            assert_eq!(record.count, 3);
+            assert!((132..=133).contains(&record.last_updated_day));
+        }
+        let reopened = controlled_memory(&directory, &day);
+        assert_eq!(reopened.exact_match("カナ").unwrap()[0].word, "保存語");
+        assert_eq!(reopened.exact_match("カニ").unwrap()[0].word, "一時語");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn delayed_commit_decays_pending_learning_without_redating_it() {
+        let directory = temporary_directory("learning-delayed-commit");
+        let day = Arc::new(AtomicU16::new(100));
+        let memory = controlled_memory(&directory, &day);
+        memory.learn(&single_candidate("期限切れ", "カナ")).unwrap();
+        for _ in 0..4 {
+            memory.learn(&single_candidate("残る語", "カニ")).unwrap();
+        }
+
+        day.store(133, Ordering::SeqCst);
+        assert!(memory.commit().unwrap());
+        let records = decode_directory(&directory).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].entry.word, "残る語");
+        assert_eq!(records[0].last_used_day, 100);
+        assert_eq!(records[0].last_updated_day, 132);
+        assert_eq!(records[0].count, 2);
+        assert_eq!(
+            controlled_memory(&directory, &day).entries().unwrap().len(),
+            1
+        );
+
+        day.store(228, Ordering::SeqCst);
+        assert!(memory.entries().unwrap().is_empty());
+        assert!(
+            controlled_memory(&directory, &day)
+                .entries()
+                .unwrap()
+                .is_empty()
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn day_change_rebuilds_both_indexes_and_forget_saves_current_decay() {
+        let directory = temporary_directory("learning-day-indexes");
+        let day = Arc::new(AtomicU16::new(100));
+        let memory = controlled_memory(&directory, &day);
+        memory.learn(&single_candidate("旧保存", "カナ")).unwrap();
+        for _ in 0..4 {
+            memory.learn(&single_candidate("保存", "カニ")).unwrap();
+        }
+        assert!(memory.commit().unwrap());
+        memory.learn(&single_candidate("旧一時", "ガク")).unwrap();
+        for _ in 0..4 {
+            memory.learn(&single_candidate("一時", "カク")).unwrap();
+        }
+
+        day.store(133, Ordering::SeqCst);
+        assert!(memory.exact_match("カナ").unwrap().is_empty());
+        assert!(memory.exact_match("ガク").unwrap().is_empty());
+        assert_eq!(memory.exact_match("カニ").unwrap()[0].word, "保存");
+        assert_eq!(memory.exact_match("カク").unwrap()[0].word, "一時");
+        assert_eq!(
+            memory.matches_from_start("カニ", 2).unwrap()[0].word,
+            "保存"
+        );
+        assert_eq!(
+            memory.matches_from_start("カク", 2).unwrap()[0].word,
+            "一時"
+        );
+        assert_eq!(memory.predict("カ").unwrap().len(), 2);
+        for learned in memory.entries().unwrap() {
+            assert_eq!(learned.value(), learning_value(2, &learned.ruby));
+        }
+
+        memory.forget(&single_candidate("対象外", "ガ")).unwrap();
+        let records = decode_directory(&directory).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].entry.word, "保存");
+        assert_eq!(records[0].count, 2);
+        assert_eq!(records[0].last_updated_day, 132);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -1122,6 +1301,7 @@ mod tests {
             .collect();
         let memory = LearningMemory {
             inner: Arc::new(Mutex::new(LearningState {
+                clock: Arc::new(|| 10),
                 directory: directory.clone(),
                 persisted_index: MemoryLouds::new(&persisted, &character_ids()),
                 temporary_index: MemoryTrie::default(),

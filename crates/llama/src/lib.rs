@@ -5,7 +5,7 @@ use std::path::Path;
 use std::ptr::NonNull;
 
 const ERROR_CAPACITY: usize = 256;
-const CONTEXT_TOKEN_LIMIT: usize = 512;
+pub const CONTEXT_TOKEN_LIMIT: usize = 512;
 
 unsafe extern "C" {
     fn beankey_llama_load(
@@ -67,7 +67,7 @@ impl fmt::Display for LlamaError {
             Self::InputTooLong(count) => {
                 write!(
                     formatter,
-                    "inference requires {count} tokens, exceeding 512"
+                    "inference requires {count} tokens, exceeding {CONTEXT_TOKEN_LIMIT}"
                 )
             }
             Self::InvalidLogitsRange {

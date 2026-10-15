@@ -1,4 +1,4 @@
-use beankey_llama::{LlamaContext, LlamaSequence};
+use beankey_llama::{CONTEXT_TOKEN_LIMIT, LlamaContext, LlamaError, LlamaSequence};
 
 const PROMPTS: [&str; 4] = [
     "\u{ee00}テスト\u{ee01}候補",
@@ -119,6 +119,28 @@ fn isolated_prefix_sharing_preserves_logits() {
         assert!(
             variation < 0.01,
             "isolated prefix sharing changed the distribution by {variation} for {prompt:?}"
+        );
+    }
+}
+
+#[test]
+fn oversized_requests_preserve_the_context_for_shorter_input() {
+    let mut context = fixed_context();
+    let tokens = context.tokenize(PROMPTS[0], true).unwrap();
+    let oversized = vec![tokens[0]; CONTEXT_TOKEN_LIMIT + 1];
+    let vocabulary_size = context.vocabulary_size();
+    for sequence in [LlamaSequence::Evaluation, LlamaSequence::InputPrediction] {
+        let before = context.logits(&tokens, 0, sequence).unwrap();
+        assert!(matches!(
+            context.logits(&oversized, 0, sequence),
+            Err(LlamaError::InputTooLong(count)) if count == oversized.len()
+        ));
+        let recovered = context.logits(&tokens, 0, sequence).unwrap();
+        assert_token_predictions(
+            "short input after a capacity rejection",
+            &recovered,
+            &before,
+            vocabulary_size,
         );
     }
 }

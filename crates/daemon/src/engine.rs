@@ -963,20 +963,21 @@ impl Engine {
                 )
             })?,
         };
-        experimental_typo_correction(
+        match experimental_typo_correction(
             model,
             session.surrounding.left.as_deref().unwrap_or(""),
             session.conversion.composing(),
             &session.input_style,
             &self.tables,
             &self.lm_typo_config,
-        )
-        .map_err(|error| {
-            (
+        ) {
+            Ok(candidates) => Ok(candidates),
+            Err(error) if error.is_context_capacity_exceeded() => Ok(Vec::new()),
+            Err(error) => Err((
                 Code::Internal,
                 format!("LM typo correction failed: {error}"),
-            )
-        })
+            )),
+        }
     }
 
     fn handle_key(
@@ -1680,93 +1681,118 @@ impl Engine {
             )
         })?;
         let converter = NormalConverter::new(&self.dictionary);
-        let (result, evaluated_candidate) = if let Some(model) = self.zenz_model.as_mut() {
-            let surrounding = surrounding_with_left_context(&session.surrounding, left_context);
-            let version = version_with_context(&self.zenz_version, &surrounding);
-            let evaluated_candidate = zenz::convert(
-                &mut session.conversion,
-                &converter,
-                &self.tables,
-                model,
-                &mut self.zenz_evaluator,
-                &mut session.zenz_cache,
-                zenz::ZenzConversionOptions {
-                    version: &version,
-                    request_rich_candidates: self.zenz_rich_candidates || request_rich_candidates,
-                    inference_limit: self.zenz_inference_limit,
-                    personalization: self.zenz_personalization.as_deref(),
-                },
-            )
-            .map_err(|error| {
-                (
-                    Code::Internal,
-                    format!("Zenz candidate generation failed: {error}"),
-                )
-            })?;
-            let prediction_override = if self.zenz_predictive_input
-                && session.request_options.japanese_prediction != PredictionMode::Disabled
-            {
-                Some(
-                    session
-                        .conversion
-                        .request_zenz_prediction(
-                            &converter,
-                            &self.tables,
-                            model,
-                            &version,
-                            surrounding.left.as_deref().unwrap_or(""),
-                            |prediction_session, model| {
-                                let mut prediction_cache = zenz::ZenzConversionCache::default();
-                                zenz::convert(
-                                    prediction_session,
+        let zenz_result =
+            self.zenz_model
+                .as_mut()
+                .map(|model| -> Result<_, zenz::ZenzConversionError> {
+                    let surrounding =
+                        surrounding_with_left_context(&session.surrounding, left_context);
+                    let version = version_with_context(&self.zenz_version, &surrounding);
+                    let evaluated_candidate = zenz::convert(
+                        &mut session.conversion,
+                        &converter,
+                        &self.tables,
+                        model,
+                        &mut self.zenz_evaluator,
+                        &mut session.zenz_cache,
+                        zenz::ZenzConversionOptions {
+                            version: &version,
+                            request_rich_candidates: self.zenz_rich_candidates
+                                || request_rich_candidates,
+                            inference_limit: self.zenz_inference_limit,
+                            personalization: self.zenz_personalization.as_deref(),
+                        },
+                    )?;
+                    let prediction_override = if self.zenz_predictive_input
+                        && session.request_options.japanese_prediction != PredictionMode::Disabled
+                    {
+                        Some(
+                            session
+                                .conversion
+                                .request_zenz_prediction(
                                     &converter,
                                     &self.tables,
                                     model,
-                                    &mut self.zenz_evaluator,
-                                    &mut prediction_cache,
-                                    zenz::ZenzConversionOptions {
-                                        version: &version,
-                                        request_rich_candidates: false,
-                                        inference_limit: self.zenz_inference_limit,
-                                        personalization: self.zenz_personalization.as_deref(),
+                                    &version,
+                                    surrounding.left.as_deref().unwrap_or(""),
+                                    |prediction_session, model| {
+                                        let mut prediction_cache =
+                                            zenz::ZenzConversionCache::default();
+                                        zenz::convert(
+                                            prediction_session,
+                                            &converter,
+                                            &self.tables,
+                                            model,
+                                            &mut self.zenz_evaluator,
+                                            &mut prediction_cache,
+                                            zenz::ZenzConversionOptions {
+                                                version: &version,
+                                                request_rich_candidates: false,
+                                                inference_limit: self.zenz_inference_limit,
+                                                personalization: self
+                                                    .zenz_personalization
+                                                    .as_deref(),
+                                            },
+                                        )
+                                        .map_err(|error| match error {
+                                            zenz::ZenzConversionError::Dictionary(error) => {
+                                                beankey_converter::ZenzPredictionError::Dictionary(
+                                                    error,
+                                                )
+                                            }
+                                            zenz::ZenzConversionError::Inference(error) => {
+                                                beankey_converter::ZenzPredictionError::Inference(
+                                                    error,
+                                                )
+                                            }
+                                        })
+                                        .map(|_| ())
                                     },
                                 )
                                 .map_err(|error| match error {
-                                    zenz::ZenzConversionError::Dictionary(error) => {
-                                        beankey_converter::ZenzPredictionError::Dictionary(error)
+                                    beankey_converter::ZenzPredictionError::Dictionary(error) => {
+                                        zenz::ZenzConversionError::Dictionary(error)
                                     }
-                                    zenz::ZenzConversionError::Inference(error) => {
-                                        beankey_converter::ZenzPredictionError::Inference(error)
+                                    beankey_converter::ZenzPredictionError::Inference(error) => {
+                                        zenz::ZenzConversionError::Inference(error)
                                     }
-                                })
-                                .map(|_| ())
-                            },
+                                })?,
                         )
-                        .map_err(|error| {
-                            (
-                                Code::Internal,
-                                format!("Zenz input prediction failed: {error}"),
-                            )
-                        })?,
-                )
-            } else {
+                    } else {
+                        None
+                    };
+                    let result = session
+                        .conversion
+                        .finalize_zenz_request_with_prediction_override(
+                            &converter,
+                            &self.tables,
+                            session.request_options.clone(),
+                            prediction_override,
+                        )?;
+                    Ok((result, evaluated_candidate))
+                });
+        let zenz_result = match zenz_result {
+            Some(Ok(result)) => Some(result),
+            Some(Err(zenz::ZenzConversionError::Inference(error)))
+                if error.is_context_capacity_exceeded() =>
+            {
+                // A model capacity limit is not a broken session. Discard partial
+                // neural drafts/constraints and regenerate from the full composition.
+                // The next request still tries inference (including personalization).
+                session.zenz_cache = zenz::ZenzConversionCache::default();
+                session.conversion.discard_zenz_inference_state();
                 None
-            };
-            let result = session
-                .conversion
-                .finalize_zenz_request_with_prediction_override(
-                    &converter,
-                    &self.tables,
-                    session.request_options.clone(),
-                    prediction_override,
-                )
-                .map_err(|error| {
-                    (
-                        Code::Internal,
-                        format!("candidate assembly failed: {error}"),
-                    )
-                })?;
-            (result, evaluated_candidate)
+            }
+            Some(Err(error)) => {
+                return Err((
+                    Code::Internal,
+                    format!("Zenz candidate generation failed: {error}"),
+                ));
+            }
+            None => None,
+        };
+        let (result, evaluated_candidate) = if let Some(result) = zenz_result {
+            result
         } else {
             let result = session
                 .conversion
@@ -2547,6 +2573,295 @@ mod tests {
     use super::*;
 
     struct GreekCompleter;
+
+    struct PredictionCapacityModel {
+        fail_review: bool,
+        generated: bool,
+        failed: bool,
+        generation_calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl ZenzLanguageModel for PredictionCapacityModel {
+        fn vocabulary_size(&self) -> usize {
+            5
+        }
+        fn eos_token(&self) -> i32 {
+            2
+        }
+        fn tokenize(
+            &mut self,
+            _text: &str,
+            add_special: bool,
+        ) -> Result<Vec<i32>, ZenzInferenceError> {
+            Ok(vec![if add_special { 1 } else { 3 }])
+        }
+        fn token_to_piece(&mut self, token: i32) -> Result<Vec<u8>, ZenzInferenceError> {
+            Ok(match token {
+                3 => "カ".as_bytes().to_vec(),
+                4 => "。".as_bytes().to_vec(),
+                _ => Vec::new(),
+            })
+        }
+        fn next_logits(&mut self, tokens: &[i32]) -> Result<Vec<f32>, ZenzInferenceError> {
+            self.generation_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.generated = true;
+            if !self.fail_review && !self.failed {
+                self.failed = true;
+                return Err(ZenzInferenceError::ContextCapacity {
+                    tokens: 65,
+                    capacity: 64,
+                });
+            }
+            Ok(if tokens.contains(&3) {
+                vec![-10.0, -10.0, -10.0, 0.0, 10.0]
+            } else {
+                vec![-10.0, -10.0, -10.0, 10.0, 0.0]
+            })
+        }
+        fn logits_for_suffix(
+            &mut self,
+            tokens: &[i32],
+            start: usize,
+            _sequence: beankey_converter::ZenzInferenceSequence,
+        ) -> Result<Vec<f32>, ZenzInferenceError> {
+            if self.fail_review && self.generated && !self.failed {
+                self.failed = true;
+                return Err(ZenzInferenceError::ContextCapacity {
+                    tokens: 65,
+                    capacity: 64,
+                });
+            }
+            Ok([-10.0, -10.0, -10.0, 10.0, 0.0].repeat(tokens.len() - start))
+        }
+    }
+
+    #[test]
+    fn prediction_capacity_discards_partial_neural_cache_and_retries() {
+        for fail_review in [false, true] {
+            let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let dictionary = PathBuf::from(std::env::var_os("BEANKEY_TEST_DICTIONARY").unwrap());
+            let mut engine = Engine::open_with_zenz_model(
+                dictionary,
+                Box::new(PredictionCapacityModel {
+                    fail_review,
+                    generated: false,
+                    failed: false,
+                    generation_calls: Arc::clone(&calls),
+                }),
+            )
+            .unwrap();
+            engine.zenz_predictive_input = true;
+            engine.request_options.japanese_prediction = PredictionMode::Manual;
+            engine.handle(protocol::Envelope {
+                protocol_version: PROTOCOL_VERSION,
+                request_id: 1,
+                session_id: "prediction-capacity".into(),
+                payload: Some(Payload::StartSession(protocol::StartSession {
+                    input_style: protocol::InputStyle::Direct as i32,
+                    keyboard_language: protocol::KeyboardLanguage::Japanese as i32,
+                    ..Default::default()
+                })),
+                trace: Vec::new(),
+            });
+            let mut session = engine.sessions.remove("prediction-capacity").unwrap();
+            session
+                .conversion
+                .insert_str("ゐゑ🦀", ConverterInputStyle::Direct, &engine.tables);
+            session.input_mode = InputMode::Composing;
+            assert!(
+                session
+                    .conversion
+                    .request_predictions(
+                        &NormalConverter::new(&engine.dictionary),
+                        &engine.tables,
+                        5,
+                    )
+                    .unwrap()
+                    .is_empty(),
+                "fixture must not short-circuit into dictionary prediction"
+            );
+            engine
+                .request_candidates_for_active_target(&mut session, false, None)
+                .unwrap();
+            assert!(
+                calls.load(std::sync::atomic::Ordering::SeqCst) > 0,
+                "fixture must reach neural input prediction before checking fallback"
+            );
+            assert_eq!(session.conversion.composing().surface(), "ゐゑ🦀");
+            assert!(
+                session
+                    .candidate_annotations
+                    .iter()
+                    .all(|annotation| annotation != "Zenzai")
+            );
+            let before = calls.load(std::sync::atomic::Ordering::SeqCst);
+            assert!(before > 0, "fixture must reach neural input prediction");
+            // Same input: a retained cache from the failed predicted review would
+            // skip generation here. A new request must try the model normally.
+            engine
+                .request_candidates_for_active_target(&mut session, false, None)
+                .unwrap();
+            assert!(calls.load(std::sync::atomic::Ordering::SeqCst) > before);
+            assert_eq!(session.conversion.composing().surface(), "ゐゑ🦀");
+            assert!(
+                session
+                    .candidate_annotations
+                    .iter()
+                    .any(|annotation| annotation == "Zenzai")
+            );
+        }
+    }
+
+    struct TypoFailureModel {
+        failure: Arc<std::sync::atomic::AtomicU8>,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl ZenzLanguageModel for TypoFailureModel {
+        fn vocabulary_size(&self) -> usize {
+            3
+        }
+        fn eos_token(&self) -> i32 {
+            2
+        }
+        fn tokenize(
+            &mut self,
+            _text: &str,
+            _add_special: bool,
+        ) -> Result<Vec<i32>, ZenzInferenceError> {
+            Ok(vec![1])
+        }
+        fn token_to_piece(&mut self, _token: i32) -> Result<Vec<u8>, ZenzInferenceError> {
+            Ok(b"x".to_vec())
+        }
+        fn next_logits(&mut self, _tokens: &[i32]) -> Result<Vec<f32>, ZenzInferenceError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            match self.failure.load(std::sync::atomic::Ordering::SeqCst) {
+                1 => Err(ZenzInferenceError::ContextCapacity {
+                    tokens: 65,
+                    capacity: 64,
+                }),
+                2 => Err(ZenzInferenceError::Message(
+                    "synthetic decode failure".into(),
+                )),
+                _ => Ok(vec![0.0, 10.0, 0.0]),
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_typo_capacity_preserves_input_clears_stale_results_and_retries() {
+        use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+        let failure = Arc::new(AtomicU8::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut engine = Engine::open_with_zenz_model(
+            PathBuf::from(std::env::var_os("BEANKEY_TEST_DICTIONARY").unwrap()),
+            Box::new(TypoFailureModel {
+                failure: Arc::clone(&failure),
+                calls: Arc::clone(&calls),
+            }),
+        )
+        .unwrap();
+        engine.lm_typo_enabled = true;
+        engine.lm_typo_language_model = LmTypoLanguageModel::Zenz;
+        engine.lm_typo_config.beam_size = 2;
+        engine.lm_typo_config.top_k = 2;
+        engine.lm_typo_config.max_steps = Some(8);
+        let request = |id, payload| protocol::Envelope {
+            protocol_version: PROTOCOL_VERSION,
+            request_id: id,
+            session_id: "typo-capacity".into(),
+            payload: Some(payload),
+            trace: Vec::new(),
+        };
+        let input = |text: &str| {
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Input as i32,
+                text: text.into(),
+                ..Default::default()
+            })
+        };
+        engine.handle(request(
+            1,
+            Payload::StartSession(protocol::StartSession {
+                input_style: protocol::InputStyle::RomanToKana as i32,
+                keyboard_language: protocol::KeyboardLanguage::Japanese as i32,
+                ..Default::default()
+            }),
+        ));
+        assert!(matches!(
+            engine.handle(request(2, input("kana"))).payload,
+            Some(Payload::StateResponse(_))
+        ));
+        engine
+            .sessions
+            .get_mut("typo-capacity")
+            .unwrap()
+            .typo_corrections
+            .push(beankey_converter::LmTypoCandidate {
+                corrected_input: "stale".into(),
+                converted_text: "stale".into(),
+                score: 0.0,
+                lm_score: 0.0,
+                channel_cost: 0.0,
+                prominence: 0.0,
+            });
+        failure.store(1, Ordering::SeqCst);
+        let limited = engine.handle(request(
+            3,
+            Payload::RequestTypoCorrections(protocol::RequestTypoCorrections {}),
+        ));
+        assert!(
+            matches!(limited.payload, Some(Payload::TypoCorrectionResponse(result)) if result.candidates.is_empty())
+        );
+        let session = &engine.sessions["typo-capacity"];
+        assert_eq!(session.conversion.composing().surface(), "かな");
+        assert!(session.typo_corrections.is_empty());
+        let before = calls.load(Ordering::SeqCst);
+        failure.store(0, Ordering::SeqCst);
+        let retry = engine.handle(request(
+            4,
+            Payload::RequestTypoCorrections(protocol::RequestTypoCorrections {}),
+        ));
+        assert!(matches!(
+            retry.payload,
+            Some(Payload::TypoCorrectionResponse(_))
+        ));
+        assert!(calls.load(Ordering::SeqCst) > before);
+        let committed = engine.handle(request(
+            5,
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Enter as i32,
+                ..Default::default()
+            }),
+        ));
+        assert!(
+            matches!(committed.payload, Some(Payload::StateResponse(state)) if state.commit == "かな")
+        );
+
+        assert!(matches!(
+            engine.handle(request(6, input("kana"))).payload,
+            Some(Payload::StateResponse(_))
+        ));
+        failure.store(2, Ordering::SeqCst);
+        let broken = engine.handle(request(
+            7,
+            Payload::RequestTypoCorrections(protocol::RequestTypoCorrections {}),
+        ));
+        assert!(
+            matches!(broken.payload, Some(Payload::ProtocolError(error)) if error.code == Code::Internal as i32)
+        );
+        assert!(
+            engine.sessions["typo-capacity"]
+                .conversion
+                .composing()
+                .is_empty()
+        );
+        failure.store(0, Ordering::SeqCst);
+        assert!(matches!(engine.handle(request(8, input("ka"))).payload,
+            Some(Payload::StateResponse(state)) if state.preedit == "か"));
+    }
 
     struct LivePrefixModel;
 

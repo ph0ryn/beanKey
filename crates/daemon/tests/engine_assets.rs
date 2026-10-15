@@ -1771,6 +1771,120 @@ fn rejects_invalid_surrounding_text_and_resets_the_session() {
     );
 }
 
+struct CapacityModel {
+    calls: Arc<AtomicUsize>,
+    fail: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ZenzLanguageModel for CapacityModel {
+    fn vocabulary_size(&self) -> usize {
+        3
+    }
+    fn eos_token(&self) -> i32 {
+        2
+    }
+
+    fn tokenize(&mut self, text: &str, add_special: bool) -> Result<Vec<i32>, ZenzInferenceError> {
+        Ok(if add_special {
+            vec![1; text.chars().count()]
+        } else {
+            vec![1]
+        })
+    }
+
+    fn token_to_piece(&mut self, _token: i32) -> Result<Vec<u8>, ZenzInferenceError> {
+        Ok(b"x".to_vec())
+    }
+
+    fn next_logits(&mut self, tokens: &[i32]) -> Result<Vec<f32>, ZenzInferenceError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail.swap(false, Ordering::SeqCst) {
+            return Err(ZenzInferenceError::Message(
+                "synthetic decode failure".into(),
+            ));
+        }
+        if tokens.len() > 64 {
+            return Err(ZenzInferenceError::ContextCapacity {
+                tokens: tokens.len(),
+                capacity: 64,
+            });
+        }
+        Ok(vec![0.0, 10.0, 0.0])
+    }
+}
+
+#[test]
+fn model_capacity_preserves_composition_and_commit_then_resumes_inference() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut engine = Engine::open_with_zenz_model(
+        dictionary_root(),
+        Box::new(CapacityModel {
+            calls: Arc::clone(&calls),
+            fail: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }),
+    )
+    .unwrap();
+    start_roman_session(&mut engine, 1);
+    let short = response(engine.handle(envelope(2, Payload::KeyEvent(key_event(0, "はし")))));
+    assert!(
+        short
+            .candidates
+            .iter()
+            .any(|candidate| candidate.annotation == "Zenzai")
+    );
+    let text = format!("はし{}", "あ".repeat(80));
+    let long = response(engine.handle(envelope(
+        3,
+        Payload::KeyEvent(key_event(0, &"あ".repeat(80))),
+    )));
+    assert_eq!(long.preedit, text);
+    assert!(!long.candidates.is_empty());
+    assert!(
+        long.candidates
+            .iter()
+            .all(|candidate| candidate.annotation != "Zenzai")
+    );
+    let committed = response(engine.handle(envelope(4, Payload::KeyEvent(key_event(0xff0d, "")))));
+    assert_eq!(committed.commit, text);
+    assert!(committed.preedit.is_empty());
+    let before = calls.load(Ordering::SeqCst);
+    let mut input = key_event(0, "ねこ");
+    input.surrounding_text = Some(protocol::SurroundingText {
+        available: true,
+        ..Default::default()
+    });
+    let resumed = response(engine.handle(envelope(5, Payload::KeyEvent(input))));
+    assert_eq!(resumed.preedit, "ねこ");
+    assert!(calls.load(Ordering::SeqCst) > before);
+    assert!(
+        resumed
+            .candidates
+            .iter()
+            .any(|candidate| candidate.annotation == "Zenzai")
+    );
+}
+
+#[test]
+fn ordinary_inference_errors_still_reset_the_affected_composition() {
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut engine = Engine::open_with_zenz_model(
+        dictionary_root(),
+        Box::new(CapacityModel {
+            calls: Arc::new(AtomicUsize::new(0)),
+            fail: Arc::clone(&fail),
+        }),
+    )
+    .unwrap();
+    start_roman_session(&mut engine, 1);
+    response(engine.handle(envelope(2, Payload::KeyEvent(key_event(0, "は")))));
+    fail.store(true, Ordering::SeqCst);
+    let failed = engine.handle(envelope(3, Payload::KeyEvent(key_event(0, "し"))));
+    assert!(matches!(failed.payload, Some(Payload::ProtocolError(error))
+        if error.code == protocol::protocol_error::Code::Internal as i32));
+    let recovered = response(engine.handle(envelope(4, Payload::KeyEvent(key_event(0, "ねこ")))));
+    assert_eq!(recovered.preedit, "ねこ");
+}
+
 #[derive(Default)]
 struct PrefixModel {
     token_piece_calls: Option<Arc<AtomicUsize>>,

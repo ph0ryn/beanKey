@@ -206,7 +206,13 @@ impl ZenzLanguageModel for LlamaModel {
 }
 
 fn inference_error(error: LlamaError) -> ZenzInferenceError {
-    ZenzInferenceError(error.to_string())
+    match error {
+        LlamaError::InputTooLong(tokens) => ZenzInferenceError::ContextCapacity {
+            tokens,
+            capacity: beankey_llama::CONTEXT_TOKEN_LIMIT,
+        },
+        error => ZenzInferenceError::Message(error.to_string()),
+    }
 }
 
 #[derive(Debug)]

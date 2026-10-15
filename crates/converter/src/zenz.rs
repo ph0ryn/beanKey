@@ -242,11 +242,26 @@ impl ZenzPromptBuilder {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ZenzInferenceError(pub String);
+pub enum ZenzInferenceError {
+    Message(String),
+    ContextCapacity { tokens: usize, capacity: usize },
+}
+
+impl ZenzInferenceError {
+    pub fn is_context_capacity_exceeded(&self) -> bool {
+        matches!(self, Self::ContextCapacity { .. })
+    }
+}
 
 impl fmt::Display for ZenzInferenceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+        match self {
+            Self::Message(message) => formatter.write_str(message),
+            Self::ContextCapacity { tokens, capacity } => write!(
+                formatter,
+                "inference requires {tokens} tokens, exceeding context capacity {capacity}"
+            ),
+        }
     }
 }
 
@@ -266,7 +281,7 @@ pub trait ZenzLanguageModel: Send {
         _sequence: ZenzInferenceSequence,
     ) -> Result<Vec<f32>, ZenzInferenceError> {
         if start_index >= tokens.len() {
-            return Err(ZenzInferenceError(format!(
+            return Err(ZenzInferenceError::Message(format!(
                 "logits start index {start_index} is outside {} input tokens",
                 tokens.len()
             )));
@@ -276,7 +291,7 @@ pub trait ZenzLanguageModel: Send {
         for index in start_index..tokens.len() {
             let row = self.next_logits(&tokens[..=index])?;
             if row.len() != vocabulary_size {
-                return Err(ZenzInferenceError(format!(
+                return Err(ZenzInferenceError::Message(format!(
                     "model returned {} logits for a vocabulary of {vocabulary_size}",
                     row.len()
                 )));
@@ -441,8 +456,9 @@ impl ZenzEvaluator {
         }
 
         let fixed = request.prefix_constraint.bytes[..fixed_prefix.byte_count].to_vec();
-        let fixed_text = std::str::from_utf8(&fixed)
-            .map_err(|error| ZenzInferenceError(format!("fixed prefix is not UTF-8: {error}")))?;
+        let fixed_text = std::str::from_utf8(&fixed).map_err(|error| {
+            ZenzInferenceError::Message(format!("fixed prefix is not UTF-8: {error}"))
+        })?;
         let remaining_input = drop_graphemes(request.input, fixed_prefix.ruby_count)
             .expect("fixed prefix ruby count was checked above");
         let remaining_text = request
@@ -671,7 +687,7 @@ fn evaluate_candidate_tokens(
         });
     }
     if prompt_tokens.is_empty() {
-        return Err(ZenzInferenceError(
+        return Err(ZenzInferenceError::Message(
             "candidate evaluation prompt produced no tokens".into(),
         ));
     }
@@ -693,9 +709,9 @@ fn evaluate_candidate_tokens(
         .len()
         .saturating_sub(addressed_token_count)
         .checked_mul(vocabulary_size)
-        .ok_or_else(|| ZenzInferenceError("candidate logits size overflow".into()))?;
+        .ok_or_else(|| ZenzInferenceError::Message("candidate logits size overflow".into()))?;
     if logits.len() != expected_logits || vocabulary_size == 0 {
-        return Err(ZenzInferenceError(format!(
+        return Err(ZenzInferenceError::Message(format!(
             "model returned {} logits for {} candidate tokens and a vocabulary of {vocabulary_size}",
             logits.len(),
             candidate_tokens.len()
@@ -721,7 +737,7 @@ fn evaluate_candidate_tokens(
             .ok()
             .filter(|&token| token < vocabulary_size)
             .ok_or_else(|| {
-                ZenzInferenceError(format!("invalid candidate token {candidate_token}"))
+                ZenzInferenceError::Message(format!("invalid candidate token {candidate_token}"))
             })?;
 
         let candidate_was_maximum = maximum_token == candidate_token_index;
@@ -738,12 +754,11 @@ fn evaluate_candidate_tokens(
             if learned_priority == 0.0
                 || evaluated[candidate_token_index] + learned_priority <= maximum_logit
             {
-                candidate_prefix.extend(
-                    model.token_to_piece(
-                        i32::try_from(maximum_token)
-                            .map_err(|_| ZenzInferenceError("vocabulary exceeds i32".into()))?,
-                    )?,
-                );
+                candidate_prefix.extend(model.token_to_piece(
+                    i32::try_from(maximum_token).map_err(|_| {
+                        ZenzInferenceError::Message("vocabulary exceeds i32".into())
+                    })?,
+                )?);
                 return Ok(CandidateEvaluation::FixRequired(candidate_prefix));
             }
         }
@@ -761,12 +776,9 @@ fn evaluate_candidate_tokens(
                     continue;
                 }
                 let mut bytes = candidate_prefix.clone();
-                bytes.extend(
-                    model.token_to_piece(
-                        i32::try_from(token)
-                            .map_err(|_| ZenzInferenceError("vocabulary exceeds i32".into()))?,
-                    )?,
-                );
+                bytes.extend(model.token_to_piece(i32::try_from(token).map_err(|_| {
+                    ZenzInferenceError::Message("vocabulary exceeds i32".into())
+                })?)?);
                 alternatives.push(AlternativeConstraint {
                     probability_ratio: (logit - maximum_logit).exp(),
                     bytes,
@@ -829,7 +841,7 @@ pub fn generate_next_input(
     for _ in 0..request.count {
         let logits = model.next_logits(&prompt_tokens)?;
         if logits.len() != vocabulary_size || logits.is_empty() {
-            return Err(ZenzInferenceError(format!(
+            return Err(ZenzInferenceError::Message(format!(
                 "model returned {} logits for a vocabulary of {vocabulary_size}",
                 logits.len()
             )));
@@ -847,7 +859,7 @@ pub fn generate_next_input(
 
         for (token, logit) in logits.into_iter().enumerate() {
             let token = i32::try_from(token)
-                .map_err(|_| ZenzInferenceError("vocabulary exceeds i32".into()))?;
+                .map_err(|_| ZenzInferenceError::Message("vocabulary exceeds i32".into()))?;
             let value = logit / (1.0 + token_penalties.get(&token).copied().unwrap_or_default());
             let exponential = value.exp();
             sum_exp += exponential;

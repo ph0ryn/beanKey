@@ -596,6 +596,13 @@ impl ConversionSession {
         self.candidates = candidates;
     }
 
+    /// Drops a partial neural request without losing composition or an accepted
+    /// prediction's spelling. Dictionary fallback must not reuse its draft/cache.
+    pub fn discard_zenz_inference_state(&mut self) {
+        self.candidates.clear();
+        self.zenz_prediction_cache = None;
+    }
+
     pub fn finalize_zenz_request(
         &mut self,
         converter: &NormalConverter<'_>,
@@ -1440,6 +1447,35 @@ mod tests {
         assert_eq!(
             session.desktop_candidates(&result, &tables),
             vec![first_clause, main]
+        );
+    }
+
+    #[test]
+    fn discarding_partial_neural_state_preserves_the_accepted_spelling() {
+        let tables = InputTableRegistry::new();
+        let mut session = ConversionSession::new();
+        session.insert_str("かな", InputStyle::Direct, &tables);
+        let accepted = prediction_candidate("かなもの", ComposingCount::Surface(4));
+        assert!(session.accept_prediction_candidate(&accepted, &tables));
+        session.set_zenz_candidates(vec![accepted.clone()]);
+        session.zenz_prediction_cache = Some(ZenzPredictionCache {
+            left_context: String::new(),
+            version: ZenzVersionConfig::default(),
+            input_style: InputStyle::Direct,
+            original_surface: "かなもの".into(),
+            suffix_count: 0,
+            predicted_text: "が".into(),
+        });
+        session.discard_zenz_inference_state();
+        assert_eq!(session.composing().surface(), "かなもの");
+        assert!(session.candidates().is_empty());
+        assert!(session.zenz_prediction_cache.is_none());
+        assert_eq!(session.accepted_prediction(), Some(&accepted));
+        assert!(
+            session
+                .constrain_zenz_prefix(PrefixConstraint::default())
+                .fixed_prefix
+                .is_some()
         );
     }
 

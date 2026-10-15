@@ -114,7 +114,7 @@ impl<'a> LmScorer<'a> {
         tokens.extend_from_slice(emitted_tokens);
         let logits = self.model.next_logits(&tokens)?;
         if logits.len() != self.model.vocabulary_size() || logits.is_empty() {
-            return Err(ZenzInferenceError(format!(
+            return Err(ZenzInferenceError::Message(format!(
                 "model returned {} logits for a vocabulary of {}",
                 logits.len(),
                 self.model.vocabulary_size()

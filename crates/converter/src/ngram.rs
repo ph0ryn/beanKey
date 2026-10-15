@@ -272,21 +272,21 @@ impl ZenzLanguageModel for NGramLanguageModel {
     fn tokenize(&mut self, text: &str, _add_special: bool) -> Result<Vec<i32>, ZenzInferenceError> {
         self.tokenizer
             .encode(text)
-            .map_err(|error| ZenzInferenceError(error.to_string()))
+            .map_err(|error| ZenzInferenceError::Message(error.to_string()))
     }
 
     fn token_to_piece(&mut self, token: i32) -> Result<Vec<u8>, ZenzInferenceError> {
         self.tokenizer
             .decode(&[token])
             .map(String::into_bytes)
-            .map_err(|error| ZenzInferenceError(error.to_string()))
+            .map_err(|error| ZenzInferenceError::Message(error.to_string()))
     }
 
     fn next_logits(&mut self, tokens: &[i32]) -> Result<Vec<f32>, ZenzInferenceError> {
         let probabilities = self
             .model
             .probabilities(tokens)
-            .map_err(|error| ZenzInferenceError(error.to_string()))?;
+            .map_err(|error| ZenzInferenceError::Message(error.to_string()))?;
         let mut logits: Vec<_> = probabilities
             .into_iter()
             .map(|probability| probability.max(1e-20).ln() as f32)

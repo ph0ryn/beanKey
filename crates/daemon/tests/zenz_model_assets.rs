@@ -113,6 +113,74 @@ fn converts_with_the_fixed_zenz_model_and_llama_backend() {
 }
 
 #[test]
+fn fixed_model_capacity_falls_back_without_losing_input_and_recovers() {
+    use beankey_converter::ZenzLanguageModel;
+
+    let mut model = LlamaModel::load(
+        required_environment("BEANKEY_TEST_MODEL"),
+        required_environment("BEANKEY_TEST_LLAMA_BACKEND"),
+    )
+    .unwrap();
+    let text = "ゐ".repeat(beankey_llama::CONTEXT_TOKEN_LIMIT + 1);
+    assert!(model.tokenize(&text, false).unwrap().len() > beankey_llama::CONTEXT_TOKEN_LIMIT);
+    let mut engine = Engine::open_with_zenz_model(dictionary_root(), Box::new(model)).unwrap();
+    start_input_session(&mut engine, protocol::InputStyle::Direct);
+    let state = engine.handle(envelope(
+        2,
+        Payload::KeyEvent(protocol::KeyEvent {
+            action: protocol::UserAction::Input as i32,
+            text: text.clone(),
+            ..Default::default()
+        }),
+    ));
+    let Some(Payload::StateResponse(state)) = state.payload else {
+        panic!("context capacity must fall back instead of resetting the composition");
+    };
+    assert_eq!(state.preedit, text);
+    assert!(!state.candidates.is_empty());
+    assert!(
+        state
+            .candidates
+            .iter()
+            .all(|candidate| candidate.annotation != "Zenzai")
+    );
+    let committed = engine.handle(envelope(
+        3,
+        Payload::KeyEvent(protocol::KeyEvent {
+            action: protocol::UserAction::Enter as i32,
+            ..Default::default()
+        }),
+    ));
+    let Some(Payload::StateResponse(committed)) = committed.payload else {
+        panic!("dictionary fallback must remain committable");
+    };
+    assert_eq!(committed.commit, text);
+    assert!(committed.preedit.is_empty());
+    let resumed = engine.handle(envelope(
+        4,
+        Payload::KeyEvent(protocol::KeyEvent {
+            action: protocol::UserAction::Input as i32,
+            text: "はし".into(),
+            surrounding_text: Some(protocol::SurroundingText {
+                available: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
+    ));
+    let Some(Payload::StateResponse(resumed)) = resumed.payload else {
+        panic!("a shorter request must resume normal inference");
+    };
+    assert_eq!(resumed.preedit, "はし");
+    assert!(
+        resumed
+            .candidates
+            .iter()
+            .any(|candidate| candidate.annotation == "Zenzai")
+    );
+}
+
+#[test]
 fn fixed_llama_tokenizer_matches_the_upstream_tokenizer_asset() {
     let model_path = required_environment("BEANKEY_TEST_MODEL");
     let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");

@@ -63,6 +63,8 @@ static CGFloat labelWidth(NSString *text, NSFont *font) {
   std::vector<uint32_t> _indices;
   int _windowStart;
   BOOL _selecting;
+  beankey::v1::TypoCorrectionResponse _typoCandidates;
+  int _typoSelection;
 }
 - (instancetype)init {
   self = [super initWithContentRect:NSZeroRect
@@ -94,10 +96,17 @@ static CGFloat labelWidth(NSString *text, NSFont *font) {
     return std::nullopt;
   return _indices[digit];
 }
+- (std::optional<uint32_t>)selectedTypoCandidate {
+  if (!_typoCandidates.candidates_size())
+    return std::nullopt;
+  return static_cast<uint32_t>(_typoSelection);
+}
 - (void)reset {
   _indices.clear();
   _windowStart = 0;
   _selecting = NO;
+  _typoCandidates.Clear();
+  _typoSelection = 0;
   [self orderOut:nil];
 }
 - (void)choose:(NSButton *)sender {
@@ -240,18 +249,24 @@ static CGFloat labelWidth(NSString *text, NSFont *font) {
       std::max<NSInteger>(NSPopUpMenuWindowLevel, [client windowLevel] + 1);
   [self orderFrontRegardless];
 }
+- (void)revealSelection:(int)selected {
+  if (selected < _windowStart)
+    _windowStart = selected;
+  else if (selected >= _windowStart + 9)
+    _windowStart = selected - 8;
+}
 - (void)showState:(const beankey::v1::StateResponse &)state
            client:(id<IMKTextInput>)client {
   using namespace beankey;
+  if (_typoCandidates.candidates_size())
+    _windowStart = 0;
+  _typoCandidates.Clear();
+  _typoSelection = 0;
   _selecting = state.candidate_window() == v1::CANDIDATE_WINDOW_SELECTING;
   if (!_selecting)
     _windowStart = 0;
-  else if (state.selected_candidate() >= 0) {
-    if (state.selected_candidate() < _windowStart)
-      _windowStart = state.selected_candidate();
-    else if (state.selected_candidate() >= _windowStart + 9)
-      _windowStart = state.selected_candidate() - 8;
-  }
+  else if (state.selected_candidate() >= 0)
+    [self revealSelection:state.selected_candidate()];
   _indices.clear();
   NSMutableArray *rows = [NSMutableArray array];
   NSMutableArray *annotations = [NSMutableArray array];
@@ -280,28 +295,45 @@ static CGFloat labelWidth(NSString *text, NSFont *font) {
            learning:state.learning_writable()
                typo:state.lm_typo_available()];
 }
-- (void)showTypos:(const beankey::v1::TypoCorrectionResponse &)typos
-           client:(id<IMKTextInput>)client {
+- (void)displayTypos:(id<IMKTextInput>)client {
   _indices.clear();
-  _windowStart = 0;
-  _selecting = YES;
   NSMutableArray *rows = [NSMutableArray array];
   NSMutableArray *annotations = [NSMutableArray array];
-  for (int i = 0; i < std::min(9, typos.candidates_size()); ++i) {
-    [rows
-        addObject:beankey::macos::string(typos.candidates(i).corrected_input())
-                      ?: @""];
-    [annotations
-        addObject:beankey::macos::string(typos.candidates(i).converted_text())
-                      ?: @""];
+  const int end = std::min(_windowStart + 9, _typoCandidates.candidates_size());
+  for (int i = _windowStart; i < end; ++i) {
+    const auto &candidate = _typoCandidates.candidates(i);
+    [rows addObject:beankey::macos::string(candidate.corrected_input()) ?: @""];
+    [annotations addObject:beankey::macos::string(candidate.converted_text())
+                               ?: @""];
     _indices.push_back(i);
   }
   [self displayRows:rows
         annotations:annotations
-           selected:0
+           selected:_typoSelection - _windowStart
          prediction:@""
              client:client
            learning:NO
                typo:NO];
+}
+- (void)showTypos:(const beankey::v1::TypoCorrectionResponse &)typos
+           client:(id<IMKTextInput>)client {
+  _typoCandidates = typos;
+  _typoSelection = 0;
+  _windowStart = 0;
+  _selecting = _typoCandidates.candidates_size() > 0;
+  [self displayTypos:client];
+}
+- (BOOL)moveTypoSelectionForward:(BOOL)forward
+                         client:(id<IMKTextInput>)client {
+  if (!_typoCandidates.candidates_size())
+    return NO;
+  if (forward)
+    _typoSelection =
+        std::min(_typoSelection + 1, _typoCandidates.candidates_size() - 1);
+  else
+    _typoSelection = std::max(_typoSelection - 1, 0);
+  [self revealSelection:_typoSelection];
+  [self displayTypos:client];
+  return YES;
 }
 @end

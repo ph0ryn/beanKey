@@ -14,7 +14,6 @@ using namespace beankey;
   uint64_t _nextRequest;
   NSUInteger _generation;
   v1::StateResponse _state;
-  BOOL _typos;
 }
 - (instancetype)initWithConnection:(BKDaemonConnection *)connection {
   self = [super init];
@@ -56,7 +55,6 @@ using namespace beankey;
   }
   _state.Clear();
   _sessionId.clear();
-  _typos = NO;
   [_panel reset];
 }
 - (void)fail {
@@ -98,7 +96,6 @@ using namespace beankey;
     return NO;
   }
   _state = state;
-  _typos = NO;
   [_panel showState:_state client:_textClient];
   return state.consumed();
 }
@@ -106,7 +103,7 @@ using namespace beankey;
   if (!_textClient || ![self start])
     return NO;
   auto request = [self envelope];
-  if (_typos)
+  if ([_panel selectedTypoCandidate])
     request.mutable_select_typo_correction()->set_index(index);
   else
     request.mutable_select_candidate()->set_index(index);
@@ -129,10 +126,10 @@ using namespace beankey;
     [self fail];
     return;
   }
-  if (response->typo_correction_response().candidates_size()) {
-    _typos = YES;
+  if (response->typo_correction_response().candidates_size())
     [_panel showTypos:response->typo_correction_response() client:_textClient];
-  }
+  else
+    [_panel showState:_state client:_textClient];
 }
 - (void)resetLearning {
   if (!_textClient || ![self start])
@@ -164,6 +161,22 @@ using namespace beankey;
         [_panel candidateForDigit:[text characterAtIndex:0] - '1'];
     if (index)
       return [self select:*index];
+  }
+  if (const auto selected = [_panel selectedTypoCandidate]) {
+    // Ordinary daemon keys discard its typo list. Navigate the retained list
+    // locally, then select with the same absolute index as a digit or click.
+    switch (key.action()) {
+    case v1::USER_ACTION_DOWN:
+      return [_panel moveTypoSelectionForward:YES client:client];
+    case v1::USER_ACTION_UP:
+      return [_panel moveTypoSelectionForward:NO client:client];
+    case v1::USER_ACTION_SPACE:
+      return [_panel moveTypoSelectionForward:!key.shift() client:client];
+    case v1::USER_ACTION_ENTER:
+      return [self select:*selected];
+    default:
+      break;
+    }
   }
   *key.mutable_surrounding_text() = macos::surroundingText(client);
   auto request = [self envelope];

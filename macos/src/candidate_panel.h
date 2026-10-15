@@ -12,5 +12,8 @@
 - (void)showTypos:(const beankey::v1::TypoCorrectionResponse &)typos
            client:(id<IMKTextInput>)client;
 - (std::optional<uint32_t>)candidateForDigit:(NSUInteger)digit;
+- (std::optional<uint32_t>)selectedTypoCandidate;
+- (BOOL)moveTypoSelectionForward:(BOOL)forward
+                         client:(id<IMKTextInput>)client;
 - (void)reset;
 @end

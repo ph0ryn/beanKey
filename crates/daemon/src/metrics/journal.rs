@@ -23,6 +23,9 @@ use serde::{Deserialize, Serialize};
 // Bounds apply before enqueueing: at most 4 MiB of serialized records queued.
 // The fixed health envelope adds at most 128 bytes to each persisted JSONL line.
 const MAX_RECORD_BYTES: usize = 16 * 1024;
+const MAX_ENVELOPE_BYTES: usize = 128;
+// Includes the terminating newline, shared with read-only history aggregation.
+pub(super) const MAX_LINE_BYTES: usize = MAX_RECORD_BYTES + MAX_ENVELOPE_BYTES;
 const QUEUE_CAPACITY: usize = 256;
 const MAX_SEGMENT_BYTES: u64 = 8 * 1024 * 1024;
 const WARNING_INTERVAL_SECONDS: u64 = 30;
@@ -269,7 +272,7 @@ impl Writer {
     }
 
     fn append(&mut self, record: &[u8], health: &Health) -> io::Result<()> {
-        let mut line = Vec::with_capacity(record.len() + 128);
+        let mut line = Vec::with_capacity(record.len() + MAX_ENVELOPE_BYTES);
         line.extend_from_slice(b"{\"journal\":");
         serde_json::to_writer(&mut line, health).map_err(io::Error::other)?;
         line.extend_from_slice(b",\"record\":");

@@ -229,6 +229,102 @@ fn directed_support(value: &Value, default: &str, chosen: &str, context: &str) -
     }
 }
 
+fn metrics_records(directory: &Path) -> (String, Vec<Value>) {
+    let mut paths = fs::read_dir(directory.join("metrics-v1"))
+        .expect("writable learning records local efficacy metrics")
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    let text = paths
+        .into_iter()
+        .map(|path| fs::read_to_string(path).unwrap())
+        .collect::<String>();
+    let records = text
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap()["record"].clone())
+        .collect();
+    (text, records)
+}
+
+#[test]
+fn efficacy_metrics_preserve_actual_defaults_and_never_record_text() {
+    let directory = TempDir::new().unwrap();
+    let mut client = Client::open(directory.path());
+    let context = "絶対に診断記録へ出さない機密の左文脈";
+    let first = client.selecting(context);
+    let baseline = selected(&first).text.clone();
+    let target = alternative(&first).text;
+    let mut observations = vec![(client.session_id.clone(), candidate_named(&first, &target))];
+    for _ in 1..3 {
+        let state = client.selecting(context);
+        assert_eq!(selected(&state).text, baseline);
+        observations.push((client.session_id.clone(), candidate_named(&state, &target)));
+    }
+    for (session, candidate) in observations {
+        client.session_id = session;
+        client.navigate(&candidate);
+        assert_eq!(client.key(protocol::UserAction::Enter, "").commit, target);
+        client.end();
+    }
+    let personalized = client.selecting(context);
+    assert_eq!(selected(&personalized).text, target);
+    assert_eq!(client.key(protocol::UserAction::Enter, "").commit, target);
+    client.end();
+    let personalized = client.selecting(context);
+    assert_eq!(selected(&personalized).text, target);
+    client.select(&candidate_named(&personalized, &baseline));
+    client.end();
+    drop(client);
+
+    let (text, records) = metrics_records(directory.path());
+    for secret in [
+        context,
+        ROMAN,
+        KANA,
+        "シカイ",
+        &baseline,
+        &target,
+        "personalization-",
+    ] {
+        assert!(!text.contains(secret), "metrics leaked {secret:?}");
+    }
+    let commits = records
+        .iter()
+        .filter(|record| record["event"]["kind"] == "commit")
+        .map(|record| &record["event"]["comparison"])
+        .collect::<Vec<_>>();
+    assert_eq!(commits.len(), 5, "every acceptance supplies a denominator");
+    for correction in &commits[..3] {
+        assert_eq!(correction["status"], "comparable");
+        assert_eq!(correction["default_matches_selection"], false);
+        assert_eq!(correction["baseline_matches_selection"], false);
+    }
+    assert_eq!(commits[3]["status"], "comparable");
+    assert_eq!(commits[3]["default_matches_selection"], true);
+    assert_eq!(commits[3]["baseline_matches_selection"], false);
+    assert_eq!(commits[4]["default_matches_selection"], false);
+    assert_eq!(commits[4]["baseline_matches_selection"], true);
+    assert!(
+        records
+            .iter()
+            .any(|record| record["event"]["kind"] == "candidate_request")
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record["event"]["kind"] == "run_started")
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record["event"]["kind"] == "run_stopped")
+    );
+}
+
 #[test]
 fn actual_personalized_defaults_record_corrections_and_reverse_snapshots_cancel() {
     let directory = TempDir::new().unwrap();

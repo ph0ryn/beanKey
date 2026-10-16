@@ -6,6 +6,7 @@ use prost::Message;
 
 mod config;
 mod engine;
+mod metrics;
 mod server;
 mod zenz;
 
@@ -23,6 +24,7 @@ pub use config::{
     TypoCorrectionConfig, TypoNGramConfig, ZenzConfig,
 };
 pub use engine::{ConversionResourceError, Engine, EngineOpenError};
+pub use metrics::{MetricsSummary, summarize_metrics};
 pub use server::{DaemonServer, DaemonServerReservation, ServerError};
 pub use zenz::{DEFAULT_INFERENCE_LIMIT, LlamaModel, ZenzConversionError};
 

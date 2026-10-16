@@ -4,6 +4,12 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
+
+use crate::metrics::{
+    self, CommitOrigin, Event as MetricEvent, Metrics, Mode as MetricMode, Operation, RunSettings,
+    SessionMetrics,
+};
 
 use beankey_converter::{
     Candidate as ConverterCandidate, ComposingCount as ConverterComposingCount, ConversionResult,
@@ -63,7 +69,53 @@ struct InputBehavior {
     punctuation_style: PunctuationStyleConfig,
 }
 
+#[derive(Default)]
+struct CandidateDiagnostics {
+    capacity_fallback: bool,
+    learning_error: bool,
+    personalization_warning: bool,
+    rerank_us: u64,
+}
+
+struct PendingCommit {
+    comparison: beankey_converter::SelectionMeasurement,
+    candidate_chars: usize,
+    dictionary_typo: bool,
+}
+
+impl PendingCommit {
+    fn measure(
+        session: &SessionState,
+        candidate: &ConverterCandidate,
+        tables: &InputTableRegistry,
+    ) -> Self {
+        Self {
+            comparison: session
+                .measurement
+                .as_ref()
+                .map_or_else(metrics::unavailable, |shown| {
+                    session
+                        .conversion
+                        .measure_selection(shown, candidate, tables)
+                }),
+            candidate_chars: candidate.text.chars().count(),
+            dictionary_typo: candidate.is_typo_correction,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct MetricAssets {
+    model: Option<String>,
+    dictionary: Option<String>,
+    llama: Option<String>,
+}
+
 struct SessionState {
+    metrics: SessionMetrics,
+    measurement: Option<beankey_converter::MeasurementPresentation>,
+    preview_measurement: Option<beankey_converter::MeasurementPresentation>,
+    candidate_diagnostics: CandidateDiagnostics,
     conversion: ConversionSession,
     input_style: ConverterInputStyle,
     last_request_id: u64,
@@ -92,6 +144,8 @@ struct SessionState {
 
 impl SessionState {
     fn clear_presentation(&mut self) {
+        self.measurement = None;
+        self.preview_measurement = None;
         self.selected_candidate = 0;
         self.display_candidates.clear();
         self.candidate_remainders.clear();
@@ -120,6 +174,61 @@ struct SurroundingContext {
     right: Option<String>,
 }
 
+impl From<InputMode> for MetricMode {
+    fn from(mode: InputMode) -> Self {
+        match mode {
+            InputMode::None => Self::None,
+            InputMode::Composing => Self::Composing,
+            InputMode::Previewing => Self::Previewing,
+            InputMode::Selecting => Self::Selecting,
+            InputMode::Unicode => Self::Unicode,
+        }
+    }
+}
+
+fn metric_operation(payload: Option<&Payload>) -> Operation {
+    use protocol::UserAction as Action;
+    match payload {
+        Some(Payload::StartSession(_)) => Operation::StartSession,
+        Some(Payload::EndSession(_)) => Operation::EndSession,
+        Some(Payload::ResetSession(_)) => Operation::ResetSession,
+        Some(Payload::SelectCandidate(_)) => Operation::SelectCandidate,
+        Some(Payload::PageCandidates(_)) => Operation::PageCandidates,
+        Some(Payload::CommitComposition(_)) => Operation::CommitComposition,
+        Some(Payload::ForgetCandidate(_)) => Operation::ForgetCandidate,
+        Some(Payload::ResetLearning(_)) => Operation::ResetLearning,
+        Some(Payload::RequestTypoCorrections(_)) => Operation::RequestTypoCorrections,
+        Some(Payload::SelectTypoCorrection(_)) => Operation::SelectTypoCorrection,
+        Some(Payload::KeyEvent(key)) => match Action::try_from(key.action) {
+            Ok(Action::Input) => Operation::Input,
+            Ok(Action::Backspace) => Operation::Backspace,
+            Ok(Action::DeleteForward) => Operation::DeleteForward,
+            Ok(Action::Enter) => Operation::Enter,
+            Ok(Action::Escape) => Operation::Escape,
+            Ok(Action::Space) => Operation::Space,
+            Ok(Action::Tab) => Operation::Tab,
+            Ok(Action::Left) => Operation::Left,
+            Ok(Action::Right) => Operation::Right,
+            Ok(Action::Up) => Operation::Up,
+            Ok(Action::Down) => Operation::Down,
+            Ok(Action::PageUp) => Operation::PageUp,
+            Ok(Action::PageDown) => Operation::PageDown,
+            Ok(Action::Forget) => Operation::Forget,
+            Ok(Action::Hiragana) => Operation::Hiragana,
+            Ok(Action::Katakana) => Operation::Katakana,
+            Ok(Action::HalfWidthKatakana) => Operation::HalfWidthKatakana,
+            Ok(Action::FullWidthRoman) => Operation::FullWidthRoman,
+            Ok(Action::HalfWidthRoman) => Operation::HalfWidthRoman,
+            Ok(Action::Consume) => Operation::Consume,
+            Ok(Action::StartUnicodeInput) => Operation::StartUnicodeInput,
+            Ok(Action::Eisu) => Operation::Eisu,
+            Ok(Action::Kana) => Operation::Kana,
+            Ok(Action::Unspecified) | Err(_) => Operation::Invalid,
+        },
+        _ => Operation::Invalid,
+    }
+}
+
 type SessionRequestResult<T> = Result<T, (Code, String)>;
 
 const DESKTOP_PROPER_NOUN_CID: u16 = 1288;
@@ -127,6 +236,9 @@ const DESKTOP_GENERAL_MID: u16 = 501;
 const DESKTOP_USER_DICTIONARY_VALUE: f32 = -5.0;
 
 pub struct Engine {
+    metrics: Metrics,
+    metric_assets: MetricAssets,
+    pending_metric_commit: Option<PendingCommit>,
     dictionary: Arc<DictionaryStore>,
     tables: Arc<InputTableRegistry>,
     sessions: HashMap<String, SessionState>,
@@ -288,6 +400,9 @@ impl Engine {
     /// the already-open shared resources. Native model operations alone serialize.
     pub(crate) fn for_connection(&self) -> Self {
         Self {
+            metrics: self.metrics.clone(),
+            metric_assets: self.metric_assets.clone(),
+            pending_metric_commit: None,
             dictionary: Arc::clone(&self.dictionary),
             tables: Arc::clone(&self.tables),
             sessions: HashMap::new(),
@@ -319,6 +434,12 @@ impl Engine {
 
     pub fn open(dictionary_path: impl AsRef<Path>) -> Result<Self, DictionaryError> {
         Ok(Self {
+            metrics: Metrics::default(),
+            metric_assets: MetricAssets {
+                dictionary: metrics::store_id(dictionary_path.as_ref()),
+                ..Default::default()
+            },
+            pending_metric_commit: None,
             dictionary: Arc::new(DictionaryStore::open(
                 dictionary_path.as_ref().to_path_buf(),
             )?),
@@ -390,6 +511,8 @@ impl Engine {
         engine.apply_zenz_options(&config.zenz);
         engine.load_zenz_personalization(&config.zenz)?;
         engine.load_lm_typo(&config.lm_typo)?;
+        engine.metric_assets.model = metrics::store_id(&config.model);
+        engine.metric_assets.llama = metrics::store_id(&config.llama_backend_directory);
         Ok(engine)
     }
 
@@ -462,6 +585,14 @@ impl Engine {
         )?);
         self.learning_available = config.mode != LearningModeConfig::Nothing;
         self.learning_writable = config.mode == LearningModeConfig::InputAndOutput;
+        if self.learning_writable {
+            match Metrics::open(learning_directory.as_ref()) {
+                Ok(metrics) => self.metrics = metrics,
+                Err(error) => {
+                    eprintln!("beanKey metrics disabled: {error}; conversion remains available")
+                }
+            }
+        }
         Ok(())
     }
 
@@ -633,6 +764,147 @@ impl Engine {
     }
 
     pub fn handle(&mut self, envelope: protocol::Envelope) -> protocol::Envelope {
+        if !self.metrics.enabled() {
+            return self.handle_inner(envelope);
+        }
+        self.metrics.start(|| RunSettings {
+            model_store_id: self.metric_assets.model.clone(),
+            dictionary_store_id: self.metric_assets.dictionary.clone(),
+            llama_store_id: self.metric_assets.llama.clone(),
+            neural: self.zenz_model.is_some(),
+            upstream_ngram_personalization: self.zenz_personalization.is_some(),
+            live_conversion: self.live_conversion,
+            neural_prediction: self.zenz_predictive_input,
+            rich_candidates: self.zenz_rich_candidates,
+            inference_limit: self.zenz_inference_limit,
+            japanese_prediction: self.request_options.japanese_prediction
+                != PredictionMode::Disabled,
+            foreign_prediction: self.request_options.foreign_prediction != PredictionMode::Disabled,
+            dictionary_typo: self.request_options.typo_correction != TypoCorrectionMode::Disabled,
+            lm_typo: self.lm_typo_enabled,
+            custom_input_table: matches!(
+                self.default_input_style,
+                ConverterInputStyle::Mapped(InputTableId::Named(_))
+            ),
+            user_dictionary_entries: self.user_dictionary.len(),
+        });
+        let started = Instant::now();
+        let operation = metric_operation(envelope.payload.as_ref());
+        let (shift, option, input_chars) = match &envelope.payload {
+            Some(Payload::KeyEvent(key)) => (
+                key.shift,
+                key.option,
+                if key.input.is_empty() {
+                    &key.text
+                } else {
+                    &key.input
+                }
+                .chars()
+                .count(),
+            ),
+            _ => (false, false, 0),
+        };
+        let session_id = envelope.session_id.clone();
+        let previous = self.sessions.get(&session_id);
+        let before = previous.map_or(InputMode::None, |session| session.input_mode);
+        let raw_composing = previous.is_some_and(|session| {
+            session.input_mode == InputMode::Composing && session.live_candidate.is_none()
+        });
+        let mut opaque_session = previous.map(|session| session.metrics.id);
+        let source_before = previous.map_or(0, |session| {
+            session.conversion.composing().surface_graphemes().len()
+        });
+        self.pending_metric_commit = None;
+        let response = self.handle_inner(envelope);
+        let current = self.sessions.get(&session_id);
+        opaque_session = current.map(|session| session.metrics.id).or(opaque_session);
+        let after = current.map_or(InputMode::None, |session| session.input_mode);
+        let source_after = current.map_or(0, |session| {
+            session.conversion.composing().surface_graphemes().len()
+        });
+        let error_code = match &response.payload {
+            Some(Payload::ProtocolError(error)) => Some(error.code),
+            _ => None,
+        };
+        let state = match &response.payload {
+            Some(Payload::StateResponse(state)) => Some(state),
+            _ => None,
+        };
+        let duration_us = metrics::micros(started.elapsed());
+        self.metrics.record(MetricEvent::Request {
+            session: opaque_session,
+            operation,
+            shift,
+            option,
+            before: before.into(),
+            after: after.into(),
+            consumed: state.is_some_and(|state| state.consumed),
+            error_code,
+            input_chars,
+            source_before,
+            source_after,
+            candidate_window: state.map_or(0, |state| state.candidate_window),
+            candidate_count: state.map_or(0, |state| state.candidates.len()),
+            selected_rank: state.and_then(|state| usize::try_from(state.selected_candidate).ok()),
+            prediction_offered: state.is_some_and(|state| state.prediction.is_some()),
+            duration_us,
+        });
+        if let Some(state) = state.filter(|state| !state.commit.is_empty()) {
+            let accepted_chars = state.commit.chars().count();
+            let pending = self.pending_metric_commit.take();
+            // A non-live raw Enter/forced commit must not become a preview-default hit
+            // merely because the raw reading happens to equal a dictionary candidate.
+            let raw = raw_composing
+                && !matches!(
+                    operation,
+                    Operation::SelectCandidate
+                        | Operation::SelectTypoCorrection
+                        | Operation::Hiragana
+                        | Operation::Katakana
+                        | Operation::HalfWidthKatakana
+                        | Operation::FullWidthRoman
+                        | Operation::HalfWidthRoman
+                );
+            let origin = if operation == Operation::SelectTypoCorrection {
+                CommitOrigin::LmTypo
+            } else if before == InputMode::Unicode {
+                CommitOrigin::Unicode
+            } else if raw {
+                CommitOrigin::Raw
+            } else if let Some(pending) = &pending {
+                if pending.dictionary_typo {
+                    CommitOrigin::DictionaryTypo
+                } else if pending.candidate_chars < accepted_chars {
+                    CommitOrigin::CandidateAndRaw
+                } else {
+                    CommitOrigin::Candidate
+                }
+            } else if before == InputMode::None {
+                CommitOrigin::Direct
+            } else {
+                CommitOrigin::Raw
+            };
+            let (comparison, candidate_chars) = if !raw && let Some(pending) = pending {
+                (pending.comparison, pending.candidate_chars)
+            } else {
+                (metrics::unavailable(), 0)
+            };
+            self.metrics.record(MetricEvent::Commit {
+                session: opaque_session,
+                operation,
+                mode: before.into(),
+                origin,
+                accepted_chars,
+                candidate_chars,
+                duration_us,
+                comparison,
+            });
+        }
+        self.pending_metric_commit = None;
+        response
+    }
+
+    fn handle_inner(&mut self, envelope: protocol::Envelope) -> protocol::Envelope {
         let request_id = envelope.request_id;
         let session_id = envelope.session_id.clone();
         let payload = match envelope.payload {
@@ -733,6 +1005,10 @@ impl Engine {
                 self.sessions.insert(
                     session_id.clone(),
                     SessionState {
+                        metrics: SessionMetrics::new(self.metrics.clone()),
+                        measurement: None,
+                        preview_measurement: None,
+                        candidate_diagnostics: CandidateDiagnostics::default(),
                         conversion,
                         input_style,
                         last_request_id: request_id,
@@ -1084,6 +1360,7 @@ impl Engine {
                 session.live_candidate = None;
                 if self.live_conversion {
                     session.conversion.discard_presentation();
+                    session.measurement = None;
                 }
                 return Ok(make_state(session, true, String::new(), false));
             }
@@ -1097,18 +1374,30 @@ impl Engine {
                     session.input_mode = InputMode::Composing;
                     if self.live_conversion {
                         session.conversion.discard_presentation();
+                        session.measurement = None;
                     }
                     return Ok(make_state(session, true, String::new(), false));
                 }
                 InputMode::Selecting => {
                     session.input_mode = if self.live_conversion {
                         session.conversion.discard_presentation();
+                        session.measurement = None;
                         InputMode::Composing
                     } else {
-                        if let Some(default) = session
+                        let default = session
                             .preview_candidate_index
-                            .and_then(|index| session.display_candidates.get(index))
-                        {
+                            .and_then(|index| session.display_candidates.get(index));
+                        session.measurement =
+                            session.preview_measurement.as_ref().zip(default).map(
+                                |(previous, default)| {
+                                    session.conversion.measure_redisplayed(
+                                        previous,
+                                        default,
+                                        &self.tables,
+                                    )
+                                },
+                            );
+                        if let Some(default) = default {
                             session.conversion.reanchor_presentation(default);
                         }
                         InputMode::Previewing
@@ -1474,6 +1763,12 @@ impl Engine {
             .collect();
         session.additional_candidate_count = shown;
         session.selected_candidate = 0;
+        for snapshot in [&mut session.measurement, &mut session.preview_measurement]
+            .into_iter()
+            .flatten()
+        {
+            snapshot.update_choices(&session.display_candidates);
+        }
     }
 
     fn select_candidate(
@@ -1548,6 +1843,22 @@ impl Engine {
         session: &mut SessionState,
         candidate: ConverterCandidate,
     ) -> SessionRequestResult<String> {
+        let pending = self
+            .metrics
+            .enabled()
+            .then(|| PendingCommit::measure(session, &candidate, &self.tables));
+        let selected = self.select_with_learning(session, candidate);
+        if selected.is_ok() {
+            self.pending_metric_commit = pending;
+        }
+        selected
+    }
+
+    fn select_with_learning(
+        &self,
+        session: &mut SessionState,
+        candidate: ConverterCandidate,
+    ) -> SessionRequestResult<String> {
         let selected = session
             .conversion
             .select_candidate_value(candidate, &self.tables);
@@ -1571,6 +1882,23 @@ impl Engine {
         session: &mut SessionState,
         marked_text: &str,
     ) -> SessionRequestResult<()> {
+        if self.metrics.enabled() {
+            // Preview/live preedit can contain a converted prefix plus raw remainder.
+            // Measure that actually accepted candidate even when it is not eligible for
+            // the existing full-candidate learning path below.
+            let presented = match session.input_mode {
+                InputMode::Composing => session.live_candidate.as_ref(),
+                InputMode::Previewing => session
+                    .preview_candidate_index
+                    .and_then(|index| session.display_candidates.get(index)),
+                InputMode::Selecting => session.display_candidates.get(session.selected_candidate),
+                InputMode::None | InputMode::Unicode => None,
+            };
+            if let Some(candidate) = presented {
+                self.pending_metric_commit =
+                    Some(PendingCommit::measure(session, candidate, &self.tables));
+            }
+        }
         let candidate = session
             .live_candidate
             .as_ref()
@@ -1588,7 +1916,9 @@ impl Engine {
         let Some(candidate) = candidate else {
             return Ok(());
         };
-        self.select_and_stage_learning(session, candidate)?;
+        // This legacy learning lookup may find a different same-text candidate;
+        // it must not replace the actual presentation measurement captured above.
+        self.select_with_learning(session, candidate)?;
         Ok(())
     }
 
@@ -1685,7 +2015,10 @@ impl Engine {
         request_rich_candidates: bool,
         left_context: Option<&str>,
     ) -> SessionRequestResult<()> {
+        let started = self.metrics.enabled().then(Instant::now);
+        session.candidate_diagnostics = CandidateDiagnostics::default();
         let segment_request = session.segment_surface_count.is_some();
+        let source_surface_count = session.conversion.composing().surface_graphemes().len();
         if segment_request {
             session.conversion.begin_segment_request(&self.tables);
         }
@@ -1708,6 +2041,31 @@ impl Engine {
                     .collect();
             }
         }
+        if let Some(started) = started {
+            self.metrics.record(MetricEvent::CandidateRequest {
+                session: session.metrics.id,
+                mode: session.input_mode.into(),
+                source_surface_count,
+                candidate_count: session.display_candidates.len(),
+                rich: request_rich_candidates || self.zenz_rich_candidates,
+                segment: segment_request,
+                context_available: left_context
+                    .or(session.surrounding.left.as_deref())
+                    .is_some_and(|text| !text.is_empty()),
+                right_context_available: session
+                    .surrounding
+                    .right
+                    .as_ref()
+                    .is_some_and(|text| !text.is_empty()),
+                neural: self.zenz_model.is_some(),
+                capacity_fallback: session.candidate_diagnostics.capacity_fallback,
+                learning_error: session.candidate_diagnostics.learning_error,
+                personalization_warning: session.candidate_diagnostics.personalization_warning,
+                error_code: result.as_ref().err().map(|(code, _)| *code as i32),
+                duration_us: metrics::micros(started.elapsed()),
+                rerank_us: session.candidate_diagnostics.rerank_us,
+            });
+        }
         result
     }
 
@@ -1718,6 +2076,7 @@ impl Engine {
         left_context: Option<&str>,
     ) -> SessionRequestResult<()> {
         if let Err(error) = session.conversion.refresh_learning() {
+            session.candidate_diagnostics.learning_error = true;
             eprintln!("learning memory refresh failed: {error}");
         }
         let converter = NormalConverter::new(&self.dictionary);
@@ -1818,6 +2177,7 @@ impl Engine {
                 // A model capacity limit is not a broken session. Discard partial
                 // neural drafts/constraints and regenerate from the full composition.
                 // The next request still tries inference (including personalization).
+                session.candidate_diagnostics.capacity_fallback = true;
                 session.zenz_cache = zenz::ZenzConversionCache::default();
                 session.conversion.discard_zenz_inference_state();
                 None
@@ -1849,6 +2209,26 @@ impl Engine {
         } else {
             session.conversion.desktop_candidates(&result, &self.tables)
         };
+        // These are pre-local-rerank defaults, not universally memory-free:
+        // configured upstream Zenz ngram personalization is identified in run metadata.
+        // Recalled-only output has no ordinary baseline to compare against.
+        let ordinary = |candidate: &&ConverterCandidate| {
+            !candidate
+                .entries
+                .iter()
+                .any(|entry| entry.metadata.contains(DictionaryMetadata::LEARNED))
+        };
+        let selecting_baseline = self
+            .metrics
+            .enabled()
+            .then(|| session.display_candidates.first().filter(ordinary).cloned())
+            .flatten();
+        let main_baseline = self
+            .metrics
+            .enabled()
+            .then(|| result.main_results.first().filter(ordinary).cloned())
+            .flatten();
+        let rerank_started = self.metrics.enabled().then(Instant::now);
         session.conversion.personalize_candidates(
             &converter,
             &self.tables,
@@ -1880,6 +2260,8 @@ impl Engine {
                 result.main_results.insert(0, preferred);
             }
         }
+        session.candidate_diagnostics.rerank_us =
+            rerank_started.map_or(0, |started| metrics::micros(started.elapsed()));
         let live_candidate = if self.live_conversion
             && session.input_mode == InputMode::Composing
             && session.input_language == InputLanguage::Japanese
@@ -1962,7 +2344,37 @@ impl Engine {
         } else {
             session.conversion.discard_presentation();
         }
+        if self.metrics.enabled() {
+            let snapshot = |baseline: Option<&ConverterCandidate>, default: &ConverterCandidate| {
+                session.conversion.measure_presentation(
+                    baseline,
+                    default,
+                    &session.display_candidates,
+                    &self.tables,
+                    surrounding.left.as_deref().unwrap_or(""),
+                )
+            };
+            session.preview_measurement = session
+                .preview_candidate_index
+                .and_then(|index| session.display_candidates.get(index))
+                .map(|default| snapshot(main_baseline.as_ref(), default));
+            session.measurement = if session.input_mode == InputMode::Selecting {
+                session
+                    .display_candidates
+                    .first()
+                    .map(|default| snapshot(selecting_baseline.as_ref(), default))
+            } else if let Some(default) = &session.live_candidate {
+                Some(snapshot(main_baseline.as_ref(), default))
+            } else if !session.live_conversion_enabled
+                || session.input_mode == InputMode::Previewing
+            {
+                session.preview_measurement.clone()
+            } else {
+                None
+            };
+        }
         if let Some(warning) = session.conversion.take_personalization_warning() {
+            session.candidate_diagnostics.personalization_warning = true;
             eprintln!("personalization unavailable for this request: {warning}");
         }
         Ok(())
@@ -2646,6 +3058,9 @@ fn error_envelope(
         trace: Vec::new(),
     }
 }
+
+#[cfg(test)]
+mod metrics_tests;
 
 #[cfg(test)]
 mod tests {

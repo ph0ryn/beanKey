@@ -40,6 +40,33 @@ fn presentation_comparison_uses_actual_default_and_same_consumed_scope_without_m
     assert_eq!(harmed.default_matches_selection, Some(false));
     assert_eq!(harmed.baseline_matches_selection, Some(true));
 
+    // Live preedit can show a full candidate not included in a first-clause list.
+    let preedit_only = session.measure_presentation(
+        Some(baseline),
+        preferred,
+        std::slice::from_ref(baseline),
+        &tables,
+        "機密の文脈",
+    );
+    let accepted = session.measure_selection(&preedit_only, preferred, &tables);
+    assert_eq!(accepted.status, MeasurementStatus::Comparable);
+    assert_eq!(accepted.default_matches_selection, Some(true));
+    assert_eq!(
+        accepted.selected_rank, None,
+        "do not invent a visible list rank"
+    );
+
+    // Revealing list entries can change the preview subsequently shown on Escape.
+    // Its actual new default must replace only the default, never the old baseline.
+    let mut revealed = snapshot.clone();
+    revealed.update_choices(&[baseline.clone(), preferred.clone()]);
+    let redisplayed = session.measure_redisplayed(&revealed, baseline, &tables);
+    let accepted = session.measure_selection(&redisplayed, baseline, &tables);
+    assert_eq!(accepted.status, MeasurementStatus::Comparable);
+    assert_eq!(accepted.default_matches_selection, Some(true));
+    assert_eq!(accepted.baseline_matches_selection, Some(true));
+    assert_eq!(accepted.default_changed, Some(false));
+
     // Surface/Input count representations may differ while the consumed action is identical.
     let mut equivalent = preferred.clone();
     equivalent.composing_count = ComposingCount::Surface(3);

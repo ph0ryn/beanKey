@@ -63,6 +63,7 @@ impl SelectionMeasurement {
 pub struct MeasurementPresentation {
     source: String,
     fixed_prefix: String,
+    context: String,
     baseline: Option<LearningScope>,
     baseline_text: Option<String>,
     default: Candidate,
@@ -98,6 +99,7 @@ impl ConversionSession {
                 .accepted_prediction()
                 .map(super::candidate_dictionary_text)
                 .unwrap_or_default(),
+            context: left_context.to_owned(),
             baseline: baseline
                 .and_then(|candidate| self.learning_scope(candidate, tables, left_context)),
             baseline_text: baseline.map(|candidate| candidate.text.clone()),
@@ -105,6 +107,20 @@ impl ConversionSession {
             scope: self.learning_scope(default, tables, left_context),
             choices: candidates.to_vec(),
         }
+    }
+
+    /// Capture the actual preview shown again after leaving candidate selection.
+    /// Keep the original baseline and source provenance; stale sources stay ineligible.
+    pub fn measure_redisplayed(
+        &self,
+        previous: &MeasurementPresentation,
+        default: &Candidate,
+        tables: &InputTableRegistry,
+    ) -> MeasurementPresentation {
+        let mut shown = previous.clone();
+        shown.default = default.clone();
+        shown.scope = self.learning_scope(default, tables, &shown.context);
+        shown
     }
 
     /// Call before selecting/consuming a prefix. Equality of count enum variants is irrelevant;
@@ -145,12 +161,13 @@ impl ConversionSession {
         result.task = Some(scope.task);
         let selected_scope = self.learning_scope(selected, tables, &scope.context);
         result.selected_task = selected_scope.as_ref().map(|scope| scope.task);
-        result.selected_rank = shown.choices.iter().position(|candidate| {
+        let same_selection = |candidate: &Candidate| {
             candidate.text == selected.text
                 && candidate.entries == selected.entries
                 && self.consumed_surface_count(candidate, tables) == result.consumed_surface_count
-        });
-        if result.selected_rank.is_none() {
+        };
+        result.selected_rank = shown.choices.iter().position(same_selection);
+        if result.selected_rank.is_none() && !same_selection(&shown.default) {
             result.status = MeasurementStatus::SelectionNotPresented;
             return result;
         }

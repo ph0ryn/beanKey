@@ -426,7 +426,7 @@ fn review_rejection(
 ) -> ReviewAction {
     if *constraint == next {
         if !constraint.ignore_memory_and_user_dictionary
-            && candidate_uses_personal_dictionary(candidate)
+            && candidate_uses_user_dictionary(candidate)
         {
             constraint.ignore_memory_and_user_dictionary = true;
             return retry_candidate(candidates, candidate_index, &next)
@@ -505,11 +505,11 @@ fn candidate_satisfies(candidate: &Candidate, constraint: &PrefixConstraint) -> 
     }
 }
 
-fn candidate_uses_personal_dictionary(candidate: &Candidate) -> bool {
-    candidate.entries.iter().any(|entry| {
-        entry.metadata.contains(DictionaryMetadata::LEARNED)
-            || entry.metadata.contains(DictionaryMetadata::USER_DICTIONARY)
-    })
+fn candidate_uses_user_dictionary(candidate: &Candidate) -> bool {
+    candidate
+        .entries
+        .iter()
+        .any(|entry| entry.metadata.contains(DictionaryMetadata::USER_DICTIONARY))
 }
 
 #[cfg(test)]

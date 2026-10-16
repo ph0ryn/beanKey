@@ -1,76 +1,86 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{fs, process};
 
 use beankey_converter::{
-    ConversionSession, DictionaryMetadata, DictionaryStore, InputStyle, InputTableRegistry,
-    LearningMemory, LearningMode, NormalConverter, PrefixConstraint, RequestOptions,
-    TypoCorrectionMode,
+    Candidate, ConversionSession, DictionaryStore, InputStyle, InputTableRegistry, LearningMemory,
+    LearningMode, LearningScope, LearningTask, NormalConverter, PersonalizationComparison,
+    PredictionMode, PrefixConstraint, RequestOptions, TypoCorrectionMode, ZenzEvaluator,
+    ZenzInferenceError, ZenzLanguageModel, ZenzVersionConfig,
 };
 
 fn dictionary_root() -> PathBuf {
-    PathBuf::from(
-        std::env::var_os("BEANKEY_TEST_DICTIONARY")
-            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-    )
+    PathBuf::from(std::env::var_os("BEANKEY_TEST_DICTIONARY").expect("Nix test dictionary"))
 }
 
-#[test]
-fn existing_sessions_search_current_learning_for_conversion_prediction_and_typos() {
-    let directory = temporary_directory();
-    let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
-    let converter = NormalConverter::new(&dictionary);
-    let tables = InputTableRegistry::new();
-    let memory = LearningMemory::open(
-        &directory,
-        LearningMode::InputAndOutput,
-        128,
-        dictionary.character_ids().clone(),
-    )
-    .unwrap();
-    let mut session = ConversionSession::new();
-    session.set_learning_memory(memory.clone()).unwrap();
+fn options() -> RequestOptions {
+    RequestOptions {
+        japanese_prediction: PredictionMode::Disabled,
+        foreign_prediction: PredictionMode::Disabled,
+        ..Default::default()
+    }
+}
+
+fn training_candidate(converter: &NormalConverter<'_>, tables: &InputTableRegistry) -> Candidate {
     let mut training = ConversionSession::new();
-    training.insert_str("がくせい", InputStyle::Direct, &tables);
+    training.insert_str("がくせい", InputStyle::Direct, tables);
     let mut candidate = training
-        .request_candidates(&converter, &tables, 10)
+        .request_candidates(converter, tables, 10)
         .unwrap()
         .iter()
-        .find(|value| value.text == "学生" && value.entries.len() == 1)
+        .find(|candidate| candidate.text == "学生" && candidate.entries.len() == 1)
         .unwrap()
         .clone();
     candidate.text = "学習試験語".into();
     candidate.entries[0].word.clone_from(&candidate.text);
+    candidate
+}
+
+fn open(directory: &Path, dictionary: &DictionaryStore, mode: LearningMode) -> LearningMemory {
+    LearningMemory::open(directory, mode, 128, dictionary.character_ids().clone()).unwrap()
+}
+
+fn compose(session: &mut ConversionSession, tables: &InputTableRegistry, reading: &str) {
+    session.reset();
+    session.insert_str(reading, InputStyle::Direct, tables);
+}
+
+#[test]
+fn recall_is_current_persistent_and_separate_from_baseline_and_zenz_drafts() {
+    let directory = TemporaryDirectory::new();
+    let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
+    let converter = NormalConverter::new(&dictionary);
+    let tables = InputTableRegistry::new();
+    let memory = open(&directory.0, &dictionary, LearningMode::InputAndOutput);
+    let candidate = training_candidate(&converter, &tables);
+    let mut baseline = ConversionSession::new();
+    compose(&mut baseline, &tables, "がくせい");
+    let baseline_order = baseline
+        .request(&converter, &tables, options())
+        .unwrap()
+        .main_results;
+    let mut session = ConversionSession::new();
+    session.set_learning_memory(memory.clone()).unwrap();
     memory.learn(&candidate).unwrap();
 
-    // The same session must see temporary learning and the published LOUDS.
     for persisted in [false, true] {
         if persisted {
-            session.reset();
-            session.insert_str("がくせい", InputStyle::Direct, &tables);
-            assert!(
-                session
-                    .request_predictions(&converter, &tables, 10)
-                    .unwrap()
-                    .iter()
-                    .any(|value| value.text == candidate.text)
-            );
-            assert!(session.commit_learning().unwrap());
-            assert!(
-                session
-                    .request_predictions(&converter, &tables, 10)
-                    .unwrap()
-                    .iter()
-                    .all(|value| value.text != candidate.text)
-            );
+            memory.commit().unwrap();
         }
-        session.reset();
-        session.insert_str("がくせい", InputStyle::Direct, &tables);
-        assert!(
-            session
-                .request_candidates(&converter, &tables, 10)
-                .unwrap()
-                .iter()
-                .any(|value| value.text == candidate.text)
+        compose(&mut session, &tables, "がくせい");
+        let result = session.request(&converter, &tables, options()).unwrap();
+        assert_eq!(result.main_results[..baseline_order.len()], baseline_order);
+        let recalled = result
+            .main_results
+            .iter()
+            .find(|value| value.text == candidate.text)
+            .unwrap();
+        assert_eq!(
+            recalled.entries[0].base_value,
+            candidate.entries[0].base_value
+        );
+        assert_eq!(
+            recalled.entries[0].adjustment,
+            candidate.entries[0].adjustment
         );
         assert!(
             session
@@ -78,31 +88,37 @@ fn existing_sessions_search_current_learning_for_conversion_prediction_and_typos
                     &converter,
                     &tables,
                     10,
-                    &PrefixConstraint::new(candidate.text.as_bytes().to_vec()),
+                    &PrefixConstraint::new(candidate.text.as_bytes().to_vec())
                 )
                 .unwrap()
                 .iter()
-                .any(|value| value.text == candidate.text)
+                .all(|value| value.text != candidate.text)
         );
-        session.reset();
-        session.insert_str("がく", InputStyle::Direct, &tables);
+        // Exact readings are conversions, never transient-only predictions.
         assert!(
             session
                 .request_predictions(&converter, &tables, 10)
                 .unwrap()
                 .iter()
-                .any(|value| value.text == candidate.text)
+                .all(|value| value.text != candidate.text)
         );
-        session.reset();
-        session.insert_str("かくせい", InputStyle::Direct, &tables);
+        compose(&mut session, &tables, "がく");
+        let predicted = session
+            .request_predictions(&converter, &tables, 10)
+            .unwrap();
+        let recalled = predicted
+            .iter()
+            .find(|value| value.text == candidate.text)
+            .unwrap();
+        assert_eq!(session.consumed_surface_count(recalled, &tables), 2);
+        compose(&mut session, &tables, "かくせい");
         let result = session
             .request(
                 &converter,
                 &tables,
                 RequestOptions {
-                    n_best: 10,
                     typo_correction: TypoCorrectionMode::Enabled,
-                    ..Default::default()
+                    ..options()
                 },
             )
             .unwrap();
@@ -113,36 +129,18 @@ fn existing_sessions_search_current_learning_for_conversion_prediction_and_typos
                 .any(|value| value.text == candidate.text && value.is_typo_correction)
         );
     }
-    session.reset();
-    session.insert_str("がく", InputStyle::Direct, &tables);
+    let recovered = open(&directory.0, &dictionary, LearningMode::OnlyOutput);
     assert!(
-        session
-            .request_predictions(&converter, &tables, 10)
+        recovered
+            .entries()
             .unwrap()
             .iter()
-            .any(|value| value.text == candidate.text)
+            .any(|entry| entry.word == candidate.text)
     );
-    memory.learn(&candidate).unwrap();
-    assert!(session.commit_learning().unwrap());
-    let updated = session
+    compose(&mut session, &tables, "がく");
+    session
         .request_predictions(&converter, &tables, 10)
         .unwrap();
-    let updated_value = updated
-        .iter()
-        .find(|value| value.text == candidate.text)
-        .unwrap()
-        .value;
-    session.reset();
-    session.insert_str("がく", InputStyle::Direct, &tables);
-    let fresh = session
-        .request_predictions(&converter, &tables, 10)
-        .unwrap();
-    let fresh_value = fresh
-        .iter()
-        .find(|value| value.text == candidate.text)
-        .unwrap()
-        .value;
-    assert_eq!(updated_value, fresh_value);
     session.forget_learning(&candidate).unwrap();
     assert!(
         session
@@ -151,157 +149,413 @@ fn existing_sessions_search_current_learning_for_conversion_prediction_and_typos
             .iter()
             .all(|value| value.text != candidate.text)
     );
-    session.reset();
-    session.insert_str("がくせい", InputStyle::Direct, &tables);
-    assert!(
-        session
-            .request_candidates(&converter, &tables, 10)
-            .unwrap()
-            .iter()
-            .all(|value| value.text != candidate.text)
-    );
     memory.learn(&candidate).unwrap();
-    session.reset();
-    session.insert_str("がく", InputStyle::Direct, &tables);
-    assert!(
-        session
-            .request_predictions(&converter, &tables, 10)
-            .unwrap()
-            .iter()
-            .any(|value| value.text == candidate.text)
-    );
     session.reset_learning().unwrap();
+    assert!(memory.entries().unwrap().is_empty());
     assert!(
-        session
-            .request_predictions(&converter, &tables, 10)
+        open(&directory.0, &dictionary, LearningMode::OnlyOutput)
+            .entries()
             .unwrap()
-            .iter()
-            .all(|value| value.text != candidate.text)
+            .is_empty()
     );
-    fs::remove_dir_all(directory).unwrap();
 }
 
-fn temporary_directory() -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "beankey-learning-{}-{}",
-        process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ))
-}
-
-#[test]
-fn retries_failed_learning_saves_without_losing_or_double_counting_words() {
-    let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
-    let converter = NormalConverter::new(&dictionary);
-    let tables = InputTableRegistry::new();
-    let mut session = ConversionSession::new();
-    session.insert_str("しかい", InputStyle::Direct, &tables);
-    let candidate = session
-        .request_candidates(&converter, &tables, 10)
-        .unwrap()
-        .iter()
-        .find(|candidate| candidate.text == "司会" && candidate.entries.len() == 1)
-        .unwrap()
-        .clone();
-
-    // Exercise failure both before and after the recovery marker is published.
-    for blocked_file in ["memory.louds.2", "memory.louds"] {
-        let directory = temporary_directory();
-        let memory = LearningMemory::open(
-            &directory,
-            LearningMode::InputAndOutput,
-            128,
-            dictionary.character_ids().clone(),
-        )
-        .unwrap();
-        memory.learn(&candidate).unwrap();
-        let expected = memory.entries().unwrap();
-        fs::create_dir(directory.join(blocked_file)).unwrap();
-        assert!(memory.commit().is_err());
-        assert!(memory.commit().is_err());
-        assert_eq!(memory.entries().unwrap(), expected);
-        fs::remove_dir(directory.join(blocked_file)).unwrap();
-        assert!(memory.commit().unwrap());
-        assert!(!memory.commit().unwrap());
-        let reopened = LearningMemory::open(
-            &directory,
-            LearningMode::OnlyOutput,
-            128,
-            dictionary.character_ids().clone(),
-        )
-        .unwrap();
-        let actual = reopened.entries().unwrap();
-        assert_eq!(actual.len(), expected.len());
-        assert_eq!(actual[0].word, expected[0].word);
-        assert_eq!(actual[0].value(), expected[0].value());
-        fs::remove_dir_all(directory).unwrap();
+struct NoInference;
+impl ZenzLanguageModel for NoInference {
+    fn vocabulary_size(&self) -> usize {
+        1
+    }
+    fn eos_token(&self) -> i32 {
+        0
+    }
+    fn tokenize(&mut self, _: &str, _: bool) -> Result<Vec<i32>, ZenzInferenceError> {
+        panic!("no evidence or a model-independent win must not tokenize");
+    }
+    fn next_logits(&mut self, _: &[i32]) -> Result<Vec<f32>, ZenzInferenceError> {
+        panic!("no evidence or a model-independent win must not decode");
+    }
+    fn token_to_piece(&mut self, _: i32) -> Result<Vec<u8>, ZenzInferenceError> {
+        unreachable!()
     }
 }
 
 #[test]
-fn learns_persists_recovers_forgets_and_resets_selected_candidates() {
-    let directory = temporary_directory();
+fn displayed_corrections_not_passive_accepts_promote_even_an_extremely_unlikely_path() {
+    let directory = TemporaryDirectory::new();
     let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
     let converter = NormalConverter::new(&dictionary);
     let tables = InputTableRegistry::new();
-    let memory = LearningMemory::open(
-        &directory,
-        LearningMode::InputAndOutput,
-        128,
-        dictionary.character_ids().clone(),
-    )
-    .unwrap();
+    let memory = open(&directory.0, &dictionary, LearningMode::InputAndOutput);
     let mut session = ConversionSession::new();
     session.set_learning_memory(memory.clone()).unwrap();
-    session.insert_str("しかい", InputStyle::Direct, &tables);
-    let candidates = session.request_candidates(&converter, &tables, 10).unwrap();
-    let index = candidates
-        .iter()
-        .position(|candidate| candidate.text == "司会" && candidate.entries.len() == 1)
-        .unwrap();
-    let selected = candidates[index].clone();
-    session.select_candidate(index, &tables).unwrap();
-    assert!(session.commit_learning().unwrap());
-
-    fs::remove_file(directory.join("memory.louds")).unwrap();
-    fs::write(directory.join(".pause"), []).unwrap();
-    let recovered = LearningMemory::open(
-        &directory,
-        LearningMode::OnlyOutput,
-        128,
-        dictionary.character_ids().clone(),
-    )
-    .unwrap();
-    let mut next_session = ConversionSession::new();
-    next_session.set_learning_memory(recovered).unwrap();
-    next_session.insert_str("しかい", InputStyle::Direct, &tables);
-    let learned = next_session
-        .request_candidates(&converter, &tables, 10)
+    let mut rare = training_candidate(&converter, &tables);
+    rare.entries[0].base_value = -10_000.0;
+    rare.value = 999_999.0; // A ranking carrier is not the original path's prior.
+    memory.learn(&rare).unwrap();
+    let scope = LearningScope::new("ガクセイ", LearningTask::Conversion, "会議で")
+        .with_action("span=4;fixed=");
+    compose(&mut session, &tables, "がくせい");
+    let mut shown = session
+        .request(&converter, &tables, options())
         .unwrap()
+        .main_results;
+    let original = shown[0].clone();
+    let mut model = NoInference;
+    let mut evaluator = ZenzEvaluator::default();
+    session.personalize_candidates(
+        &converter,
+        &tables,
+        &mut shown,
+        "会議で",
+        Some(PersonalizationComparison {
+            model: &mut model,
+            evaluator: &mut evaluator,
+            version: &ZenzVersionConfig::default(),
+            token_budget: 192,
+        }),
+    );
+    assert_eq!(shown[0].text, original.text);
+    for _ in 0..4 {
+        compose(&mut session, &tables, "がくせい");
+        let shown = session
+            .request(&converter, &tables, options())
+            .unwrap()
+            .main_results;
+        session.observe_presentation(&shown, 0, &tables, "会議で");
+        session
+            .select_candidate_value(shown[0].clone(), &tables)
+            .unwrap();
+    }
+    assert!(
+        memory
+            .challenge(&scope, &original, &rare)
+            .unwrap()
+            .is_none()
+    );
+    for support in 0..3 {
+        compose(&mut session, &tables, "がくせい");
+        let mut shown = session
+            .request(&converter, &tables, options())
+            .unwrap()
+            .main_results;
+        session.personalize_candidates(&converter, &tables, &mut shown, "会議で", None);
+        assert_eq!(shown[0].text, original.text, "support={support}");
+        session.observe_presentation(&shown, 0, &tables, "会議で");
+        let selected = shown
+            .iter()
+            .find(|value| value.text == rare.text)
+            .unwrap()
+            .clone();
+        assert_eq!(
+            session.select_candidate_value(selected, &tables).unwrap(),
+            rare.text
+        );
+    }
+    assert!(
+        memory
+            .challenge(&scope, &original, &rare)
+            .unwrap()
+            .unwrap()
+            .wins_without_model()
+    );
+    compose(&mut session, &tables, "がくせい");
+    let mut shown = session
+        .request(&converter, &tables, options())
+        .unwrap()
+        .main_results;
+    let unranked_tail = shown
         .iter()
-        .find(|candidate| candidate.text == "司会")
+        .filter(|value| value.text != rare.text)
+        .cloned()
+        .collect::<Vec<_>>();
+    session.personalize_candidates(
+        &converter,
+        &tables,
+        &mut shown,
+        "会議で",
+        Some(PersonalizationComparison {
+            model: &mut model,
+            evaluator: &mut evaluator,
+            version: &ZenzVersionConfig::default(),
+            token_budget: 192,
+        }),
+    );
+    assert_eq!(shown[0].text, rare.text);
+    assert_eq!(shown[1..], unranked_tail);
+    // The actual personalized B was displayed: correcting back to A cancels B's support.
+    for _ in 0..3 {
+        session.observe_presentation(&shown, 0, &tables, "会議で");
+        session
+            .select_candidate_value(original.clone(), &tables)
+            .unwrap();
+        compose(&mut session, &tables, "がくせい");
+    }
+    assert!(
+        memory
+            .challenge(&scope, &original, &rare)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        memory
+            .challenge(&scope, &rare, &original)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn stale_unshown_different_task_and_different_context_choices_do_not_form_corrections() {
+    let directory = TemporaryDirectory::new();
+    let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
+    let converter = NormalConverter::new(&dictionary);
+    let tables = InputTableRegistry::new();
+    let memory = open(&directory.0, &dictionary, LearningMode::InputAndOutput);
+    let mut session = ConversionSession::new();
+    session.set_learning_memory(memory.clone()).unwrap();
+    let rare = training_candidate(&converter, &tables);
+    compose(&mut session, &tables, "がくせい");
+    let shown = session
+        .request(&converter, &tables, options())
+        .unwrap()
+        .main_results;
+    let original = shown[0].clone();
+    session.observe_presentation(&shown, 0, &tables, "会議で");
+    session
+        .select_candidate_value(rare.clone(), &tables)
+        .unwrap(); // not displayed
+    let scope = LearningScope::new("ガクセイ", LearningTask::Conversion, "会議で")
+        .with_action("span=4;fixed=");
+    assert!(
+        memory
+            .challenge(&scope, &original, &rare)
+            .unwrap()
+            .is_none()
+    );
+    compose(&mut session, &tables, "がくせい");
+    let shown = session
+        .request(&converter, &tables, options())
+        .unwrap()
+        .main_results;
+    session.observe_presentation(&shown, 0, &tables, "会議で");
+    session.insert_str("あ", InputStyle::Direct, &tables); // stale presentation
+    session
+        .select_candidate_value(rare.clone(), &tables)
         .unwrap();
     assert!(
-        learned
-            .entries
-            .iter()
-            .any(|entry| entry.metadata.contains(DictionaryMetadata::LEARNED))
-    );
-
-    next_session.set_learning_memory(memory.clone()).unwrap();
-    next_session.forget_learning(&selected).unwrap();
-    assert!(
-        !memory
-            .entries()
+        memory
+            .challenge(&scope, &original, &rare)
             .unwrap()
-            .iter()
-            .any(|entry| entry.word == "司会")
+            .is_none()
     );
-    next_session.reset_learning().unwrap();
-    assert!(memory.entries().unwrap().is_empty());
+    compose(&mut session, &tables, "がく");
+    let mut shown = session
+        .request_predictions(&converter, &tables, 10)
+        .unwrap();
+    let predicted = shown
+        .iter()
+        .find(|candidate| candidate.text == rare.text)
+        .unwrap()
+        .clone();
+    // A full prediction cannot teach a correction against a shorter conversion default.
+    let conversion = session
+        .request(&converter, &tables, options())
+        .unwrap()
+        .main_results[0]
+        .clone();
+    shown.insert(0, conversion);
+    session.observe_presentation(&shown, 0, &tables, "会議で");
+    session.select_candidate_value(predicted, &tables).unwrap();
+    assert!(
+        memory
+            .challenge(&scope, &original, &rare)
+            .unwrap()
+            .is_none()
+    );
+    compose(&mut session, &tables, "がくせい");
+    let shown = session
+        .request(&converter, &tables, options())
+        .unwrap()
+        .main_results;
+    session.observe_presentation(&shown, 0, &tables, "会議で");
+    let selected = shown
+        .iter()
+        .find(|candidate| candidate.text == rare.text)
+        .unwrap()
+        .clone();
+    session.select_candidate_value(selected, &tables).unwrap();
+    assert!(
+        memory
+            .challenge(&scope, &original, &rare)
+            .unwrap()
+            .is_some()
+    );
+    let elsewhere = LearningScope::new("ガクセイ", LearningTask::Conversion, "別の話")
+        .with_action("span=4;fixed=");
+    assert!(
+        memory
+            .challenge(&elsewhere, &original, &rare)
+            .unwrap()
+            .is_none()
+    );
+    session.commit_learning().unwrap();
+    let reopened = open(&directory.0, &dictionary, LearningMode::OnlyOutput);
+    assert!(
+        reopened
+            .challenge(&scope, &original, &rare)
+            .unwrap()
+            .is_some()
+    );
+    session.forget_learning(&original).unwrap(); // forgetting the loser removes the pair too
+    assert!(
+        memory
+            .challenge(&scope, &original, &rare)
+            .unwrap()
+            .is_none()
+    );
+}
 
-    fs::remove_dir_all(directory).unwrap();
+#[test]
+fn failed_persistence_does_not_lose_a_selected_text_or_in_memory_recall_and_can_retry() {
+    let directory = TemporaryDirectory::new();
+    let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
+    let converter = NormalConverter::new(&dictionary);
+    let tables = InputTableRegistry::new();
+    let memory = open(&directory.0, &dictionary, LearningMode::InputAndOutput);
+    // Block atomic publication, not an unrelated legacy filename.
+    let blocked = directory.0.join("personalization-v1.json");
+    fs::create_dir(&blocked).unwrap();
+    let mut session = ConversionSession::new();
+    session.set_learning_memory(memory.clone()).unwrap();
+    compose(&mut session, &tables, "がくせい");
+    let rare = training_candidate(&converter, &tables);
+    assert_eq!(
+        session
+            .select_candidate_value(rare.clone(), &tables)
+            .unwrap(),
+        rare.text
+    );
+    assert!(session.composing().is_empty());
+    assert!(memory.commit().is_err());
+    let expected = memory.entries().unwrap();
+    assert!(expected.iter().any(|entry| entry.word == rare.text));
+    assert_eq!(blocked.parent(), Some(directory.0.as_path()));
+    fs::remove_dir(&blocked).unwrap();
+    assert!(memory.commit().unwrap());
+    assert!(!memory.commit().unwrap());
+    let reopened = open(&directory.0, &dictionary, LearningMode::OnlyOutput);
+    assert_eq!(reopened.entries().unwrap(), expected);
+}
+
+#[test]
+fn a_segment_inside_an_accepted_prediction_cannot_reuse_unfixed_partial_evidence() {
+    let directory = TemporaryDirectory::new();
+    let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
+    let converter = NormalConverter::new(&dictionary);
+    let tables = InputTableRegistry::new();
+    let memory = open(&directory.0, &dictionary, LearningMode::InputAndOutput);
+    let mut session = ConversionSession::new();
+    session.set_learning_memory(memory.clone()).unwrap();
+    compose(&mut session, &tables, "がくせい");
+    session.move_cursor(-2);
+    session.begin_segment_request(&tables);
+    let choices = session
+        .request(&converter, &tables, options())
+        .unwrap()
+        .main_results;
+    let anchor = choices
+        .iter()
+        .find(|candidate| {
+            candidate.is_learning_target && session.consumed_surface_count(candidate, &tables) == 2
+        })
+        .unwrap()
+        .clone();
+    let challenger = choices
+        .iter()
+        .find(|candidate| {
+            candidate.is_learning_target
+                && candidate.text != anchor.text
+                && session.consumed_surface_count(candidate, &tables) == 2
+        })
+        .unwrap()
+        .clone();
+    session.end_segment_request();
+    let scope = LearningScope::new("ガク", LearningTask::PartialConversion, "")
+        .with_action("span=2;fixed=");
+    for _ in 0..3 {
+        memory
+            .record_correction(&scope, &anchor, &challenger)
+            .unwrap();
+    }
+    let confidence = memory
+        .challenge(&scope, &anchor, &challenger)
+        .unwrap()
+        .unwrap()
+        .confidence;
+
+    let accepted = training_candidate(&converter, &tables);
+    compose(&mut session, &tables, "がく");
+    assert!(session.accept_prediction_candidate(&accepted, &tables));
+    session.move_cursor(-2);
+    session.begin_segment_request(&tables);
+    let mut displayed = vec![anchor.clone(), challenger.clone()];
+    session.personalize_candidates(
+        &converter,
+        &tables,
+        &mut displayed,
+        "",
+        Some(PersonalizationComparison {
+            model: &mut NoInference,
+            evaluator: &mut ZenzEvaluator::default(),
+            version: &ZenzVersionConfig::default(),
+            token_budget: 192,
+        }),
+    );
+    assert_eq!(displayed, vec![anchor.clone(), challenger.clone()]);
+    session.observe_presentation(&displayed, 0, &tables, "");
+    session.end_segment_request();
+    assert_eq!(
+        session
+            .constrain_zenz_prefix(PrefixConstraint::default())
+            .bytes,
+        accepted.text.as_bytes()
+    );
+    session
+        .select_candidate_value(challenger.clone(), &tables)
+        .unwrap();
+    assert_eq!(
+        memory
+            .challenge(&scope, &anchor, &challenger)
+            .unwrap()
+            .unwrap()
+            .confidence,
+        confidence
+    );
+    assert!(
+        session
+            .constrain_zenz_prefix(PrefixConstraint::default())
+            .is_empty()
+    );
+}
+
+struct TemporaryDirectory(PathBuf);
+impl TemporaryDirectory {
+    fn new() -> Self {
+        Self(std::env::temp_dir().join(
+            format!("beankey-learning-{}-{}", process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
+        ))
+    }
+}
+impl Drop for TemporaryDirectory {
+    fn drop(&mut self) {
+        let Some(name) = self.0.file_name().and_then(|value| value.to_str()) else {
+            return;
+        };
+        assert!(name.starts_with("beankey-learning-"));
+        assert_eq!(self.0.parent(), Some(std::env::temp_dir().as_path()));
+        if self.0.exists() {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
 }

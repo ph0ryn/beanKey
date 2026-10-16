@@ -29,25 +29,27 @@ pub use input::{
 };
 pub use kana::{to_hiragana, to_katakana};
 pub use lattice::{Candidate, ConversionContext, LatticeRange, NormalConverter};
-pub use learning::{LearningError, LearningMemory, LearningMode};
+pub use learning::{
+    LearningError, LearningMemory, LearningMode, LearningScope, LearningTask, PreferenceChallenge,
+};
 pub use lm_typo::{LmTypoCandidate, LmTypoConfig, experimental_typo_correction};
 pub use ngram::{EfficientNGram, NGramError, NGramLanguageModel, ZenzTokenizer};
 pub use post_prediction::{
     PostCompositionPrediction, PostCompositionPredictor, PostPredictionKind,
 };
 pub use session::{
-    ConversionResult, ConversionSession, PredictionMode, RequestOptions, SelectionError,
-    TextTransform, TypoCorrectionMode, ZenzPredictionError,
+    ConversionResult, ConversionSession, PersonalizationComparison, PredictionMode, RequestOptions,
+    SelectionError, TextTransform, TypoCorrectionMode, ZenzPredictionError,
 };
 pub use special::{special_candidates, typographical_candidates};
 pub use template::expand_templates;
 pub use text_replacer::{ReplacementCandidate, TextReplacer, TextReplacerError, TextSearchResult};
 pub use zenz::{
     ALIGNMENT_SEPARATOR, AlternativeConstraint, CandidateEvaluation, FixedPrefix, PrefixConstraint,
-    TokenProbabilityModel, ZenzEvaluationRequest, ZenzEvaluator, ZenzInferenceError,
-    ZenzInferenceSequence, ZenzInputGenerationRequest, ZenzLanguageModel, ZenzPersonalization,
-    ZenzPromptBuilder, ZenzV2Config, ZenzV3Config, ZenzVersionConfig, evaluate_candidate,
-    generate_next_input,
+    TokenProbabilityModel, ZenzComparisonRequest, ZenzEvaluationRequest, ZenzEvaluator,
+    ZenzInferenceError, ZenzInferenceSequence, ZenzInputGenerationRequest, ZenzLanguageModel,
+    ZenzPersonalization, ZenzPromptBuilder, ZenzV2Config, ZenzV3Config, ZenzVersionConfig,
+    evaluate_candidate, generate_next_input,
 };
 
 pub fn to_full_width(value: &str) -> String {

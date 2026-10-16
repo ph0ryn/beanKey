@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::error::Error;
 use std::fmt;
 use std::hash::Hash;
@@ -344,12 +344,19 @@ pub struct ZenzEvaluationRequest<'a> {
     pub version: &'a ZenzVersionConfig,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct CandidateSegment {
-    word: String,
-    ruby: String,
-    is_learned: bool,
+/// A small group of alternatives for the same ordinary or partial conversion task.
+/// Prediction and typo-correction candidates must use their own task scorers.
+pub struct ZenzComparisonRequest<'a> {
+    pub input: &'a str,
+    pub input_cursor_position: Option<usize>,
+    pub candidates: &'a [Candidate],
+    pub prefix_constraint: &'a PrefixConstraint,
+    pub version: &'a ZenzVersionConfig,
+    /// Total chosen-token rows across the group, including task termination.
+    pub token_budget: usize,
 }
+
+const MAX_COMPARISON_CANDIDATES: usize = 4;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct EvaluationCacheKey {
@@ -359,7 +366,6 @@ struct EvaluationCacheKey {
     prefix_constraint: PrefixConstraint,
     request_rich_candidates: bool,
     reuses_addressed_prefix: bool,
-    candidate_segments: Vec<CandidateSegment>,
 }
 
 #[derive(Clone, Debug)]
@@ -431,6 +437,192 @@ impl Default for ZenzEvaluator {
 }
 
 impl ZenzEvaluator {
+    /// Returns teacher-forced sequence log probabilities, never dictionary costs
+    /// or greedy acceptance scores. All alternatives share one request-wise
+    /// explicit user-dictionary prompt and the same task termination.
+    ///
+    /// An inapplicable task, invalid fixed prefix, exhausted total token budget,
+    /// or context-capacity limit skips the whole group. Tokenization preflight
+    /// finishes before any logits are requested. This opt-in path neither
+    /// changes greedy evaluation state nor reranks candidates itself.
+    pub fn compare_candidates(
+        &mut self,
+        model: &mut dyn ZenzLanguageModel,
+        request: ZenzComparisonRequest<'_>,
+    ) -> Result<Option<Vec<f64>>, ZenzInferenceError> {
+        match self.compare_candidates_within_budget(model, request) {
+            Err(ZenzInferenceError::ContextCapacity { .. }) => Ok(None),
+            result => result,
+        }
+    }
+
+    fn compare_candidates_within_budget(
+        &mut self,
+        model: &mut dyn ZenzLanguageModel,
+        request: ZenzComparisonRequest<'_>,
+    ) -> Result<Option<Vec<f64>>, ZenzInferenceError> {
+        let Some(first) = request.candidates.first() else {
+            return Ok(None);
+        };
+        let input_count = UnicodeSegmentation::graphemes(request.input, true).count();
+        let consumed_count = request.input_cursor_position.unwrap_or(input_count);
+        if request.candidates.len() > MAX_COMPARISON_CANDIDATES
+            || request.token_budget == 0
+            || consumed_count == 0
+            || consumed_count > input_count
+            || request.candidates.iter().any(|candidate| {
+                normalize_for_model(&candidate.text).is_empty()
+                    || candidate.ruby_count != consumed_count
+                    || candidate.composing_count != first.composing_count
+                    || candidate.is_typo_correction
+            })
+        {
+            return Ok(None);
+        }
+
+        let mut input = request.input.to_owned();
+        let mut cursor = request.input_cursor_position;
+        let mut version = request.version.clone();
+        let mut candidates = request.candidates.to_vec();
+        if let Some(fixed) = request.prefix_constraint.fixed_prefix {
+            let Some(bytes) = request.prefix_constraint.bytes.get(..fixed.byte_count) else {
+                return Ok(None);
+            };
+            let Ok(text) = std::str::from_utf8(bytes) else {
+                return Ok(None);
+            };
+            if fixed.byte_count == 0
+                || fixed.ruby_count == 0
+                || fixed.ruby_count > consumed_count
+                || candidates
+                    .iter()
+                    .any(|candidate| candidate.text.get(..fixed.byte_count) != Some(text))
+            {
+                return Ok(None);
+            }
+            input = drop_graphemes(&input, fixed.ruby_count)
+                .expect("fixed reading was checked against the consumed span");
+            cursor = cursor.map(|position| position - fixed.ruby_count);
+            version = appending_left_context(&version, text);
+            for candidate in &mut candidates {
+                candidate.text = candidate.text[fixed.byte_count..].to_owned();
+                candidate.entries = dropping_fixed_entries(&candidate.entries, fixed.byte_count);
+                candidate.ruby_count -= fixed.ruby_count;
+            }
+        }
+
+        let is_partial = should_insert_alignment_separator(&input, cursor);
+        let uses_alignment = is_partial
+            && matches!(
+                &version,
+                ZenzVersionConfig::V3(ZenzV3Config {
+                    enable_alignment_separator: true,
+                    ..
+                })
+            );
+        // Without alignment framing, EOS would incorrectly turn a partial
+        // conversion into a full-result task. Do not compare those tasks.
+        if is_partial && !uses_alignment {
+            return Ok(None);
+        }
+
+        let user_entries: BTreeSet<_> = candidates
+            .iter()
+            .flat_map(|candidate| &candidate.entries)
+            .filter(|entry| entry.metadata.contains(DictionaryMetadata::USER_DICTIONARY))
+            .map(|entry| (entry.word.as_str(), to_hiragana(&entry.ruby)))
+            .collect();
+        let user_dictionary_prompt = user_entries
+            .into_iter()
+            .map(|(word, ruby)| format!("{word}({ruby})"))
+            .collect::<String>();
+        let prompt = ZenzPromptBuilder::candidate_evaluation(
+            &input,
+            cursor,
+            &user_dictionary_prompt,
+            &version,
+        );
+        let prompt_tokens = if let Some(tokens) = self.prompt_tokens.get(&prompt) {
+            tokens
+        } else {
+            let tokens = tokenize_for_model(model, &prompt, true)?;
+            self.prompt_tokens.insert(prompt, tokens.clone());
+            tokens
+        };
+        if prompt_tokens.is_empty() {
+            return Ok(None);
+        }
+        let vocabulary_size = model.vocabulary_size();
+        if vocabulary_size == 0 {
+            return Err(ZenzInferenceError::Message(
+                "candidate comparison requires a nonempty vocabulary".into(),
+            ));
+        }
+        let mut tokenized = Vec::with_capacity(candidates.len());
+        let mut total_tokens = 0usize;
+        for candidate in &candidates {
+            let text = ZenzPromptBuilder::candidate_text_for_evaluation(
+                &candidate.text,
+                &input,
+                cursor,
+                &version,
+            );
+            // Tokenize text and any alignment terminal together, rather than
+            // assuming a tokenizer boundary between them.
+            let mut tokens = tokenize_for_model(model, &text, false)?;
+            if !text.is_empty() && tokens.is_empty() {
+                return Ok(None);
+            }
+            if !uses_alignment {
+                tokens.push(model.eos_token());
+            }
+            if tokens.iter().any(|&token| {
+                usize::try_from(token)
+                    .ok()
+                    .is_none_or(|token| token >= vocabulary_size)
+            }) {
+                return Err(ZenzInferenceError::Message(
+                    "candidate comparison token is outside the vocabulary".into(),
+                ));
+            }
+            let Some(next_total) = total_tokens.checked_add(tokens.len()) else {
+                return Ok(None);
+            };
+            if next_total > request.token_budget {
+                return Ok(None);
+            }
+            total_tokens = next_total;
+            tokenized.push(tokens);
+        }
+
+        let mut scores = Vec::with_capacity(tokenized.len());
+        for tokens in tokenized {
+            let expected_logits = tokens.len().checked_mul(vocabulary_size).ok_or_else(|| {
+                ZenzInferenceError::Message("comparison logits size overflow".into())
+            })?;
+            let mut evaluation_tokens = prompt_tokens.clone();
+            evaluation_tokens.extend_from_slice(&tokens[..tokens.len() - 1]);
+            let logits = model.logits_for_suffix(
+                &evaluation_tokens,
+                prompt_tokens.len() - 1,
+                ZenzInferenceSequence::Evaluation,
+            )?;
+            if logits.len() != expected_logits {
+                return Err(ZenzInferenceError::Message(format!(
+                    "model returned {} logits for {} comparison tokens and a vocabulary of {vocabulary_size}",
+                    logits.len(),
+                    tokens.len()
+                )));
+            }
+            let mut score = 0.0;
+            for (row, token) in logits.chunks_exact(vocabulary_size).zip(tokens) {
+                score += chosen_token_log_probability(row, token)?;
+            }
+            scores.push(score);
+        }
+        Ok(Some(scores))
+    }
+
     pub fn evaluate(
         &mut self,
         model: &mut dyn ZenzLanguageModel,
@@ -528,16 +720,6 @@ impl ZenzEvaluator {
                 prefix_constraint: request.prefix_constraint.clone(),
                 request_rich_candidates: request.request_rich_candidates,
                 reuses_addressed_prefix,
-                candidate_segments: request
-                    .candidate
-                    .entries
-                    .iter()
-                    .map(|entry| CandidateSegment {
-                        word: entry.word.clone(),
-                        ruby: entry.ruby.clone(),
-                        is_learned: entry.metadata.contains(DictionaryMetadata::LEARNED),
-                    })
-                    .collect(),
             });
         if let Some(cached) = cache_key.as_ref().and_then(|key| self.evaluations.get(key)) {
             return Ok(cached);
@@ -670,7 +852,6 @@ fn evaluate_candidate_tokens(
     addressed_token_count: usize,
 ) -> Result<CandidateEvaluation, ZenzInferenceError> {
     let candidate_tokens = tokenize_for_model(model, candidate_text, false)?;
-    let learned_priorities = learned_token_priorities(model, request.candidate, &candidate_tokens)?;
     let vocabulary_size = model.vocabulary_size();
     let addressed_token_count = addressed_token_count.min(candidate_tokens.len());
     let mut candidate_prefix = Vec::new();
@@ -747,20 +928,14 @@ fn evaluate_candidate_tokens(
                     String::from_utf8(candidate_prefix).unwrap_or_default(),
                 ));
             }
-            let learned_priority = learned_priorities
-                .get(candidate_index)
-                .copied()
-                .unwrap_or_default();
-            if learned_priority == 0.0
-                || evaluated[candidate_token_index] + learned_priority <= maximum_logit
-            {
-                candidate_prefix.extend(model.token_to_piece(
+            candidate_prefix.extend(
+                model.token_to_piece(
                     i32::try_from(maximum_token).map_err(|_| {
                         ZenzInferenceError::Message("vocabulary exceeds i32".into())
                     })?,
-                )?);
-                return Ok(CandidateEvaluation::FixRequired(candidate_prefix));
-            }
+                )?,
+            );
+            return Ok(CandidateEvaluation::FixRequired(candidate_prefix));
         }
 
         if request.request_rich_candidates && candidate_was_maximum {
@@ -941,40 +1116,23 @@ fn personalized_logits(
     )
 }
 
-fn learned_token_priorities(
-    model: &mut dyn ZenzLanguageModel,
-    candidate: &Candidate,
-    candidate_tokens: &[i32],
-) -> Result<Vec<f32>, ZenzInferenceError> {
-    if !candidate
-        .entries
+fn chosen_token_log_probability(row: &[f32], token: i32) -> Result<f64, ZenzInferenceError> {
+    let index = usize::try_from(token)
+        .ok()
+        .filter(|&index| index < row.len())
+        .ok_or_else(|| ZenzInferenceError::Message(format!("invalid comparison token {token}")))?;
+    let maximum = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    if !maximum.is_finite() || row.iter().any(|value| value.is_nan()) {
+        return Err(ZenzInferenceError::Message(
+            "comparison logits do not define a probability distribution".into(),
+        ));
+    }
+    let maximum = f64::from(maximum);
+    let sum_exp = row
         .iter()
-        .any(|entry| entry.metadata.contains(DictionaryMetadata::LEARNED))
-    {
-        return Ok(Vec::new());
-    }
-    let mut priorities = Vec::new();
-    for entry in &candidate.entries {
-        let token_count = tokenize_for_model(model, &entry.word, false)?.len();
-        let priority = if entry.metadata.contains(DictionaryMetadata::LEARNED) {
-            learning_priority(&entry.ruby).ln()
-        } else {
-            0.0
-        };
-        priorities.extend(std::iter::repeat_n(priority, token_count));
-    }
-    priorities.resize(candidate_tokens.len(), 0.0);
-    priorities.truncate(candidate_tokens.len());
-    Ok(priorities)
-}
-
-fn learning_priority(ruby: &str) -> f32 {
-    let count = UnicodeSegmentation::graphemes(ruby, true).count();
-    match count {
-        1..=4 => (count + 2) as f32,
-        5..=15 => (count * 2) as f32,
-        _ => 30.0,
-    }
+        .map(|&value| (f64::from(value) - maximum).exp())
+        .sum::<f64>();
+    Ok((f64::from(row[index]) - maximum) - sum_exp.ln())
 }
 
 fn strict_argmax(logits: &[f32]) -> usize {
@@ -1630,3 +1788,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "zenz_comparison_tests.rs"]
+mod comparison_tests;

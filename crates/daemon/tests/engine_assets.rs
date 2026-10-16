@@ -1165,13 +1165,22 @@ fn learns_a_previewed_candidate_committed_with_enter() {
     assert!(entered.reset);
     assert!(!state.path().join("memory.louds").exists());
     response(engine.handle(envelope(5, Payload::EndSession(protocol::EndSession {}))));
-    for file in [
+    let stored: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(state.path().join("personalization-v1.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(!stored["recall"].as_array().unwrap().is_empty());
+    assert!(
+        stored["comparisons"].as_array().unwrap().is_empty(),
+        "accepting the initial preview is not a correction"
+    );
+    for legacy in [
         "memory.louds",
         "memory.loudschars2",
         "memory.memorymetadata",
         "memory0.loudstxt3",
     ] {
-        assert!(state.path().join(file).exists(), "missing {file}");
+        assert!(!state.path().join(legacy).exists());
     }
 }
 
@@ -1408,8 +1417,8 @@ fn persists_forgets_and_resets_learning_through_session_requests() {
         3,
         Payload::SelectCandidate(protocol::SelectCandidate { index: selected }),
     )));
-    let memory_path = state.path().join("memory.memorymetadata");
-    assert!(!memory_path.exists());
+    let memory_path = state.path().join("personalization-v1.json");
+    assert!(!state.path().join("memory.memorymetadata").exists());
     response(engine.handle(envelope(4, Payload::EndSession(protocol::EndSession {}))));
     let learned_size = std::fs::metadata(&memory_path).unwrap().len();
     drop(engine);
@@ -1448,7 +1457,10 @@ fn persists_forgets_and_resets_learning_through_session_requests() {
         4,
         Payload::ResetLearning(protocol::ResetLearning {}),
     )));
-    assert!(!memory_path.exists());
+    let cleared: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&memory_path).unwrap()).unwrap();
+    assert!(cleared["recall"].as_array().unwrap().is_empty());
+    assert!(cleared["comparisons"].as_array().unwrap().is_empty());
 }
 
 #[test]

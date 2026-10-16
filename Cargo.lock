@@ -64,6 +64,8 @@ dependencies = [
  "icu_locale",
  "pkg-config",
  "rand",
+ "serde",
+ "serde_json",
  "tokenizers",
  "unicode-segmentation",
  "writeable",

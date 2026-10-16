@@ -202,6 +202,100 @@ fn fixed_llama_tokenizer_matches_the_upstream_tokenizer_asset() {
     }
 }
 
+#[test]
+fn compares_dictionary_candidates_with_the_fixed_llama_backend() {
+    use beankey_converter::{
+        ConversionSession, DictionaryStore, NormalConverter, PrefixConstraint,
+        ZenzComparisonRequest, ZenzEvaluator, ZenzLanguageModel, ZenzPromptBuilder,
+        ZenzVersionConfig,
+    };
+
+    let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
+    let converter = NormalConverter::new(&dictionary);
+    let tables = InputTableRegistry::new();
+    let mut session = ConversionSession::new();
+    session.insert_str("はし", InputStyle::Direct, &tables);
+    let drafts = session.request_candidates(&converter, &tables, 64).unwrap();
+    let candidates = ["橋", "箸"].map(|text| {
+        drafts
+            .iter()
+            .find(|candidate| candidate.text == text)
+            .unwrap_or_else(|| panic!("the fixed dictionary must supply {text:?} for はし"))
+            .clone()
+    });
+    let mut model = LlamaModel::load(
+        required_environment("BEANKEY_TEST_MODEL"),
+        required_environment("BEANKEY_TEST_LLAMA_BACKEND"),
+    )
+    .expect("the fixed model and pinned llama.cpp backend must load");
+    let continuations: Vec<_> = candidates
+        .iter()
+        .map(|candidate| model.tokenize(&candidate.text, false).unwrap())
+        .collect();
+    assert!(continuations.iter().all(|tokens| !tokens.is_empty()));
+    // Every full alternative pays for its own common EOS terminal as well as
+    // its chosen spelling. One fewer row must skip the entire group.
+    let token_budget: usize = continuations.iter().map(|tokens| tokens.len() + 1).sum();
+    let version = ZenzVersionConfig::default();
+    let constraint = PrefixConstraint::default();
+    let request = |token_budget| ZenzComparisonRequest {
+        input: "ハシ",
+        input_cursor_position: None,
+        candidates: &candidates,
+        prefix_constraint: &constraint,
+        version: &version,
+        token_budget,
+    };
+    let mut evaluator = ZenzEvaluator::default();
+    assert!(
+        evaluator
+            .compare_candidates(&mut model, request(token_budget - 1))
+            .expect("budget preflight must not fail inference")
+            .is_none()
+    );
+    // Reuse both the evaluator and real backend after preflight skipped them.
+    let scores = evaluator
+        .compare_candidates(&mut model, request(token_budget))
+        .expect("the real backend must support teacher-forced comparison")
+        .expect("ordinary dictionary alternatives must not silently skip comparison");
+    assert_eq!(scores.len(), candidates.len());
+    assert!(scores.iter().all(|score| score.is_finite() && *score < 0.0));
+
+    // Independently teacher-force one chosen token at a time, including the
+    // same EOS after each complete spelling. This checks the batched suffix
+    // path against actual backend logits, not a greedy score or lexical cost.
+    let prompt = ZenzPromptBuilder::candidate_evaluation("ハシ", None, "", &version);
+    let prompt_tokens = model.tokenize(&prompt, true).unwrap();
+    let eos = model.eos_token();
+    for ((candidate, continuation), &actual) in candidates.iter().zip(&continuations).zip(&scores) {
+        let mut prefix = prompt_tokens.clone();
+        let mut expected = 0.0;
+        for token in continuation.iter().copied().chain(std::iter::once(eos)) {
+            let row = model.next_logits(&prefix).unwrap();
+            assert_eq!(row.len(), model.vocabulary_size());
+            let maximum = row
+                .iter()
+                .copied()
+                .map(f64::from)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let log_partition = maximum
+                + row
+                    .iter()
+                    .map(|&value| (f64::from(value) - maximum).exp())
+                    .sum::<f64>()
+                    .ln();
+            expected += f64::from(row[usize::try_from(token).unwrap()]) - log_partition;
+            prefix.push(token);
+        }
+        // Different decode batch shapes can incur small floating-point drift.
+        assert!(
+            (actual - expected).abs() < 0.05,
+            "{}: batched score {actual} differs from EOS-terminated teacher forcing {expected}",
+            candidate.text,
+        );
+    }
+}
+
 fn fixed_model_engine() -> Engine {
     Engine::open_with_llama(
         dictionary_root(),

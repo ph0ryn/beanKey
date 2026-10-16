@@ -1,3 +1,7 @@
+mod personalization;
+pub use personalization::PersonalizationComparison;
+use personalization::append_unique;
+
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
@@ -154,6 +158,8 @@ pub struct ConversionSession {
     user_shortcuts: Vec<DictionaryEntry>,
     file_user_dictionary: UserDictionary,
     learning_memory: Option<LearningMemory>,
+    presentation: Option<personalization::Presentation>,
+    personalization_warning: Option<String>,
     stable_prediction_cache: Option<StablePredictionCache>,
     zenz_prediction_cache: Option<ZenzPredictionCache>,
     accepted_prediction: Option<Candidate>,
@@ -230,6 +236,7 @@ impl ConversionSession {
         self.composing
             .insert_str(remaining, InputStyle::Direct, tables);
         self.candidates.clear();
+        self.presentation = None;
         self.last_committed = None;
         self.stable_prediction_cache = None;
         self.zenz_prediction_cache = None;
@@ -256,13 +263,22 @@ impl ConversionSession {
     }
 
     fn accepted_prediction(&self) -> Option<&Candidate> {
-        self.accepted_prediction.as_ref().filter(|candidate| {
+        self.retained_prediction().filter(|candidate| {
             to_katakana(&self.composing.surface()).starts_with(&candidate_reading(candidate))
         })
     }
 
+    fn retained_prediction(&self) -> Option<&Candidate> {
+        let source = self.full_composing.as_ref().unwrap_or(&self.composing);
+        self.accepted_prediction.as_ref().filter(|candidate| {
+            to_katakana(&source.surface()).starts_with(&candidate_reading(candidate))
+        })
+    }
+
     fn retain_prediction_prefix(&mut self) {
-        if self.accepted_prediction().is_none() {
+        // A temporary segment shorter than the accepted reading is not an edit
+        // to the full source, and must not erase its spelling provenance.
+        if self.retained_prediction().is_none() {
             self.accepted_prediction = None;
         }
     }
@@ -293,6 +309,7 @@ impl ConversionSession {
         self.user_dictionary = entries;
         self.user_shortcuts = shortcuts;
         self.candidates.clear();
+        self.presentation = None;
     }
 
     pub fn update_user_dictionary_path(
@@ -301,6 +318,7 @@ impl ConversionSession {
     ) -> Result<(), DictionaryError> {
         self.file_user_dictionary = UserDictionary::open(path)?;
         self.candidates.clear();
+        self.presentation = None;
         Ok(())
     }
 
@@ -309,6 +327,7 @@ impl ConversionSession {
         self.learning_memory = Some(memory);
         self.stable_prediction_cache = None;
         self.candidates.clear();
+        self.presentation = None;
         Ok(())
     }
 
@@ -318,6 +337,7 @@ impl ConversionSession {
     ) {
         self.foreign_completion_provider = Some(provider);
         self.candidates.clear();
+        self.presentation = None;
     }
 
     pub fn refresh_learning(&mut self) -> Result<(), LearningError> {
@@ -325,6 +345,7 @@ impl ConversionSession {
             memory.validate()?;
         }
         self.candidates.clear();
+        self.presentation = None;
         Ok(())
     }
 
@@ -373,6 +394,7 @@ impl ConversionSession {
         self.composing.insert_str(value, input_style, tables);
         self.retain_prediction_prefix();
         self.candidates.clear();
+        self.presentation = None;
         self.last_committed = None;
     }
 
@@ -397,6 +419,7 @@ impl ConversionSession {
         );
         self.retain_prediction_prefix();
         self.candidates.clear();
+        self.presentation = None;
         self.last_committed = None;
     }
 
@@ -421,6 +444,7 @@ impl ConversionSession {
             tables,
         );
         self.candidates.clear();
+        self.presentation = None;
         self.last_committed = None;
     }
 
@@ -428,6 +452,7 @@ impl ConversionSession {
         self.composing.delete_backward(count, tables);
         self.retain_prediction_prefix();
         self.candidates.clear();
+        self.presentation = None;
         self.last_committed = None;
         if self.composing.is_empty() {
             self.context = ConversionContext::default();
@@ -438,6 +463,7 @@ impl ConversionSession {
         self.composing.delete_forward(count, tables);
         self.retain_prediction_prefix();
         self.candidates.clear();
+        self.presentation = None;
         self.last_committed = None;
         if self.composing.is_empty() {
             self.context = ConversionContext::default();
@@ -447,6 +473,7 @@ impl ConversionSession {
     pub fn move_cursor(&mut self, count: isize) -> isize {
         let moved = self.composing.move_cursor(count);
         self.candidates.clear();
+        self.presentation = None;
         self.last_committed = None;
         moved
     }
@@ -531,7 +558,6 @@ impl ConversionSession {
         n_best: usize,
     ) -> Result<&[Candidate], DictionaryError> {
         let additional = self.additional_dictionary();
-        let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         self.candidates = converter.convert_with_entries(
             &self.composing,
             tables,
@@ -558,6 +584,11 @@ impl ConversionSession {
         });
         first_clauses.truncate(5);
         self.candidates.extend(first_clauses);
+        let recalled =
+            self.personal_candidates(converter, tables, false, TypoCorrectionMode::Disabled)?;
+        append_unique(&mut self.candidates, recalled, &self.composing, tables);
+        let presented = self.candidates.clone();
+        self.observe_presentation(&presented, 0, tables, "");
         Ok(&self.candidates)
     }
 
@@ -570,7 +601,6 @@ impl ConversionSession {
     ) -> Result<&[Candidate], DictionaryError> {
         let constraint = self.constrain_zenz_prefix(constraint.clone());
         let additional = self.additional_dictionary();
-        let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         self.candidates = if constraint.is_empty() {
             converter.convert_with_entries(
                 &self.composing,
@@ -600,6 +630,7 @@ impl ConversionSession {
     /// prediction's spelling. Dictionary fallback must not reuse its draft/cache.
     pub fn discard_zenz_inference_state(&mut self) {
         self.candidates.clear();
+        self.presentation = None;
         self.zenz_prediction_cache = None;
     }
 
@@ -764,7 +795,6 @@ impl ConversionSession {
         options: RequestOptions,
     ) -> Result<ConversionResult, DictionaryError> {
         let additional = self.additional_dictionary();
-        let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         let full = converter.convert_with_entries_and_typo(
             &self.composing,
             tables,
@@ -773,7 +803,7 @@ impl ConversionSession {
             &additional,
             options.typo_correction == TypoCorrectionMode::Enabled,
         )?;
-        self.assemble_request(&converter, tables, options, full, None, None)
+        self.assemble_request(converter, tables, options, full, None, None)
     }
 
     fn assemble_request(
@@ -857,7 +887,17 @@ impl ConversionSession {
         );
         leading = unique(leading);
         if options.japanese_prediction == PredictionMode::Automatic {
-            leading.extend(predictions.iter().cloned());
+            leading.extend(
+                predictions
+                    .iter()
+                    .filter(|candidate| {
+                        !candidate
+                            .entries
+                            .iter()
+                            .any(|entry| entry.metadata.contains(DictionaryMetadata::LEARNED))
+                    })
+                    .cloned(),
+            );
             leading = unique(leading);
         }
         if options.foreign_prediction == PredictionMode::Automatic {
@@ -926,10 +966,36 @@ impl ConversionSession {
         main_results.extend(words);
         main_results.retain(&matches_prefix);
         let prepare = |candidate| prepare_candidate(candidate, prefix_candidate.as_ref());
-        let main_results = main_results.into_iter().map(&prepare).collect::<Vec<_>>();
+        let mut main_results = main_results.into_iter().map(&prepare).collect::<Vec<_>>();
+        let recalled =
+            self.personal_candidates(converter, tables, false, options.typo_correction)?;
+        append_unique(
+            &mut main_results,
+            recalled.into_iter().map(&prepare),
+            &self.composing,
+            tables,
+        );
+        if options.japanese_prediction == PredictionMode::Automatic {
+            append_unique(
+                &mut main_results,
+                predictions
+                    .iter()
+                    .filter(|candidate| {
+                        candidate
+                            .entries
+                            .iter()
+                            .any(|entry| entry.metadata.contains(DictionaryMetadata::LEARNED))
+                    })
+                    .cloned()
+                    .map(&prepare),
+                &self.composing,
+                tables,
+            );
+        }
         let predictions = predictions.into_iter().map(&prepare).collect();
         let first_clauses = first_clauses.into_iter().map(&prepare).collect();
         self.candidates = main_results.clone();
+        self.observe_presentation(&main_results, 0, tables, "");
         Ok(ConversionResult {
             main_results,
             prediction_results: predictions,
@@ -959,6 +1025,8 @@ impl ConversionSession {
         candidate: Candidate,
         tables: &InputTableRegistry,
     ) -> Result<String, SelectionError> {
+        // Snapshot the displayed default and true consumed span before composition changes.
+        let correction = self.correction_observation(&candidate, tables);
         self.composing
             .complete_prefix(candidate.composing_count.clone(), tables);
         self.accepted_prediction = None;
@@ -969,10 +1037,19 @@ impl ConversionSession {
             };
         }
         self.candidates.clear();
+        self.presentation = None;
         if candidate.is_learning_target
             && let Some(memory) = self.learning_memory.clone()
         {
-            memory.learn(&candidate)?;
+            // A learning/storage failure must never discard a successful text commit.
+            if let Err(error) = memory.learn(&candidate) {
+                self.personalization_warning = Some(error.to_string());
+            }
+            if let Some((scope, default)) = correction
+                && let Err(error) = memory.record_correction(&scope, &default, &candidate)
+            {
+                self.personalization_warning = Some(error.to_string());
+            }
         }
         self.last_committed = Some(candidate.clone());
         if self.composing.is_empty() {
@@ -1015,12 +1092,7 @@ impl ConversionSession {
         candidate: &Candidate,
         tables: &InputTableRegistry,
     ) -> usize {
-        let mut composing = self.composing.clone();
-        composing.complete_prefix(candidate.composing_count.clone(), tables);
-        self.composing
-            .surface_graphemes()
-            .len()
-            .saturating_sub(composing.surface_graphemes().len())
+        personalization::consumed_surface_count(&self.composing, candidate, tables)
     }
 
     pub fn request_post_composition_predictions(
@@ -1036,6 +1108,7 @@ impl ConversionSession {
     pub fn reset(&mut self) {
         self.composing.stop();
         self.candidates.clear();
+        self.presentation = None;
         self.context = ConversionContext::default();
         self.last_committed = None;
         self.stable_prediction_cache = None;
@@ -1061,7 +1134,6 @@ impl ConversionSession {
             .as_ref()
             .map(|cache| cache.compatible_candidates(&self.composing, &source))
             .unwrap_or_default();
-        let converter = converter.with_learning_memory(self.learning_memory.as_ref());
         let fresh = converter.predict_with_entries(
             &self.composing,
             tables,
@@ -1083,13 +1155,24 @@ impl ConversionSession {
             predictions.retain(|candidate| candidate.text.starts_with(prefix));
         }
         predictions.truncate(n_best);
+        let baseline_predictions = predictions.clone();
+        let recalled =
+            self.personal_candidates(converter, tables, true, TypoCorrectionMode::Disabled)?;
+        append_unique(
+            &mut predictions,
+            recalled.into_iter().filter(|candidate| {
+                prefix_text.is_none_or(|prefix| candidate.text.starts_with(prefix))
+            }),
+            &self.composing,
+            tables,
+        );
         if predictions.is_empty() {
             self.stable_prediction_cache = None;
         } else {
             self.stable_prediction_cache = Some(StablePredictionCache {
                 original_surface: self.composing.surface(),
                 suffix_count: source.dropped_suffix_count,
-                candidates: predictions.clone(),
+                candidates: baseline_predictions,
             });
         }
         Ok(predictions)

@@ -814,12 +814,7 @@ impl Engine {
         session.last_request_id = request_id;
         if matches!(request, Payload::EndSession(_)) {
             if let Err(error) = session.conversion.commit_learning() {
-                return error_envelope(
-                    request_id,
-                    session_id,
-                    Code::Internal,
-                    format!("learning memory commit failed: {error}"),
-                );
+                eprintln!("learning memory commit failed: {error}");
             }
             return state_envelope(
                 request_id,
@@ -904,6 +899,10 @@ impl Engine {
             }
             Payload::CommitComposition(_) => {
                 let commit = current_marked_text(&session, &self.tables);
+                if let Err((_, error)) = self.learn_current_marked_candidate(&mut session, &commit)
+                {
+                    eprintln!("learning marked composition failed: {error}");
+                }
                 let consumed = !commit.is_empty();
                 session.reset();
                 Ok(protocol::StateResponse {
@@ -1057,10 +1056,11 @@ impl Engine {
         {
             if number == 0 {
                 let commit = current_marked_text(session, &self.tables);
+                self.learn_current_marked_candidate(session, &commit)?;
                 session.reset();
                 insert_event(session, &event, &self.tables);
                 session.input_mode = InputMode::Composing;
-                self.request_candidates(session)?;
+                self.request_candidates_preserving_commit(session, false, None);
                 return Ok(make_state(session, true, commit, false));
             }
             let page_start = session.selected_candidate / 9 * 9;
@@ -1082,6 +1082,9 @@ impl Engine {
                 self.request_candidates(session)?;
                 // azooKey-Desktop deliberately shows the raw reading immediately after deletion.
                 session.live_candidate = None;
+                if self.live_conversion {
+                    session.conversion.discard_presentation();
+                }
                 return Ok(make_state(session, true, String::new(), false));
             }
             protocol::UserAction::Escape => match session.input_mode {
@@ -1092,12 +1095,22 @@ impl Engine {
                 }
                 InputMode::Previewing => {
                     session.input_mode = InputMode::Composing;
+                    if self.live_conversion {
+                        session.conversion.discard_presentation();
+                    }
                     return Ok(make_state(session, true, String::new(), false));
                 }
                 InputMode::Selecting => {
                     session.input_mode = if self.live_conversion {
+                        session.conversion.discard_presentation();
                         InputMode::Composing
                     } else {
+                        if let Some(default) = session
+                            .preview_candidate_index
+                            .and_then(|index| session.display_candidates.get(index))
+                        {
+                            session.conversion.reanchor_presentation(default);
+                        }
                         InputMode::Previewing
                     };
                     return Ok(make_state(session, true, String::new(), false));
@@ -1135,13 +1148,18 @@ impl Engine {
                         self.request_candidates(session)?;
                         session.selected_candidate =
                             session.preview_candidate_index.unwrap_or_default();
+                        if let Some(default) =
+                            session.display_candidates.get(session.selected_candidate)
+                        {
+                            session.conversion.reanchor_presentation(default);
+                        }
                     }
                     return Ok(make_state(session, true, String::new(), false));
                 }
                 InputMode::Previewing => {
-                    self.request_rich_candidates(session)?;
                     session.input_mode = InputMode::Selecting;
                     session.selected_candidate = 0;
+                    self.request_rich_candidates(session)?;
                     return Ok(make_state(session, true, String::new(), false));
                 }
                 InputMode::Selecting => {
@@ -1164,9 +1182,9 @@ impl Engine {
                     session
                         .conversion
                         .insert_composition_separator(session.input_style.clone(), &self.tables);
-                    self.request_rich_candidates(session)?;
                     session.input_mode = InputMode::Selecting;
                     session.selected_candidate = 0;
+                    self.request_rich_candidates(session)?;
                     return Ok(make_state(session, true, String::new(), false));
                 }
                 InputMode::Selecting => {
@@ -1326,6 +1344,7 @@ impl Engine {
                 .then(|| current_marked_text(session, &self.tables))
                 .unwrap_or_default();
                 if !commit.is_empty() {
+                    self.learn_current_marked_candidate(session, &commit)?;
                     session.reset();
                 } else {
                     session.clear_presentation();
@@ -1334,7 +1353,11 @@ impl Engine {
                 session.last_was_backspace = false;
                 insert_event(session, &event, &self.tables);
                 session.input_mode = InputMode::Composing;
-                self.request_candidates(session)?;
+                if commit.is_empty() {
+                    self.request_candidates(session)?;
+                } else {
+                    self.request_candidates_preserving_commit(session, false, None);
+                }
                 return Ok(make_state(session, true, commit, false));
             }
             _ => {}
@@ -1495,7 +1518,7 @@ impl Engine {
         if !session.conversion.composing().is_empty() {
             session.segment_surface_count = None;
             session.input_mode = remainder_mode;
-            self.request_candidates_with_context(session, true, Some(&left_context))?;
+            self.request_candidates_preserving_commit(session, true, Some(&left_context));
         } else {
             session.input_mode = InputMode::None;
         }
@@ -1503,24 +1526,44 @@ impl Engine {
         Ok(make_state(session, true, commit, reset))
     }
 
+    // Once text has been accepted, a failed follow-up request must not turn its
+    // response into a protocol error and lose that text at the frontend boundary.
+    fn request_candidates_preserving_commit(
+        &mut self,
+        session: &mut SessionState,
+        force_full_conversion: bool,
+        left_context: Option<&str>,
+    ) {
+        if let Err((_, message)) =
+            self.request_candidates_with_context(session, force_full_conversion, left_context)
+        {
+            eprintln!("candidate refresh skipped after successful text commit: {message}");
+            session.clear_presentation();
+            session.input_mode = InputMode::Composing;
+        }
+    }
+
     fn select_and_stage_learning(
         &mut self,
         session: &mut SessionState,
         candidate: ConverterCandidate,
     ) -> SessionRequestResult<String> {
-        session
+        let selected = session
             .conversion
-            .select_candidate_value(candidate, &self.tables)
-            .map_err(|error| match error {
-                SelectionError::CandidateOutOfRange { .. } => (
-                    Code::InvalidPayload,
-                    format!("candidate selection failed: {error}"),
-                ),
-                SelectionError::Learning(_) => (
-                    Code::Internal,
-                    format!("candidate selection failed: {error}"),
-                ),
-            })
+            .select_candidate_value(candidate, &self.tables);
+        if let Some(warning) = session.conversion.take_personalization_warning() {
+            eprintln!("learning skipped after successful text commit: {warning}");
+        }
+        selected.map_err(|error| match error {
+            SelectionError::CandidateOutOfRange { .. } => (
+                Code::InvalidPayload,
+                format!("candidate selection failed: {error}"),
+            ),
+            SelectionError::Learning(_) => (
+                Code::Internal,
+                format!("candidate selection failed: {error}"),
+            ),
+        })
     }
 
     fn learn_current_marked_candidate(
@@ -1674,20 +1717,16 @@ impl Engine {
         request_rich_candidates: bool,
         left_context: Option<&str>,
     ) -> SessionRequestResult<()> {
-        session.conversion.refresh_learning().map_err(|error| {
-            (
-                Code::Internal,
-                format!("learning memory refresh failed: {error}"),
-            )
-        })?;
+        if let Err(error) = session.conversion.refresh_learning() {
+            eprintln!("learning memory refresh failed: {error}");
+        }
         let converter = NormalConverter::new(&self.dictionary);
+        let surrounding = surrounding_with_left_context(&session.surrounding, left_context);
+        let version = version_with_context(&self.zenz_version, &surrounding);
         let zenz_result =
             self.zenz_model
                 .as_mut()
                 .map(|model| -> Result<_, zenz::ZenzConversionError> {
-                    let surrounding =
-                        surrounding_with_left_context(&session.surrounding, left_context);
-                    let version = version_with_context(&self.zenz_version, &surrounding);
                     let evaluated_candidate = zenz::convert(
                         &mut session.conversion,
                         &converter,
@@ -1791,7 +1830,7 @@ impl Engine {
             }
             None => None,
         };
-        let (result, evaluated_candidate) = if let Some(result) = zenz_result {
+        let (mut result, evaluated_candidate) = if let Some(result) = zenz_result {
             result
         } else {
             let result = session
@@ -1805,6 +1844,42 @@ impl Engine {
                 })?;
             (result, None)
         };
+        session.display_candidates = if session.segment_surface_count.is_some() {
+            result.main_results.clone()
+        } else {
+            session.conversion.desktop_candidates(&result, &self.tables)
+        };
+        session.conversion.personalize_candidates(
+            &converter,
+            &self.tables,
+            &mut session.display_candidates,
+            surrounding.left.as_deref().unwrap_or(""),
+            self.zenz_model
+                .as_mut()
+                .map(|model| beankey_converter::PersonalizationComparison {
+                    model,
+                    evaluator: &mut self.zenz_evaluator,
+                    version: &version,
+                    token_budget: 192,
+                }),
+        );
+        if let Some(baseline) = result.main_results.first() {
+            let preferred = session.conversion.preferred_for(
+                baseline,
+                &session.display_candidates,
+                &self.tables,
+                surrounding.left.as_deref().unwrap_or(""),
+            );
+            if preferred.text != baseline.text
+                || preferred.composing_count != baseline.composing_count
+            {
+                result.main_results.retain(|candidate| {
+                    candidate.text != preferred.text
+                        || candidate.composing_count != preferred.composing_count
+                });
+                result.main_results.insert(0, preferred);
+            }
+        }
         let live_candidate = if self.live_conversion
             && session.input_mode == InputMode::Composing
             && session.input_language == InputLanguage::Japanese
@@ -1816,11 +1891,6 @@ impl Engine {
             result.main_results.first().cloned()
         } else {
             None
-        };
-        session.display_candidates = if session.segment_surface_count.is_some() {
-            result.main_results.clone()
-        } else {
-            session.conversion.desktop_candidates(&result, &self.tables)
         };
         session.candidate_remainders = session
             .display_candidates
@@ -1871,6 +1941,30 @@ impl Engine {
             session.selected_candidate = index;
         }
         session.live_candidate = live_candidate;
+        let default_index = match session.input_mode {
+            InputMode::Selecting => Some(0),
+            InputMode::Composing if session.live_candidate.is_some() => {
+                Some(session.selected_candidate)
+            }
+            InputMode::Composing if !session.live_conversion_enabled => {
+                session.preview_candidate_index
+            }
+            InputMode::Previewing => session.preview_candidate_index,
+            _ => None,
+        };
+        if let Some(default_index) = default_index {
+            session.conversion.observe_presentation(
+                &session.display_candidates,
+                default_index,
+                &self.tables,
+                surrounding.left.as_deref().unwrap_or(""),
+            );
+        } else {
+            session.conversion.discard_presentation();
+        }
+        if let Some(warning) = session.conversion.take_personalization_warning() {
+            eprintln!("personalization unavailable for this request: {warning}");
+        }
         Ok(())
     }
 }
@@ -1921,25 +2015,25 @@ fn selection_number(text: &str) -> Option<usize> {
         .map(|number| number as usize)
 }
 
+fn marked_candidate(session: &SessionState, index: usize) -> Option<(String, u32)> {
+    let candidate = session.display_candidates.get(index)?;
+    let remaining = session
+        .candidate_remainders
+        .get(index)
+        .map(String::as_str)
+        .unwrap_or("");
+    let highlighted = candidate.text.chars().count().min(u32::MAX as usize) as u32;
+    Some((format!("{}{remaining}", candidate.text), highlighted))
+}
+
 fn current_marked_text(session: &SessionState, _tables: &InputTableRegistry) -> String {
-    if session.input_mode == InputMode::Previewing {
-        return session
-            .preview_candidate_index
-            .and_then(|index| session.display_candidates.get(index))
-            .map_or_else(
-                || session.conversion.composing().surface(),
-                |candidate| candidate.text.clone(),
-            );
-    }
-    if session.input_mode == InputMode::Selecting
-        && let Some(candidate) = session.display_candidates.get(session.selected_candidate)
-    {
-        let remaining = session
-            .candidate_remainders
-            .get(session.selected_candidate)
-            .map(String::as_str)
-            .unwrap_or("");
-        return format!("{}{remaining}", candidate.text);
+    let index = match session.input_mode {
+        InputMode::Previewing => session.preview_candidate_index,
+        InputMode::Selecting => Some(session.selected_candidate),
+        _ => None,
+    };
+    if let Some((marked, _)) = index.and_then(|index| marked_candidate(session, index)) {
+        return marked;
     }
     session.live_candidate.as_ref().map_or_else(
         || session.conversion.composing().surface(),
@@ -2369,26 +2463,13 @@ fn make_state(
     let (preedit, highlighted_preedit_length) = match session.input_mode {
         InputMode::Previewing => session
             .preview_candidate_index
-            .and_then(|index| session.display_candidates.get(index))
+            .and_then(|index| marked_candidate(session, index))
             .map_or_else(
                 || (session.conversion.composing().surface(), 0),
-                |candidate| (candidate.text.clone(), 0),
+                |(marked, _)| (marked, 0),
             ),
-        InputMode::Selecting => session
-            .display_candidates
-            .get(session.selected_candidate)
-            .map_or_else(
-                || (session.conversion.composing().surface(), 0),
-                |candidate| {
-                    let remaining = session
-                        .candidate_remainders
-                        .get(session.selected_candidate)
-                        .map(String::as_str)
-                        .unwrap_or("");
-                    let highlighted = candidate.text.chars().count().min(u32::MAX as usize) as u32;
-                    (format!("{}{remaining}", candidate.text), highlighted)
-                },
-            ),
+        InputMode::Selecting => marked_candidate(session, session.selected_candidate)
+            .unwrap_or_else(|| (session.conversion.composing().surface(), 0)),
         InputMode::Composing => session.live_candidate.as_ref().map_or_else(
             || (session.conversion.composing().surface(), 0),
             |candidate| (candidate.text.clone(), 0),
@@ -3130,9 +3211,14 @@ mod tests {
         };
 
         assert_eq!(state.commit, "箸");
-        assert!(!learning_directory.path().join("memory.louds").exists());
         engine.handle(envelope(4, Payload::EndSession(protocol::EndSession {})));
-        assert!(learning_directory.path().join("memory.louds").exists());
+        let stored: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(learning_directory.path().join("personalization-v1.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(!stored["recall"].as_array().unwrap().is_empty());
+        assert!(stored["comparisons"].as_array().unwrap().is_empty());
+        assert!(!learning_directory.path().join("memory.louds").exists());
     }
 
     #[test]

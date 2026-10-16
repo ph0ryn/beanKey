@@ -296,7 +296,7 @@ fn retains_an_expanded_template_prefix_in_following_predictions() {
 }
 
 #[test]
-fn does_not_restore_an_accepted_spelling_after_converting_a_shorter_segment() {
+fn temporarily_shorter_segment_preserves_accepted_spelling_until_commit() {
     let dictionary = DictionaryStore::open(dictionary_root()).unwrap();
     let converter = NormalConverter::new(&dictionary);
     let tables = InputTableRegistry::new();
@@ -319,10 +319,33 @@ fn does_not_restore_an_accepted_spelling_after_converting_a_shorter_segment() {
     let result = session
         .finalize_zenz_request(&converter, &tables, RequestOptions::default())
         .unwrap();
+    assert!(!result.main_results.is_empty());
     assert!(
         result
             .main_results
             .iter()
-            .any(|candidate| candidate.text.starts_with("左"))
+            .all(|candidate| candidate.text.starts_with('←'))
+    );
+    assert_eq!(
+        session
+            .constrain_zenz_prefix(PrefixConstraint::default())
+            .bytes,
+        "←".as_bytes()
+    );
+
+    // Actually committing a shorter, ordinary segment removes the accepted reading.
+    session.move_cursor(-5);
+    session.begin_segment_request(&tables);
+    let partial = session
+        .request(&converter, &tables, RequestOptions::default())
+        .unwrap()
+        .main_results[0]
+        .clone();
+    session.end_segment_request();
+    session.select_candidate_value(partial, &tables).unwrap();
+    assert!(
+        session
+            .constrain_zenz_prefix(PrefixConstraint::default())
+            .is_empty()
     );
 }

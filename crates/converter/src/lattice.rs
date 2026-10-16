@@ -13,6 +13,15 @@ const BOS_CLASS_ID: usize = 0;
 const BOS_MEANING_ID: usize = 500;
 const DICTIONARY_THRESHOLD: f32 = -17.0;
 const MAXIMUM_DICTIONARY_LENGTH: usize = 20;
+const MAXIMUM_PERSONAL_LENGTH: usize = 128;
+const MAXIMUM_PERSONAL_CANDIDATES: usize = 4;
+const MAXIMUM_PERSONAL_PATHS: usize = 16;
+const MAXIMUM_PERSONAL_TYPOS: usize = 64;
+
+pub(crate) struct PersonalRecallOptions {
+    pub maximum: usize,
+    pub prediction: bool,
+}
 const PREDICTION_UNUSABLE_RIGHT_IDS: &[u16] = &[
     13, 14, 15, 16, 17, 18, 25, 26, 27, 28, 33, 34, 40, 41, 42, 46, 47, 50, 56, 57, 58, 59, 60, 61,
     62, 63, 64, 74, 75, 76, 77, 78, 79, 86, 87, 88, 93, 94, 95, 99, 100, 103, 107, 108, 109, 110,
@@ -328,22 +337,11 @@ struct ConversionModifiers<'a> {
 
 pub struct NormalConverter<'a> {
     dictionary: &'a DictionaryStore,
-    learning_memory: Option<crate::LearningMemory>,
 }
 
 impl<'a> NormalConverter<'a> {
     pub fn new(dictionary: &'a DictionaryStore) -> Self {
-        Self {
-            dictionary,
-            learning_memory: None,
-        }
-    }
-
-    pub(crate) fn with_learning_memory(&self, memory: Option<&crate::LearningMemory>) -> Self {
-        Self {
-            dictionary: self.dictionary,
-            learning_memory: memory.cloned(),
-        }
+        Self { dictionary }
     }
 
     pub fn convert(
@@ -529,13 +527,7 @@ impl<'a> NormalConverter<'a> {
                 });
                 surface_nodes[start].push(node_index);
             }
-            let learned = self
-                .learning_memory
-                .as_ref()
-                .map(|memory| memory.matches_from_start(&suffix, MAXIMUM_DICTIONARY_LENGTH))
-                .transpose()?
-                .unwrap_or_default();
-            for entry in modifiers.additional_entries.iter().chain(&learned) {
+            for entry in modifiers.additional_entries {
                 let ruby_count = UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count();
                 if ruby_count == 0
                     || ruby_count > MAXIMUM_DICTIONARY_LENGTH
@@ -580,9 +572,6 @@ impl<'a> NormalConverter<'a> {
                             .filter(|entry| entry.ruby == prefix.ruby)
                             .cloned(),
                     );
-                    if let Some(memory) = &self.learning_memory {
-                        entries.extend(memory.exact_match(&prefix.ruby)?);
-                    }
                     for entry in entries {
                         let adjustment = typo_adjustment(&entry, prefix.penalty);
                         let entry = entry.adjusted(adjustment);
@@ -720,6 +709,281 @@ impl<'a> NormalConverter<'a> {
             .collect();
         candidates.sort_by(|left, right| right.value.total_cmp(&left.value));
         Ok(unique_candidates(candidates))
+    }
+
+    // Recall is deliberately outside the ordinary lattice and its per-node beam.
+    // Surroundings use the bounded, memory-free baseline, including explicit
+    // dictionaries. Remembered words retain their original lexical/boundary costs.
+    pub(crate) fn personal_candidates(
+        &self,
+        composing: &ComposingText,
+        tables: &InputTableRegistry,
+        additional_entries: &[DictionaryEntry],
+        context: ConversionContext,
+        memory: &crate::LearningMemory,
+        options: PersonalRecallOptions,
+    ) -> Result<Vec<Candidate>, DictionaryError> {
+        let PersonalRecallOptions {
+            maximum,
+            prediction,
+        } = options;
+        let maximum = maximum.min(MAXIMUM_PERSONAL_CANDIDATES);
+        let consumed = composing.surface_graphemes().len();
+        if maximum == 0 || consumed == 0 || consumed > MAXIMUM_PERSONAL_LENGTH {
+            return Ok(Vec::new());
+        }
+        let ruby = to_katakana(&composing.surface());
+        let graphemes: Vec<_> = UnicodeSegmentation::graphemes(ruby.as_str(), true).collect();
+        let mut output = Vec::new();
+        let mut partials = Vec::new();
+        let mut examined = 0;
+        for start in 0..consumed {
+            let suffix = graphemes[start..].concat();
+            let mut paths = if prediction {
+                memory.predictive_paths(&suffix, MAXIMUM_PERSONAL_LENGTH)?
+            } else {
+                memory.paths_from_start(&suffix, MAXIMUM_PERSONAL_LENGTH)?
+            };
+            // Structural retrieval only: a phrase must not lose its protected
+            // slot to several shorter prefix records. No evidence or score is
+            // used here, and equal lengths retain the memory's retrieval order.
+            paths.sort_by_key(|path| {
+                std::cmp::Reverse(
+                    path.iter()
+                        .map(|entry| {
+                            UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count()
+                        })
+                        .sum::<usize>(),
+                )
+            });
+            let mut prefix_entries = None;
+            for forced in paths {
+                if examined == MAXIMUM_PERSONAL_PATHS || output.len() == maximum {
+                    break;
+                }
+                examined += 1;
+                let Some(forced_count) = personal_path_length(&forced) else {
+                    continue;
+                };
+                let forced_ruby = to_katakana(
+                    &forced
+                        .iter()
+                        .map(|entry| entry.ruby.as_str())
+                        .collect::<String>(),
+                );
+                if if prediction {
+                    !forced_ruby.starts_with(&suffix)
+                } else {
+                    !suffix.starts_with(&forced_ruby)
+                } {
+                    continue;
+                }
+                if prefix_entries.is_none() {
+                    prefix_entries = Some(self.personal_surrounding_entries(
+                        &graphemes[..start].concat(),
+                        tables,
+                        additional_entries,
+                        context,
+                    )?);
+                }
+                let Some(prefix) = prefix_entries.as_ref().and_then(Option::as_ref) else {
+                    continue;
+                };
+                let mut entries = prefix.clone();
+                entries.extend(forced);
+                let end = if prediction {
+                    consumed
+                } else {
+                    start + forced_count
+                };
+                if personal_path_length(&entries).is_none() {
+                    continue;
+                }
+                let Some(path) = self.register_entry_path(&entries, end, context)? else {
+                    continue;
+                };
+                let recalled = self.make_candidate(path, context);
+                if !recalled.value.is_finite() {
+                    continue;
+                }
+                if end == consumed {
+                    push_personal_candidate(&mut output, recalled, maximum);
+                    continue;
+                }
+
+                // Keep a usable prefix even if completing the remainder fails.
+                let suffix_context = ConversionContext {
+                    right_id: entries
+                        .last()
+                        .expect("a recalled path is nonempty")
+                        .right_id,
+                    meaning_id: recalled.last_meaning_id,
+                };
+                push_personal_candidate(&mut partials, recalled, maximum);
+                if let Some(suffix_entries) = self.personal_surrounding_entries(
+                    &graphemes[end..].concat(),
+                    tables,
+                    additional_entries,
+                    suffix_context,
+                )? {
+                    entries.extend(suffix_entries);
+                    if personal_path_length(&entries).is_some() {
+                        if let Some(path) = self.register_entry_path(&entries, consumed, context)? {
+                            push_personal_candidate(
+                                &mut output,
+                                self.make_candidate(path, context),
+                                maximum,
+                            );
+                        }
+                    }
+                }
+            }
+            if examined == MAXIMUM_PERSONAL_PATHS || output.len() == maximum {
+                break;
+            }
+        }
+        for partial in partials {
+            push_personal_candidate(&mut output, partial, maximum);
+        }
+        Ok(output)
+    }
+
+    // Compatibility recall for whole-input corrections stays separate from the
+    // ordinary typo lattice. Its existing 20-element horizon also bounds typo
+    // enumeration; recalled entries themselves never pass dictionary pruning.
+    pub(crate) fn personal_typo_candidates(
+        &self,
+        composing: &ComposingText,
+        tables: &InputTableRegistry,
+        context: ConversionContext,
+        memory: &crate::LearningMemory,
+        maximum: usize,
+    ) -> Result<Vec<Candidate>, DictionaryError> {
+        let maximum = maximum.min(MAXIMUM_PERSONAL_CANDIDATES);
+        let input = composing.input();
+        if maximum == 0 || input.is_empty() || input.len() > MAXIMUM_DICTIONARY_LENGTH {
+            return Ok(Vec::new());
+        }
+        let mut prefixes = crate::typo::typo_prefixes(input, tables, MAXIMUM_DICTIONARY_LENGTH);
+        prefixes.retain(|prefix| prefix.consumed == input.len());
+        prefixes.sort_by(|left, right| {
+            left.penalty
+                .total_cmp(&right.penalty)
+                .then_with(|| left.ruby.cmp(&right.ruby))
+        });
+        let mut output = Vec::new();
+        let mut examined = 0;
+        for prefix in prefixes.into_iter().take(MAXIMUM_PERSONAL_TYPOS) {
+            if examined == MAXIMUM_PERSONAL_PATHS || output.len() == maximum {
+                break;
+            }
+            for original in memory.paths_from_start(&prefix.ruby, MAXIMUM_PERSONAL_LENGTH)? {
+                let ruby = to_katakana(
+                    &original
+                        .iter()
+                        .map(|entry| entry.ruby.as_str())
+                        .collect::<String>(),
+                );
+                if ruby != prefix.ruby {
+                    continue;
+                }
+                if examined == MAXIMUM_PERSONAL_PATHS || output.len() == maximum {
+                    return Ok(output);
+                }
+                examined += 1;
+                if personal_path_length(&original).is_none() {
+                    continue;
+                }
+                // The enumerator supplies aggregate, not per-word, penalties.
+                // Applying it conservatively to each cloned entry avoids a
+                // zero-cost correction without changing any persisted path.
+                let entries: Vec<_> = original
+                    .into_iter()
+                    .map(|entry| {
+                        let adjustment = typo_adjustment(&entry, prefix.penalty);
+                        entry.adjusted(adjustment)
+                    })
+                    .collect();
+                let Some(path) = self.register_entry_path(&entries, prefix.consumed, context)?
+                else {
+                    continue;
+                };
+                let mut candidate = self.make_candidate(path, context);
+                candidate.composing_count = ComposingCount::Input(prefix.consumed);
+                candidate.is_typo_correction = true;
+                // Corrected ruby offsets need not correspond to original Roman
+                // input boundaries, so expose only safe whole-input acceptance.
+                candidate.first_clause = None;
+                push_personal_candidate(&mut output, candidate, maximum);
+            }
+        }
+        Ok(output)
+    }
+
+    fn personal_surrounding_entries(
+        &self,
+        ruby: &str,
+        tables: &InputTableRegistry,
+        additional_entries: &[DictionaryEntry],
+        context: ConversionContext,
+    ) -> Result<Option<Vec<DictionaryEntry>>, DictionaryError> {
+        if ruby.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+        let mut composing = ComposingText::new();
+        composing.insert_str(ruby, crate::InputStyle::Direct, tables);
+        Ok(self
+            .convert_with_entries(&composing, tables, 1, context, additional_entries)?
+            .into_iter()
+            .next()
+            .map(|candidate| candidate.entries))
+    }
+
+    pub(crate) fn candidate_path_value(
+        &self,
+        candidate: &Candidate,
+        context: ConversionContext,
+    ) -> Result<f32, DictionaryError> {
+        Ok(self
+            .register_entry_path(&candidate.entries, candidate.ruby_count, context)?
+            .map_or(0.0, |path| self.make_candidate(path, context).value))
+    }
+
+    fn register_entry_path(
+        &self,
+        entries: &[DictionaryEntry],
+        consumed: usize,
+        context: ConversionContext,
+    ) -> Result<Option<Arc<RegisteredPath>>, DictionaryError> {
+        let mut previous = None;
+        let mut right_id = context.right_id;
+        let mut total = 0.0;
+        let mut surface = 0_usize;
+        for entry in entries {
+            let connection = self
+                .dictionary
+                .connection_cost(usize::from(right_id), usize::from(entry.left_id))?;
+            total = if previous.is_none() {
+                entry.value() + connection
+            } else {
+                total + connection + entry.value()
+            };
+            let end = surface
+                .saturating_add(UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count());
+            previous = Some(Arc::new(RegisteredPath {
+                entry: entry.clone(),
+                // Prediction may add reading, but never consumes unobserved text.
+                range: LatticeRange::Surface {
+                    from: surface.min(consumed),
+                    to: end.min(consumed),
+                },
+                previous,
+                total,
+            }));
+            surface = end;
+            right_id = entry.right_id;
+        }
+        Ok(previous)
     }
 
     pub fn predict(
@@ -911,9 +1175,6 @@ impl<'a> NormalConverter<'a> {
                     .filter(|entry| entry.ruby.starts_with(prefix) && entry.ruby != *prefix)
                     .cloned(),
             );
-            if let Some(memory) = &self.learning_memory {
-                entries.extend(memory.predict(prefix)?);
-            }
             for entry in entries {
                 let entry_ruby_count =
                     UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count();
@@ -1200,6 +1461,46 @@ fn insert_predecessor(values: &mut Vec<Predecessor>, value: Predecessor, n_best:
         values.pop();
     }
     values.insert(index, value);
+}
+
+fn personal_path_length(entries: &[DictionaryEntry]) -> Option<usize> {
+    if entries.is_empty() || entries.len() > MAXIMUM_PERSONAL_LENGTH {
+        return None;
+    }
+    let mut length = 0_usize;
+    for entry in entries {
+        // These are the fixed dictionary binary format's matrix dimensions.
+        // Persisted boundary IDs must not select unrelated/out-of-range costs.
+        if entry.left_id >= 1319
+            || entry.right_id >= 1319
+            || entry.meaning_id >= 502
+            || entry.word.is_empty()
+            || entry.ruby.is_empty()
+            || !entry.base_value.is_finite()
+            || !entry.adjustment.is_finite()
+            || !entry.value().is_finite()
+        {
+            return None;
+        }
+        length = length
+            .checked_add(UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count())?;
+        if length > MAXIMUM_PERSONAL_LENGTH {
+            return None;
+        }
+    }
+    Some(length)
+}
+
+fn push_personal_candidate(output: &mut Vec<Candidate>, candidate: Candidate, maximum: usize) {
+    if output.len() < maximum
+        && !candidate.text.is_empty()
+        && candidate.value.is_finite()
+        && !output.iter().any(|existing| {
+            existing.text == candidate.text && existing.composing_count == candidate.composing_count
+        })
+    {
+        output.push(candidate);
+    }
 }
 
 fn unique_candidates(candidates: Vec<Candidate>) -> Vec<Candidate> {
@@ -1560,6 +1861,709 @@ mod tests {
             base_value: value,
             adjustment: 0.0,
             metadata: Default::default(),
+        }
+    }
+
+    struct PersonalFixture {
+        root: std::path::PathBuf,
+    }
+
+    impl PersonalFixture {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+                "beankey-lattice-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            ));
+            std::fs::create_dir_all(root.join("louds")).unwrap();
+            std::fs::create_dir_all(root.join("cb")).unwrap();
+            std::fs::write(
+                root.join("louds/charID.chid"),
+                "\0アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンガギグゲゴッャュョー",
+            )
+            .unwrap();
+            let mut meanings = vec![0.0_f32; 502 * 502];
+            meanings[502 + 2] = -7.25;
+            let binary: Vec<_> = meanings.into_iter().flat_map(f32::to_le_bytes).collect();
+            std::fs::write(root.join("mm.binary"), binary).unwrap();
+            for (right, default, overrides) in [
+                (0, -0.5_f32, vec![]),
+                (7, -0.5, vec![]),
+                (100, -2.5, vec![]),
+                (1285, -0.75, vec![(100_i32, -1.25_f32)]),
+                (1288, -1.0, vec![]),
+            ] {
+                let mut binary = Vec::new();
+                for (left, cost) in std::iter::once((-1_i32, default)).chain(overrides) {
+                    binary.extend(left.to_le_bytes());
+                    binary.extend(cost.to_le_bytes());
+                }
+                std::fs::write(root.join(format!("cb/{right}.binary")), binary).unwrap();
+            }
+            Self { root }
+        }
+
+        fn dictionary(&self) -> DictionaryStore {
+            DictionaryStore::open(&self.root).unwrap()
+        }
+
+        fn memory(&self, dictionary: &DictionaryStore) -> crate::LearningMemory {
+            crate::LearningMemory::open(
+                self.root.join("memory"),
+                crate::LearningMode::InputAndOutput,
+                128,
+                dictionary.character_ids().clone(),
+            )
+            .unwrap()
+        }
+    }
+
+    impl Drop for PersonalFixture {
+        fn drop(&mut self) {
+            let temporary = std::env::temp_dir().canonicalize().unwrap();
+            assert_eq!(self.root.parent(), Some(temporary.as_path()));
+            assert!(
+                self.root
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("beankey-lattice-")
+            );
+            std::fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+
+    fn recalled_entry(word: &str, ruby: &str, value: f32) -> DictionaryEntry {
+        DictionaryEntry {
+            ruby: ruby.into(),
+            ..entry(word, value)
+        }
+    }
+
+    fn composing(value: &str, tables: &InputTableRegistry) -> ComposingText {
+        let mut composing = ComposingText::new();
+        composing.insert_str(value, InputStyle::Direct, tables);
+        composing
+    }
+
+    fn remember(memory: &crate::LearningMemory, entries: &[DictionaryEntry]) {
+        memory
+            .learn(&Candidate::single(
+                entries.iter().map(|entry| entry.word.as_str()).collect(),
+                1234.0, // A ranking carrier is not a lexical cost.
+                ComposingCount::Surface(
+                    entries
+                        .iter()
+                        .map(|entry| {
+                            UnicodeSegmentation::graphemes(entry.ruby.as_str(), true).count()
+                        })
+                        .sum(),
+                ),
+                entries.last().unwrap().meaning_id,
+                entries.to_vec(),
+            ))
+            .unwrap();
+    }
+
+    #[test]
+    fn personal_multiword_paths_keep_lexical_connection_and_clause_meaning_costs() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let entries = vec![
+            DictionaryEntry {
+                meaning_id: 1,
+                ..recalled_entry("甲", "カ", -3.0)
+            },
+            DictionaryEntry {
+                left_id: 100,
+                right_id: 100,
+                ..recalled_entry("助", "ナ", -4.0)
+            },
+            DictionaryEntry {
+                meaning_id: 2,
+                ..recalled_entry("乙", "ニ", -5.0)
+            },
+        ];
+        let context = ConversionContext {
+            right_id: 7,
+            meaning_id: 3,
+        };
+        let composing = composing("かなに", &tables);
+        let ordinary = converter
+            .convert_with_entries(&composing, &tables, 8, context, &entries)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.text == "甲助乙")
+            .unwrap();
+        remember(&memory, &entries);
+        let recalled = converter
+            .personal_candidates(
+                &composing,
+                &tables,
+                &[],
+                context,
+                &memory,
+                PersonalRecallOptions {
+                    maximum: 4,
+                    prediction: false,
+                },
+            )
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.text == ordinary.text)
+            .unwrap();
+
+        assert_eq!(ordinary.value, -23.5);
+        assert_eq!(recalled.value, ordinary.value);
+        assert_eq!(recalled.entries.len(), 3);
+        for (original, recalled) in entries.iter().zip(&recalled.entries) {
+            assert_eq!(recalled.word, original.word);
+            assert_eq!(recalled.ruby, original.ruby);
+            assert_eq!(recalled.base_value, original.base_value);
+            assert_eq!(recalled.adjustment, original.adjustment);
+        }
+        assert_eq!(recalled.composing_count, ComposingCount::Surface(3));
+        assert_eq!(recalled.first_clause_candidate().unwrap().text, "甲助");
+        assert_eq!(
+            recalled.first_clause_candidate().unwrap().composing_count,
+            ComposingCount::Surface(2)
+        );
+        assert_eq!(
+            recalled.first_clause_candidate().unwrap().value,
+            ordinary.first_clause_candidate().unwrap().value
+        );
+        let mut reranked = recalled;
+        reranked.value = 9999.0;
+        assert_eq!(
+            converter.candidate_path_value(&reranked, context).unwrap(),
+            ordinary.value
+        );
+    }
+
+    #[test]
+    fn personal_paths_bypass_dictionary_threshold_and_twenty_character_limit() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let entries = vec![
+            recalled_entry("個人句", &"カ".repeat(24), -30.0),
+            recalled_entry("名前", "ナニ", -6.0),
+        ];
+        let composing = composing(&format!("{}なに", "か".repeat(24)), &tables);
+        assert!(should_remove(&entries[0]));
+        assert!(
+            converter
+                .convert_with_entries(
+                    &composing,
+                    &tables,
+                    1,
+                    ConversionContext::default(),
+                    &entries
+                )
+                .unwrap()
+                .iter()
+                .all(|candidate| candidate.text != "個人句名前")
+        );
+        remember(&memory, &entries);
+        let recalled = converter
+            .personal_candidates(
+                &composing,
+                &tables,
+                &[],
+                ConversionContext::default(),
+                &memory,
+                PersonalRecallOptions {
+                    maximum: 4,
+                    prediction: false,
+                },
+            )
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.text == "個人句名前")
+            .unwrap();
+        assert_eq!(recalled.entries.len(), 2);
+        assert_eq!(recalled.entries[0].base_value, -30.0);
+        assert_eq!(recalled.value, -37.25);
+        assert_eq!(recalled.composing_count, ComposingCount::Surface(26));
+    }
+
+    #[test]
+    fn personal_phrase_remains_accessible_when_the_normal_beam_is_one() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let entries = vec![
+            recalled_entry("通常", "カ", -1.0),
+            recalled_entry("個人", "カ", -8.0),
+            recalled_entry("名", "ナ", -2.0),
+        ];
+        let composing = composing("かな", &tables);
+        assert!(
+            converter
+                .convert_with_entries(
+                    &composing,
+                    &tables,
+                    1,
+                    ConversionContext::default(),
+                    &entries
+                )
+                .unwrap()
+                .iter()
+                .all(|candidate| candidate.text != "個人名")
+        );
+        remember(&memory, &entries[1..]);
+        for index in 0..6 {
+            remember(
+                &memory,
+                &[recalled_entry(&format!("短語{index}"), "カ", -2.0)],
+            );
+        }
+        let recalled = converter
+            .personal_candidates(
+                &composing,
+                &tables,
+                &[],
+                ConversionContext::default(),
+                &memory,
+                PersonalRecallOptions {
+                    maximum: 1,
+                    prediction: false,
+                },
+            )
+            .unwrap();
+        assert_eq!(recalled.len(), 1);
+        assert_eq!(recalled[0].text, "個人名");
+    }
+
+    #[test]
+    fn personal_memory_cannot_change_normal_conversion_typo_or_prediction() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let composing = composing("かな", &tables);
+        let context = ConversionContext::default();
+        let before = converter.convert(&composing, &tables, 1).unwrap();
+        let typo_before = converter
+            .convert_with_typo_correction(&composing, &tables, 1, context)
+            .unwrap();
+        let prediction_before = converter.predict(&composing, &tables, 4, context).unwrap();
+        let user_word = DictionaryEntry {
+            metadata: DictionaryMetadata::USER_DICTIONARY,
+            ..recalled_entry("手入力", "カナ", -3.0)
+        };
+        let additional_before = converter
+            .convert_with_entries(
+                &composing,
+                &tables,
+                1,
+                context,
+                std::slice::from_ref(&user_word),
+            )
+            .unwrap();
+        remember(&memory, &[recalled_entry("私有語", "カナ", -8.0)]);
+        remember(&memory, &[recalled_entry("私有予測", "カナニ", -8.0)]);
+
+        assert_eq!(converter.convert(&composing, &tables, 1).unwrap(), before);
+        assert_eq!(
+            converter
+                .convert_with_typo_correction(&composing, &tables, 1, context)
+                .unwrap(),
+            typo_before
+        );
+        assert_eq!(
+            converter.predict(&composing, &tables, 4, context).unwrap(),
+            prediction_before
+        );
+        assert_eq!(
+            converter
+                .convert_with_entries(&composing, &tables, 1, context, &[user_word])
+                .unwrap(),
+            additional_before
+        );
+        assert!(
+            additional_before
+                .iter()
+                .any(|candidate| candidate.text == "手入力")
+        );
+        assert!(
+            converter
+                .personal_candidates(
+                    &composing,
+                    &tables,
+                    &[],
+                    context,
+                    &memory,
+                    PersonalRecallOptions {
+                        maximum: 4,
+                        prediction: false
+                    }
+                )
+                .unwrap()
+                .iter()
+                .any(|candidate| candidate.text == "私有語")
+        );
+    }
+
+    #[test]
+    fn personal_typo_recall_keeps_real_path_costs_without_mutating_memory() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let context = ConversionContext::default();
+        let composing = composing("かくせい", &tables);
+        let entries = vec![
+            DictionaryEntry {
+                adjustment: -0.5,
+                ..recalled_entry("個人", "ガク", -30.0)
+            },
+            recalled_entry("氏名", "セイ", -4.0),
+        ];
+        let before = converter
+            .convert_with_typo_correction(&composing, &tables, 1, context)
+            .unwrap();
+        remember(&memory, &entries);
+        let candidate = converter
+            .personal_typo_candidates(&composing, &tables, context, &memory, 4)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.text == "個人氏名")
+            .unwrap();
+        assert_eq!(candidate.entries.len(), 2);
+        assert_eq!(candidate.entries[0].base_value, -30.0);
+        assert_eq!(candidate.entries[1].base_value, -4.0);
+        assert_eq!(candidate.entries[0].adjustment, -4.0);
+        assert_eq!(candidate.entries[1].adjustment, -3.5);
+        assert_eq!(candidate.value, -34.0 - 7.5 - 0.5 - 0.75);
+        assert_eq!(
+            converter.candidate_path_value(&candidate, context).unwrap(),
+            candidate.value
+        );
+        assert!(candidate.is_typo_correction);
+        assert!(candidate.first_clause_candidate().is_none());
+        assert_eq!(candidate.composing_count, ComposingCount::Input(4));
+        let mut remaining = composing.clone();
+        remaining.complete_prefix(candidate.composing_count, &tables);
+        assert!(remaining.is_empty());
+        let stored = memory
+            .paths_from_start("ガクセイ", 128)
+            .unwrap()
+            .into_iter()
+            .find(|path| path.len() == 2)
+            .unwrap();
+        assert_eq!(stored[0].adjustment, -0.5);
+        assert_eq!(stored[1].adjustment, 0.0);
+        assert_eq!(
+            converter
+                .convert_with_typo_correction(&composing, &tables, 1, context)
+                .unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn personal_typo_recall_consumes_original_roman_input_and_requires_a_whole_reading() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let context = ConversionContext::default();
+        remember(&memory, &[recalled_entry("記名", "キ", -20.0)]);
+        let mut composing = ComposingText::new();
+        composing.insert_str("li", InputStyle::RomanToKana, &tables);
+        assert_eq!(composing.surface(), "ぃ");
+        let candidates = converter
+            .personal_typo_candidates(&composing, &tables, context, &memory, 1)
+            .unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].text, "記名");
+        assert_eq!(candidates[0].value, -22.25);
+        assert_eq!(candidates[0].ruby_count, 1);
+        assert_eq!(candidates[0].composing_count, ComposingCount::Input(2));
+        let mut remaining = composing.clone();
+        remaining.complete_prefix(candidates[0].composing_count.clone(), &tables);
+        assert!(remaining.is_empty());
+        assert!(remaining.input().is_empty());
+        assert!(
+            converter
+                .personal_typo_candidates(&composing, &tables, context, &memory, 0)
+                .unwrap()
+                .is_empty()
+        );
+        composing.insert_str("a", InputStyle::RomanToKana, &tables);
+        assert!(
+            converter
+                .personal_typo_candidates(&composing, &tables, context, &memory, 4)
+                .unwrap()
+                .is_empty()
+        );
+        let long_input = self::composing(&"か".repeat(21), &tables);
+        assert!(
+            converter
+                .personal_typo_candidates(&long_input, &tables, context, &memory, 4)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn personal_prediction_consumes_only_the_observed_roman_surface() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        remember(
+            &memory,
+            &[
+                recalled_entry("東京", "トウキョウ", -4.0),
+                recalled_entry("駅", "エキ", -3.0),
+            ],
+        );
+        let mut composing = ComposingText::new();
+        composing.insert_str("tou", InputStyle::RomanToKana, &tables);
+        assert_eq!(composing.surface(), "とう");
+        let candidates = converter
+            .personal_candidates(
+                &composing,
+                &tables,
+                &[],
+                ConversionContext::default(),
+                &memory,
+                PersonalRecallOptions {
+                    maximum: 4,
+                    prediction: true,
+                },
+            )
+            .unwrap();
+        let candidate = candidates
+            .iter()
+            .find(|candidate| candidate.text == "東京駅")
+            .unwrap();
+        assert_eq!(candidate.ruby_count, 7);
+        assert_eq!(candidate.composing_count, ComposingCount::Surface(2));
+        assert_eq!(candidate.entries.len(), 2);
+        let first = candidate.first_clause_candidate().unwrap();
+        assert_eq!(first.text, "東京");
+        assert_eq!(first.composing_count, ComposingCount::Surface(2));
+        for count in [candidate.composing_count.clone(), first.composing_count] {
+            let mut remaining = composing.clone();
+            remaining.complete_prefix(count, &tables);
+            assert!(remaining.is_empty());
+            assert!(remaining.input().is_empty());
+        }
+    }
+
+    #[test]
+    fn personal_occurrences_rebuild_memory_free_prefix_and_suffix_ranges() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let entries = vec![
+            recalled_entry("個人", "カナ", -6.0),
+            recalled_entry("句", "ニ", -4.0),
+        ];
+        remember(&memory, &entries);
+        let composing = composing("あかなにい", &tables);
+        let context = ConversionContext::default();
+        let ordinary = converter
+            .convert_with_entries(&composing, &tables, 8, context, &entries)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.text == "あ個人句い")
+            .unwrap();
+        let recalled = converter
+            .personal_candidates(
+                &composing,
+                &tables,
+                &[],
+                context,
+                &memory,
+                PersonalRecallOptions {
+                    maximum: 4,
+                    prediction: false,
+                },
+            )
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.text == "あ個人句い")
+            .unwrap();
+        assert_eq!(recalled.value, ordinary.value);
+        assert_eq!(recalled.composing_count, ComposingCount::Surface(5));
+        assert_eq!(recalled.entries.len(), 4);
+        assert_eq!(recalled.entries[1].ruby, "カナ");
+        assert_eq!(
+            recalled.first_clause_candidate().unwrap().composing_count,
+            ComposingCount::Surface(1)
+        );
+    }
+
+    #[test]
+    fn personal_surroundings_preserve_explicit_dictionary_prefix_and_suffix() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let context = ConversionContext::default();
+        let composing = composing("あかなにい", &tables);
+        let additional = vec![
+            DictionaryEntry {
+                metadata: DictionaryMetadata::USER_DICTIONARY,
+                ..recalled_entry("明示前", "ア", -1.0)
+            },
+            DictionaryEntry {
+                metadata: DictionaryMetadata::USER_DICTIONARY,
+                ..recalled_entry("明示後", "イ", -1.0)
+            },
+        ];
+        let original = vec![
+            recalled_entry("個人", "カナ", -30.0),
+            recalled_entry("句", "ニ", -4.0),
+        ];
+        assert!(should_remove(&original[0]));
+        let baseline = converter
+            .convert_with_entries(&composing, &tables, 1, context, &additional)
+            .unwrap();
+        remember(&memory, &original);
+        let recalled = converter
+            .personal_candidates(
+                &composing,
+                &tables,
+                &additional,
+                context,
+                &memory,
+                PersonalRecallOptions {
+                    maximum: 4,
+                    prediction: false,
+                },
+            )
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.text == "明示前個人句明示後")
+            .unwrap();
+        assert_eq!(recalled.entries.len(), 4);
+        assert_eq!(recalled.entries[0], additional[0]);
+        assert_eq!(recalled.entries[3], additional[1]);
+        assert_eq!(recalled.entries[1].base_value, -30.0);
+        assert_eq!(recalled.entries[1].adjustment, 0.0);
+        assert_eq!(recalled.entries[2].base_value, -4.0);
+        assert_eq!(recalled.value, -38.75);
+        assert_eq!(
+            recalled.value,
+            converter.candidate_path_value(&recalled, context).unwrap()
+        );
+        assert_eq!(recalled.composing_count, ComposingCount::Surface(5));
+        let first = recalled.first_clause_candidate().unwrap();
+        assert_eq!(first.text, "明示前");
+        assert_eq!(first.composing_count, ComposingCount::Surface(1));
+        assert!(
+            converter
+                .personal_candidates(
+                    &composing,
+                    &tables,
+                    &[],
+                    context,
+                    &memory,
+                    PersonalRecallOptions {
+                        maximum: 4,
+                        prediction: false
+                    }
+                )
+                .unwrap()
+                .iter()
+                .all(|candidate| candidate.text != recalled.text)
+        );
+        assert_eq!(
+            converter
+                .convert_with_entries(&composing, &tables, 1, context, &additional)
+                .unwrap(),
+            baseline
+        );
+    }
+
+    #[test]
+    fn personal_recall_skips_persisted_invalid_boundary_ids() {
+        let fixture = PersonalFixture::new();
+        let dictionary = fixture.dictionary();
+        let converter = NormalConverter::new(&dictionary);
+        let memory = fixture.memory(&dictionary);
+        let tables = InputTableRegistry::new();
+        let composing = composing("かな", &tables);
+        remember(&memory, &[recalled_entry("有効", "カナ", -3.0)]);
+        remember(
+            &memory,
+            &[DictionaryEntry {
+                left_id: u16::MAX,
+                ..recalled_entry("破損", "カナ", -3.0)
+            }],
+        );
+        memory.commit().unwrap();
+        let memory = fixture.memory(&dictionary);
+        let before = converter.convert(&composing, &tables, 1).unwrap();
+        let candidates = converter
+            .personal_candidates(
+                &composing,
+                &tables,
+                &[],
+                ConversionContext::default(),
+                &memory,
+                PersonalRecallOptions {
+                    maximum: 4,
+                    prediction: false,
+                },
+            )
+            .unwrap();
+        assert!(candidates.iter().any(|candidate| candidate.text == "有効"));
+        assert!(candidates.iter().all(|candidate| candidate.text != "破損"));
+        assert_eq!(converter.convert(&composing, &tables, 1).unwrap(), before);
+    }
+
+    #[test]
+    fn personal_dedup_retains_different_consumed_spans_and_rejects_invalid_boundaries() {
+        let candidate =
+            Candidate::single("同じ".into(), -2.0, ComposingCount::Surface(1), 501, vec![]);
+        let mut different_span = candidate.clone();
+        different_span.composing_count = ComposingCount::Surface(2);
+        let mut candidates = Vec::new();
+        push_personal_candidate(&mut candidates, candidate.clone(), 4);
+        push_personal_candidate(&mut candidates, different_span, 4);
+        push_personal_candidate(&mut candidates, candidate, 4);
+        assert_eq!(candidates.len(), 2);
+        for invalid in [
+            DictionaryEntry {
+                left_id: 1319,
+                ..entry("不正", -3.0)
+            },
+            DictionaryEntry {
+                right_id: u16::MAX,
+                ..entry("不正", -3.0)
+            },
+            DictionaryEntry {
+                meaning_id: 502,
+                ..entry("不正", -3.0)
+            },
+            DictionaryEntry {
+                base_value: f32::NAN,
+                ..entry("不正", -3.0)
+            },
+        ] {
+            assert_eq!(personal_path_length(&[invalid]), None);
         }
     }
 

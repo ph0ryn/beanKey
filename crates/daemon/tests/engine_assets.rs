@@ -1198,15 +1198,43 @@ fn does_not_persist_control_key_text_in_learning_memory() {
         let state = TempDir::new().unwrap();
         let mut engine = Engine::open_with_learning(dictionary_root(), state.path()).unwrap();
         start_roman_session(&mut engine, 1);
-        response(engine.handle(envelope(2, Payload::KeyEvent(key_event(key_sym, text)))));
-        response(engine.handle(envelope(3, Payload::KeyEvent(key_event(0xff0d, "")))));
+        let control =
+            response(engine.handle(envelope(2, Payload::KeyEvent(key_event(key_sym, text)))));
+        let enter = response(engine.handle(envelope(3, Payload::KeyEvent(key_event(0xff0d, "")))));
+        assert!(control.commit.is_empty() && control.preedit.is_empty());
+        assert!(enter.commit.is_empty() && enter.preedit.is_empty());
         response(engine.handle(envelope(4, Payload::EndSession(protocol::EndSession {}))));
+        drop(engine);
 
+        // Scalar diagnostics are expected, but no learning artifact may be created.
+        let paths: Vec<_> = std::fs::read_dir(state.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        let metrics = state.path().join("metrics-v1");
         assert_eq!(
-            std::fs::read_dir(state.path()).unwrap().count(),
-            0,
+            paths.as_slice(),
+            std::slice::from_ref(&metrics),
             "{name} created persistent learning state for control text"
         );
+        let summary =
+            serde_json::to_value(beankey_daemon::summarize_metrics(state.path()).unwrap()).unwrap();
+        assert_eq!(summary["commits"]["total"], 0);
+        assert_eq!(summary["coverage"]["corrupt_lines"], 0);
+        let encoded_control = serde_json::to_string(text).unwrap();
+        for path in std::fs::read_dir(metrics).unwrap() {
+            let path = path.unwrap().path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "jsonl")
+            {
+                let records = std::fs::read_to_string(path).unwrap();
+                assert!(
+                    !records.contains(&encoded_control),
+                    "{name} leaked control text into diagnostic records"
+                );
+            }
+        }
     }
 }
 

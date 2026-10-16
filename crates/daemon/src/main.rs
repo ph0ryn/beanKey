@@ -2,7 +2,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use beankey_daemon::{DaemonConfig, DaemonServer, Engine, ServerError};
+use beankey_daemon::{DaemonConfig, DaemonServer, Engine, ServerError, summarize_metrics};
 
 fn main() {
     if let Err(error) = run() {
@@ -12,7 +12,37 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let arguments = parse_arguments(std::env::args_os().skip(1))?;
+    let mut arguments = std::env::args_os().skip(1).peekable();
+    if arguments
+        .peek()
+        .is_some_and(|argument| argument == "--help")
+    {
+        arguments.next();
+        if arguments.next().is_some() {
+            return Err(USAGE.into());
+        }
+        println!(
+            "{USAGE}\n\nMetrics contain counts, modes and timing, not input or candidate text.\nSaved history is never deleted automatically; disk usage grows.\nThe summary reads all saved segments without starting or stopping the daemon.\nAgreement with a chosen candidate is a proxy, not objective accuracy or OS insertion acknowledgement."
+        );
+        return Ok(());
+    }
+    if arguments
+        .peek()
+        .is_some_and(|argument| argument == "--metrics-summary")
+    {
+        arguments.next();
+        let directory = required_absolute_directory(&mut arguments, "--learning-directory")?;
+        if arguments.next().is_some() {
+            return Err(format!("unexpected summary arguments; {USAGE}").into());
+        }
+        let summary = summarize_metrics(directory)?;
+        use std::io::Write;
+        let mut stdout = std::io::stdout().lock();
+        serde_json::to_writer_pretty(&mut stdout, &summary)?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
+    let arguments = parse_arguments(arguments)?;
     let config = DaemonConfig::load(arguments.config_path)?;
     let reservation = match DaemonServer::reserve(arguments.runtime_root, &config.runtime_socket) {
         Ok(reservation) => reservation,
@@ -31,8 +61,7 @@ struct DaemonArguments {
     learning_directory: PathBuf,
 }
 
-const USAGE: &str =
-    "usage: beankey-daemon --config PATH --runtime-root PATH --learning-directory PATH";
+const USAGE: &str = "usage: beankey-daemon --config PATH --runtime-root PATH --learning-directory PATH\n       beankey-daemon --metrics-summary --learning-directory PATH\n       beankey-daemon --help";
 
 fn parse_arguments(
     arguments: impl IntoIterator<Item = OsString>,

@@ -72,7 +72,7 @@ impl ConversionSession {
         Ok(candidates)
     }
 
-    fn learning_scope(
+    pub(super) fn learning_scope(
         &self,
         candidate: &Candidate,
         tables: &InputTableRegistry,

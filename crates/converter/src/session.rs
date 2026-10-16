@@ -1,4 +1,6 @@
+mod measurement;
 mod personalization;
+pub use measurement::{MeasurementPresentation, MeasurementStatus, SelectionMeasurement};
 pub use personalization::PersonalizationComparison;
 use personalization::append_unique;
 

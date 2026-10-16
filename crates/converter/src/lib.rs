@@ -38,8 +38,9 @@ pub use post_prediction::{
     PostCompositionPrediction, PostCompositionPredictor, PostPredictionKind,
 };
 pub use session::{
-    ConversionResult, ConversionSession, PersonalizationComparison, PredictionMode, RequestOptions,
-    SelectionError, TextTransform, TypoCorrectionMode, ZenzPredictionError,
+    ConversionResult, ConversionSession, MeasurementPresentation, MeasurementStatus,
+    PersonalizationComparison, PredictionMode, RequestOptions, SelectionError, SelectionMeasurement,
+    TextTransform, TypoCorrectionMode, ZenzPredictionError,
 };
 pub use special::{special_candidates, typographical_candidates};
 pub use template::expand_templates;

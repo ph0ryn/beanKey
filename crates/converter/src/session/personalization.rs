@@ -407,6 +407,11 @@ pub(super) fn consumed_surface_count(
     candidate: &Candidate,
     tables: &InputTableRegistry,
 ) -> usize {
+    if let ComposingCount::Surface(count) = candidate.composing_count {
+        // Surface completion drains exactly this many graphemes. Observing its
+        // span does not need to clone the Roman history or resolve input boundaries.
+        return count.min(composing.surface_graphemes().len());
+    }
     let mut remaining = composing.clone();
     remaining.complete_prefix(candidate.composing_count.clone(), tables);
     composing

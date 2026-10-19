@@ -538,6 +538,89 @@ fn a_segment_inside_an_accepted_prediction_cannot_reuse_unfixed_partial_evidence
     );
 }
 
+#[test]
+#[ignore = "performance probe; run with --release --ignored --nocapture"]
+fn repeated_recall_surroundings() {
+    let dictionary = DictionaryStore::open(
+        std::env::var_os("BEANKEY_TEST_DICTIONARY").expect("Nix test dictionary"),
+    )
+    .unwrap();
+    let converter = NormalConverter::new(&dictionary);
+    let tables = InputTableRegistry::new();
+    let directory = TemporaryDirectory::new();
+    let memory = LearningMemory::open(
+        &directory.0,
+        LearningMode::InputAndOutput,
+        128,
+        dictionary.character_ids().clone(),
+    )
+    .unwrap();
+    let mut training = ConversionSession::new();
+    training.insert_str("きょう", InputStyle::Direct, &tables);
+    let original = training
+        .request_candidates(&converter, &tables, 10)
+        .unwrap()
+        .iter()
+        .find(|candidate| candidate.text == "今日" && candidate.entries.len() == 1)
+        .expect("pinned dictionary supplies 今日")
+        .clone();
+    for text in ["試験甲", "試験乙", "試験丙", "試験丁"] {
+        let mut candidate = original.clone();
+        candidate.text = text.into();
+        candidate.entries[0].word = text.into();
+        memory.learn(&candidate).unwrap();
+    }
+    memory.commit().unwrap();
+    let mut session = ConversionSession::new();
+    session.set_learning_memory(memory).unwrap();
+    for (style, reading) in [
+        (InputStyle::Direct, "きょうはいいてんきです"),
+        (
+            InputStyle::Direct,
+            "きょうはいいてんきなのでがっこうまであるいていきます",
+        ),
+        (InputStyle::RomanToKana, "kyouhaiitenkidesu"),
+        (
+            InputStyle::RomanToKana,
+            "kyouhaiitenkinanodegakkoumadearuiteikimasu",
+        ),
+        (
+            InputStyle::RomanToKana,
+            "watashihakyouhaiitenkinanodegakkoumadearuiteikimasu",
+        ),
+    ] {
+        session.reset();
+        session.insert_str(reading, style.clone(), &tables);
+        let options = RequestOptions {
+            japanese_prediction: PredictionMode::Disabled,
+            foreign_prediction: PredictionMode::Disabled,
+            ..Default::default()
+        };
+        let expected = session
+            .request(&converter, &tables, options.clone())
+            .unwrap();
+        let started = std::time::Instant::now();
+        let mut rerank_us = 0;
+        for _ in 0..20 {
+            let actual = session
+                .request(&converter, &tables, options.clone())
+                .unwrap();
+            assert_eq!(actual, expected, "warm requests preserve all output fields");
+            let mut candidates = session.desktop_candidates(&actual, &tables);
+            let rerank_started = std::time::Instant::now();
+            session.personalize_candidates(&converter, &tables, &mut candidates, "", None);
+            rerank_us += rerank_started.elapsed().as_micros();
+        }
+        eprintln!(
+            "recall_probe style={style:?} chars={} candidates={} total_us={} rerank_us={}",
+            session.composing().surface_graphemes().len(),
+            expected.main_results.len(),
+            started.elapsed().as_micros() / 20,
+            rerank_us / 20,
+        );
+    }
+}
+
 struct TemporaryDirectory(PathBuf);
 impl TemporaryDirectory {
     fn new() -> Self {

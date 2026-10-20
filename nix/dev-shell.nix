@@ -28,7 +28,6 @@ in
   shell = pkgs.mkShell {
     inherit packages;
     buildInputs = [
-      pkgs.hunspell
       pkgs.llama-cpp
       pkgs.marisa
     ]

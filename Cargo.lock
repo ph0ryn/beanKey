@@ -64,6 +64,8 @@ dependencies = [
  "icu_locale",
  "pkg-config",
  "rand",
+ "spellbook",
+ "tempfile",
  "tokenizers",
  "unicode-segmentation",
  "writeable",
@@ -1162,6 +1164,16 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+
+[[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash",
+ "hashbrown 0.17.1",
+]
 
 [[package]]
 name = "spm_precompiled"

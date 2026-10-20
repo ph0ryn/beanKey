@@ -1,9 +1,10 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
-use std::ffi::{CStr, CString, c_char};
 use std::fmt;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::ptr::NonNull;
 use std::sync::mpsc;
 
 use encoding_rs::Encoding;
@@ -31,25 +32,34 @@ pub trait ForeignCompletionProvider: Send + Sync {
 
 #[derive(Debug)]
 pub enum HunspellError {
-    InvalidPath(PathBuf),
-    CreateFailed { affix: PathBuf, dictionary: PathBuf },
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
+    MissingEncoding(PathBuf),
     UnsupportedEncoding(String),
+    InvalidEncoding {
+        path: PathBuf,
+        encoding: &'static str,
+    },
+    InvalidDictionary {
+        affix: PathBuf,
+        dictionary: PathBuf,
+        message: String,
+    },
     WorkerStopped,
 }
 
 impl fmt::Display for HunspellError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidPath(path) => write!(
+            Self::Io { path, source } => {
+                write!(formatter, "failed to read {}: {source}", path.display())
+            }
+            Self::MissingEncoding(path) => write!(
                 formatter,
-                "Hunspell path is not valid UTF-8 or contains a null byte: {}",
+                "Hunspell affix file {} has no SET encoding directive",
                 path.display()
-            ),
-            Self::CreateFailed { affix, dictionary } => write!(
-                formatter,
-                "failed to load Hunspell dictionary {} with {}",
-                dictionary.display(),
-                affix.display()
             ),
             Self::UnsupportedEncoding(encoding) => {
                 write!(
@@ -57,12 +67,34 @@ impl fmt::Display for HunspellError {
                     "unsupported Hunspell dictionary encoding {encoding}"
                 )
             }
+            Self::InvalidEncoding { path, encoding } => write!(
+                formatter,
+                "Hunspell dictionary file {} contains invalid {encoding} data",
+                path.display()
+            ),
+            Self::InvalidDictionary {
+                affix,
+                dictionary,
+                message,
+            } => write!(
+                formatter,
+                "failed to parse Hunspell dictionary {} with {}: {message}",
+                dictionary.display(),
+                affix.display()
+            ),
             Self::WorkerStopped => write!(formatter, "Hunspell completion worker stopped"),
         }
     }
 }
 
-impl Error for HunspellError {}
+impl Error for HunspellError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Io { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 pub struct HunspellCompleter {
     requests: mpsc::Sender<CompletionRequest>,
@@ -101,7 +133,7 @@ impl HunspellCompleter {
                         ForeignLanguage::EnglishUs => &english_us,
                         ForeignLanguage::Greek => &greek,
                     };
-                    let suggestions = dictionary.suggestions(&request.input).unwrap_or_default();
+                    let suggestions = dictionary.suggestions(&request.input);
                     let _ = request.response.send(suggestions);
                 }
             })
@@ -142,101 +174,87 @@ struct CompletionRequest {
     response: mpsc::SyncSender<Vec<String>>,
 }
 
-struct HunspellDictionary {
-    handle: HunspellHandle,
-    encoding: &'static Encoding,
-}
+struct HunspellDictionary(spellbook::Dictionary);
 
 impl HunspellDictionary {
     fn open(base: impl AsRef<Path>) -> Result<Self, HunspellError> {
         let affix = base.as_ref().with_extension("aff");
         let dictionary = base.as_ref().with_extension("dic");
-        let affix_c = path_to_c_string(&affix)?;
-        let dictionary_c = path_to_c_string(&dictionary)?;
-        // SAFETY: Both strings remain alive for the call and Hunspell copies or reads the files
-        // during construction. A null return is handled below.
-        let handle = unsafe { Hunspell_create(affix_c.as_ptr(), dictionary_c.as_ptr()) };
-        let handle =
-            NonNull::new(handle).ok_or(HunspellError::CreateFailed { affix, dictionary })?;
-        let handle = HunspellHandle(handle);
-        // SAFETY: The handle is valid and Hunspell owns the returned null-terminated string for
-        // the lifetime of the handle.
-        let encoding = unsafe { Hunspell_get_dic_encoding(handle.0.as_ptr()) };
-        let encoding = if encoding.is_null() {
-            return Err(HunspellError::UnsupportedEncoding("<null>".into()));
-        } else {
-            // SAFETY: Hunspell_get_dic_encoding returned a non-null null-terminated string.
-            unsafe { CStr::from_ptr(encoding) }.to_string_lossy()
+        let affix_bytes = read_dictionary_file(&affix)?;
+        let label = affix_bytes
+            .split(|byte| *byte == b'\n')
+            .find_map(|line| {
+                let mut fields = line
+                    .split(u8::is_ascii_whitespace)
+                    .filter(|field| !field.is_empty());
+                (fields.next()? == b"SET").then(|| fields.next()).flatten()
+            })
+            .ok_or_else(|| HunspellError::MissingEncoding(affix.clone()))?;
+        let encoding = Encoding::for_label(label).ok_or_else(|| {
+            HunspellError::UnsupportedEncoding(String::from_utf8_lossy(label).into_owned())
+        })?;
+        let affix_text = decode_dictionary_file(&affix, &affix_bytes, encoding)?;
+        let dictionary_bytes = read_dictionary_file(&dictionary)?;
+        let dictionary_text = decode_dictionary_file(&dictionary, &dictionary_bytes, encoding)?;
+        let invalid_dictionary = |message: String| HunspellError::InvalidDictionary {
+            affix: affix.clone(),
+            dictionary: dictionary.clone(),
+            message,
         };
-        let encoding = Encoding::for_label(encoding.as_bytes())
-            .ok_or_else(|| HunspellError::UnsupportedEncoding(encoding.into_owned()))?;
-        Ok(Self { handle, encoding })
+        let mut lines = dictionary_text.lines();
+        if lines
+            .next()
+            .and_then(|line| line.trim().parse::<usize>().ok())
+            .is_none()
+        {
+            return Err(invalid_dictionary(
+                "dictionary has no entry count header".into(),
+            ));
+        }
+        // Spellbook treats the entry count as a capacity hint and accepts empty dictionaries.
+        // An empty or header-only resource is not a usable completion dictionary.
+        if !lines.any(|line| {
+            let line = line.trim();
+            !line.is_empty() && !line.starts_with('#')
+        }) {
+            return Err(invalid_dictionary("dictionary has no entries".into()));
+        }
+        let dictionary = spellbook::Dictionary::new(&affix_text, &dictionary_text)
+            .map_err(|error| invalid_dictionary(error.to_string()))?;
+        Ok(Self(dictionary))
     }
 
-    fn suggestions(&self, word: &str) -> Result<Vec<String>, ()> {
-        let (word, _, had_encoding_errors) = self.encoding.encode(word);
-        if had_encoding_errors {
-            return Err(());
-        }
-        let word = CString::new(word.as_ref()).map_err(|_| ())?;
-        let mut list: *mut *mut c_char = std::ptr::null_mut();
-        // SAFETY: The valid handle remains on its owning worker thread and Hunspell initializes
-        // list according to its C API contract.
-        let raw_count =
-            unsafe { Hunspell_suggest(self.handle.0.as_ptr(), &mut list, word.as_ptr()) };
-        if raw_count <= 0 || list.is_null() {
-            return Ok(Vec::new());
-        }
-        let count = usize::try_from(raw_count).map_err(|_| ())?;
-        // SAFETY: Hunspell returned count initialized pointers and keeps them valid until
-        // Hunspell_free_list is called below.
-        let pointers = unsafe { std::slice::from_raw_parts(list, count) };
-        let mut output = Vec::with_capacity(count);
-        for &pointer in pointers {
-            if pointer.is_null() {
-                continue;
-            }
-            // SAFETY: Each non-null item returned by Hunspell is a null-terminated string.
-            let value = unsafe { CStr::from_ptr(pointer) }.to_bytes();
-            let (value, had_decoding_errors) = self.encoding.decode_without_bom_handling(value);
-            if !had_decoding_errors {
-                output.push(value.into_owned());
-            }
-        }
-        // SAFETY: list and count are the unmodified values returned by Hunspell_suggest for
-        // this handle, and the Rust strings above own their contents.
-        unsafe {
-            Hunspell_free_list(self.handle.0.as_ptr(), &mut list, raw_count);
-        }
-        Ok(output)
+    fn suggestions(&self, word: &str) -> Vec<String> {
+        let mut suggestions = Vec::new();
+        // N-gram suggestions scan the dictionary and are too costly for interactive completion.
+        self.0
+            .suggester()
+            .with_ngram_suggestions(false)
+            .suggest(word, &mut suggestions);
+        suggestions
     }
 }
 
-struct HunspellHandle(NonNull<Hunhandle>);
+fn read_dictionary_file(path: &Path) -> Result<Vec<u8>, HunspellError> {
+    fs::read(path).map_err(|source| HunspellError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
 
-impl Drop for HunspellHandle {
-    fn drop(&mut self) {
-        // SAFETY: The pointer was returned by Hunspell_create and is destroyed exactly once.
-        unsafe { Hunspell_destroy(self.0.as_ptr()) };
+fn decode_dictionary_file<'a>(
+    path: &Path,
+    bytes: &'a [u8],
+    encoding: &'static Encoding,
+) -> Result<Cow<'a, str>, HunspellError> {
+    let (text, had_errors) = encoding.decode_without_bom_handling(bytes);
+    if had_errors {
+        return Err(HunspellError::InvalidEncoding {
+            path: path.to_path_buf(),
+            encoding: encoding.name(),
+        });
     }
-}
-
-#[repr(C)]
-struct Hunhandle {
-    _private: [u8; 0],
-}
-
-#[link(name = "hunspell-1.7")]
-unsafe extern "C" {
-    fn Hunspell_create(affix: *const c_char, dictionary: *const c_char) -> *mut Hunhandle;
-    fn Hunspell_destroy(handle: *mut Hunhandle);
-    fn Hunspell_get_dic_encoding(handle: *mut Hunhandle) -> *mut c_char;
-    fn Hunspell_suggest(
-        handle: *mut Hunhandle,
-        suggestions: *mut *mut *mut c_char,
-        word: *const c_char,
-    ) -> i32;
-    fn Hunspell_free_list(handle: *mut Hunhandle, suggestions: *mut *mut *mut c_char, count: i32);
+    Ok(text)
 }
 
 pub(crate) fn foreign_predictions(
@@ -332,12 +350,6 @@ fn foreign_candidate(word: &str, ruby: &str, value: f32, input_count: usize) -> 
         501,
         vec![entry],
     )
-}
-
-fn path_to_c_string(path: &Path) -> Result<CString, HunspellError> {
-    path.to_str()
-        .and_then(|path| CString::new(path).ok())
-        .ok_or_else(|| HunspellError::InvalidPath(path.to_path_buf()))
 }
 
 fn starts_with_ignoring_case(candidate: &str, input: &str) -> bool {

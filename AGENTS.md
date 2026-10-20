@@ -11,7 +11,7 @@
 - Fcitx5 addon と daemon は Unix domain socket 上の Protobuf で通信する。
 - daemon の起動は fcitx5-mozc の方式に合わせ、addon が接続時に必要であれば daemon を直接起動する。systemd service や socket activation は利用しない。
 - ニューラル推論には、`flake.lock` で固定された nixpkgs の `pkgs.llama-cpp` を利用する。
-- 英語・ギリシャ語補完には、同じnixpkgsの`pkgs.hunspell`、`pkgs.hunspellDicts.en_US`および`pkgs.hunspellDicts.el_GR`を利用する。
+- 英語・ギリシャ語補完にはCargo依存の`spellbook`を利用し、対話的な補完ではn-gram候補生成を無効にする。辞書は同じnixpkgsの`pkgs.hunspellDicts.en_US`および`pkgs.hunspellDicts.el_GR`を利用し、Hunspell本体へは依存しない。
 - 原作が利用する llama.cpp `b4846` と同じ source revision は要求せず、原作との挙動差は固定した `pkgs.llama-cpp` を使って検証する。
 - 対応するGGUFモデルは、[Miwa-Keita/zenz-v3.2-small-gguf](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf) の `ggml-model-Q5_K_M.gguf` だけとする。
 - flakeはモデルrepositoryのcommit `c67e03e07d215c869f591b274c1631170d3e11fe`とhash `sha256-KcIj1MIzJ7gP0T67WrJVUFekYxeZfV2jkVhP++8NtnM=`を持つ`pkgs.fetchurl` derivationを定義する。NixOS moduleはそのNix store pathをdaemonへ渡し、モデルを差し替えるoptionは公開しない。daemon自身もモデルをダウンロードしない。
@@ -62,7 +62,7 @@
 
 - 辞書形式の読込、候補生成、経路探索、Zenzai prompt構築およびprefix制約付き再探索などの変換ロジックを所有する。
 - 予測候補の読みの補完と、受理した表記をZenzai変換の先頭へ固定する制約を所有する。固定部分はモデルの左文脈として扱い、その読みを評価対象から除く。受理した読みが変換対象の先頭に残らない場合や、確定・reset時には制約を破棄する。
-- Hunspell C APIの最小binding、辞書encoding変換、英語・ギリシャ語候補合成を所有し、C pointerをcrate外へ露出させない。handleは生成した専用worker thread内に固定する。
+- Hunspell形式辞書のencoding変換、spellbookによる候補生成、英語・ギリシャ語候補合成を所有する。辞書は専用worker thread内で読み込み、n-gram候補生成を無効にして入力prefixと一致する候補を返す。
 - Fcitx5、IPC、daemon のライフサイクル、llama.cpp の C API に依存させない。
 - OS 固有処理を持ち込まない。
 
@@ -124,8 +124,8 @@
 - 今後追加する利用者向けoptionも`programs.beanKey`配下に置く。NixOS moduleとLinux/macOS用Home Manager moduleは、option定義と内部TOML生成を共有する。LinuxのFcitx5導入とテーマ設定も両moduleで共有する。
 - モデルはflakeが固定した`pkgs.fetchurl { url; hash; }` derivationとしてNixOS moduleから参照し、利用者向けoptionにしない。
 - NixOS moduleはFcitx5 addon、daemon、辞書および固定モデルを導入し、`programs.beanKey`から内部用のdaemon設定を生成する。
-- NixOS moduleはHunspellと固定nixpkgsの英語・ギリシャ語辞書を導入し、そのNix store pathを内部用daemon設定へ書く。辞書pathを利用者向けoptionにしない。
-- 直接packageする辞書、モデル、tokenizerおよび絵文字には、資産ごとのlicense本文、取得元、固定revision、attributionおよび変更有無を添付する。通常依存の`pkgs.llama-cpp`、`pkgs.hunspell`および`pkgs.hunspellDicts`をこの資産台帳へ重複登録しない。
+- NixOS moduleは固定nixpkgsのHunspell形式の英語・ギリシャ語辞書を導入し、そのNix store pathを内部用daemon設定へ書く。辞書pathを利用者向けoptionにしない。
+- 直接packageする辞書、モデル、tokenizerおよび絵文字には、資産ごとのlicense本文、取得元、固定revision、attributionおよび変更有無を添付する。通常依存の`pkgs.llama-cpp`および`pkgs.hunspellDicts`をこの資産台帳へ重複登録しない。
 - flakeは`packages.<system>.daemon`、`packages.<system>.model`、Linux向け`fcitx5-addon`、Darwin向け`macos-input-method`、`nixosModules.default`、Linux/macOS共通の`homeModules.default`を公開する。
 - NixOS moduleは内部設定をTOMLとして生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させる。Linux用Home Manager moduleは同じ内部設定を`xdg.configHome`配下の`beankey/config.toml`へ配置する。
 - Linux addonはXDGのユーザー設定を優先し、未配置の場合だけNixOSの内部設定をdaemonの`--config`へ渡す。リンク切れやアクセスエラーではシステム設定へ切り替えない。利用者設定をアドオンへ埋め込まず、Fcitx5の管理元はNixOSまたはHome Managerの一方へ揃える。
@@ -136,7 +136,7 @@
 - `programs.beanKey`のNixOS moduleは提供するが、daemon起動専用のmoduleやsystemd unitは作成しない。
 - アプリケーションロジック、プロジェクト文書、テストデータを置かない。
 - llama.cpp は `pkgs.llama-cpp` を利用し、独立した flake input や独自 derivation を追加しない。
-- Hunspellと英語・ギリシャ語辞書はnixpkgs packageを利用し、sourceや辞書をvendorしない。
+- 英語・ギリシャ語辞書はnixpkgs packageを利用し、辞書をvendorしない。spellbookはCargoで管理し、Hunspell本体のsourceやbindingを追加しない。
 - 実装が存在しない将来用ファイルは作成しない。
 
 ## 依存方向

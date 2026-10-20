@@ -16,7 +16,7 @@ flowchart LR
     transport -->|"Unix socket / Protobuf"| daemon["Rustデーモン"]
     daemon --> converter["変換コア"]
     daemon --> llama["llama.cpp境界"]
-    converter --> dictionary["辞書・Hunspell"]
+    converter --> dictionary["日本語・外国語辞書"]
     llama --> model["固定GGUFモデル"]
     nix["NixOS module"] --> addon
     nix --> daemon
@@ -110,7 +110,7 @@ wire上のUnicode scalar offsetとCocoaのUTF-16 offsetは`macos`内で変換し
 - Rustデーモン
 - 固定辞書と絵文字辞書
 - 固定GGUFモデルとtokenizer
-- nixpkgsのllama.cpp、Hunspell、英語・ギリシャ語辞書
+- nixpkgsのllama.cppとHunspell形式の英語・ギリシャ語辞書
 
 NixOS moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させます。Linux用Home Manager moduleは同じ設定を`xdg.configHome`配下の`beankey/config.toml`へ配置します。option、検証条件、TOML生成は`nix/settings.nix`、Fcitx5の導入とテーマ設定は`nix/fcitx5.nix`を共有します。
 
@@ -138,4 +138,6 @@ Home Manager moduleは`beankey-install`をactivationで実行します。install
 
 直接配布する辞書、絵文字データ、tokenizer、GGUFモデルには、資産ごとのlicense本文、取得元、固定revision、attributionをNix packageへ同梱します。
 
-llama.cpp、Hunspell、Hunspell辞書はnixpkgsの通常依存として使用し、beanKeyの配布資産として複製しません。製品のビルドと実行にSwiftは使用しません。
+llama.cppとHunspell形式辞書はnixpkgsの通常依存として使用し、beanKeyの配布資産として複製しません。英語・ギリシャ語の候補生成にはCargo依存のspellbookを使い、Hunspell本体へはリンクしません。製品のビルドと実行にSwiftは使用しません。
+
+`converter`はaffixファイルの`SET`に従って両辞書ファイルをUTF-8へdecodeし、専用workerでspellbookの候補を生成して入力prefixと一致するものを返します。辞書の欠損、不正なencoding、decode失敗、parse失敗ではロードを失敗させます。対話的な補完の遅延を抑えるため、n-gram候補生成は無効にします。既存の`HunspellCompleter`名と内部設定の`hunspell`は辞書形式を表し、設定pathは変更しません。

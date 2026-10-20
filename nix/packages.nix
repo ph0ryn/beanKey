@@ -42,7 +42,6 @@ let
       pkgs.protobuf
     ];
     buildInputs = [
-      pkgs.hunspell
       pkgs.llama-cpp
       pkgs.marisa
     ];

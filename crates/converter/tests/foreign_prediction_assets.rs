@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use beankey_converter::{
-    ConversionSession, DictionaryStore, HunspellCompleter, InputStyle, InputTableRegistry,
-    KeyboardLanguage, NormalConverter, PredictionMode, RequestOptions,
+    ConversionSession, DictionaryStore, ForeignCompletionProvider, ForeignLanguage,
+    HunspellCompleter, InputStyle, InputTableRegistry, KeyboardLanguage, NormalConverter,
+    PredictionMode, RequestOptions,
 };
 
 fn dictionary_root() -> PathBuf {
@@ -11,6 +12,34 @@ fn dictionary_root() -> PathBuf {
         std::env::var_os("BEANKEY_TEST_DICTIONARY")
             .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
     )
+}
+
+#[test]
+fn preserves_case_and_filters_suggestions_without_ngram_expansion() {
+    let provider = HunspellCompleter::open(
+        env!("BEANKEY_TEST_EN_US_DICTIONARY"),
+        env!("BEANKEY_TEST_EL_GR_DICTIONARY"),
+    )
+    .unwrap();
+    assert_eq!(
+        provider.completions(ForeignLanguage::EnglishUs, "Hel"),
+        ["Hell", "Held", "Helm", "Help"]
+    );
+    assert_eq!(
+        provider.completions(ForeignLanguage::EnglishUs, "comput"),
+        ["compute"]
+    );
+    let greek = provider.completions(ForeignLanguage::Greek, "Καλ");
+    assert!(greek.iter().any(|word| word == "Καλά"));
+    assert!(
+        greek
+            .iter()
+            .all(|word| word.to_lowercase().starts_with("καλ"))
+    );
+    assert_eq!(
+        provider.completions(ForeignLanguage::EnglishUs, "hel"),
+        ["hell", "held", "helm", "help"]
+    );
 }
 
 #[test]

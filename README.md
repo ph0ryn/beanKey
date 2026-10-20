@@ -36,6 +36,8 @@ beanKeyは、AzooKeyKanaKanjiConverterのかな漢字変換機能と、azooKey D
 
 macOSの候補パネルは候補・注釈・予測の表示に限定します。変換候補、内部trace、prompt、token、logitが固定原作と完全に一致するかの厳密な適合検証は、まだ行っていません。
 
+英語・ギリシャ語補完には、原作のOS標準APIの代わりに[spellbook 0.4.2](https://docs.rs/spellbook/0.4.2/spellbook/)と固定nixpkgsのHunspell形式辞書を使います。n-gramによる候補生成は無効にしており、候補の内容や順位は原作およびHunspell本体と異なる場合があります。
+
 候補の確定は、固定したazooKey Desktopと同様に両OSとも通常の文字列挿入として行います。括弧候補を確定しても、カーソルを括弧の内側へ自動では移動しません。
 
 ## 動作環境

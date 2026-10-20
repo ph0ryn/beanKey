@@ -39,11 +39,10 @@ fn required_environment(name: &str) -> String {
 }
 
 #[test]
-fn converts_with_the_fixed_zenz_model_and_llama_backend() {
+fn converts_with_the_fixed_zenz_model_and_bundled_llama() {
     let model_path = required_environment("BEANKEY_TEST_MODEL");
-    let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
-    let mut engine = Engine::open_with_llama(dictionary_root(), model_path, backend_directory)
-        .expect("the fixed model and pinned llama.cpp backend must load");
+    let mut engine = Engine::open_with_llama(dictionary_root(), model_path)
+        .expect("the fixed model and bundled llama.cpp must load");
     engine.handle(envelope(
         1,
         Payload::StartSession(protocol::StartSession {
@@ -116,11 +115,7 @@ fn converts_with_the_fixed_zenz_model_and_llama_backend() {
 fn fixed_model_capacity_falls_back_without_losing_input_and_recovers() {
     use beankey_converter::ZenzLanguageModel;
 
-    let mut model = LlamaModel::load(
-        required_environment("BEANKEY_TEST_MODEL"),
-        required_environment("BEANKEY_TEST_LLAMA_BACKEND"),
-    )
-    .unwrap();
+    let mut model = LlamaModel::load(required_environment("BEANKEY_TEST_MODEL")).unwrap();
     let text = "ゐ".repeat(beankey_llama::CONTEXT_TOKEN_LIMIT + 1);
     assert!(model.tokenize(&text, false).unwrap().len() > beankey_llama::CONTEXT_TOKEN_LIMIT);
     let mut engine = Engine::open_with_zenz_model(dictionary_root(), Box::new(model)).unwrap();
@@ -183,9 +178,8 @@ fn fixed_model_capacity_falls_back_without_losing_input_and_recovers() {
 #[test]
 fn fixed_llama_tokenizer_matches_the_upstream_tokenizer_asset() {
     let model_path = required_environment("BEANKEY_TEST_MODEL");
-    let backend_directory = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
     let tokenizer_path = required_environment("BEANKEY_TEST_ZENZ_TOKENIZER");
-    let context = LlamaContext::load(model_path, backend_directory).unwrap();
+    let context = LlamaContext::load(model_path).unwrap();
     let tokenizer = ZenzTokenizer::open(tokenizer_path).unwrap();
 
     for input in [
@@ -206,9 +200,8 @@ fn fixed_model_engine() -> Engine {
     Engine::open_with_llama(
         dictionary_root(),
         required_environment("BEANKEY_TEST_MODEL"),
-        required_environment("BEANKEY_TEST_LLAMA_BACKEND"),
     )
-    .expect("the fixed model and pinned llama.cpp backend must load")
+    .expect("the fixed model and bundled llama.cpp must load")
 }
 
 fn start_input_session(engine: &mut Engine, style: protocol::InputStyle) {
@@ -408,11 +401,7 @@ fn recovers_the_fixed_upstream_roman_typo_regression() {
     let tables = InputTableRegistry::new();
     let mut composing = ComposingText::new();
     composing.insert_str("ojsyougozainasu", InputStyle::RomanToKana, &tables);
-    let mut model = LlamaModel::load(
-        required_environment("BEANKEY_TEST_MODEL"),
-        required_environment("BEANKEY_TEST_LLAMA_BACKEND"),
-    )
-    .unwrap();
+    let mut model = LlamaModel::load(required_environment("BEANKEY_TEST_MODEL")).unwrap();
     let candidates = experimental_typo_correction(
         &mut model,
         "やあ、",
@@ -443,7 +432,6 @@ fn recovers_the_fixed_upstream_roman_typo_regression() {
 #[test]
 fn runs_the_server_executable_with_the_fixed_nixos_assets() {
     let model = required_environment("BEANKEY_TEST_MODEL");
-    let backend = required_environment("BEANKEY_TEST_LLAMA_BACKEND");
     let english = required_environment("BEANKEY_TEST_EN_US_DICTIONARY");
     let greek = required_environment("BEANKEY_TEST_EL_GR_DICTIONARY");
     let runtime = TempDir::new().unwrap();
@@ -455,7 +443,6 @@ fn runs_the_server_executable_with_the_fixed_nixos_assets() {
 dictionary = "{}"
 model = "{model}"
 emoji_dictionary = "{}"
-llama_backend_directory = "{backend}"
 runtime_socket = "beankey/daemon.sock"
 
 [hunspell]

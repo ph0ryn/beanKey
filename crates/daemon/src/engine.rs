@@ -362,11 +362,10 @@ impl Engine {
     pub fn open_with_llama(
         dictionary_path: impl AsRef<Path>,
         model_path: impl AsRef<Path>,
-        backend_directory: impl AsRef<Path>,
     ) -> Result<Self, EngineOpenError> {
         Ok(Self::open_with_zenz_model(
             dictionary_path,
-            Box::new(LlamaModel::load(model_path, backend_directory)?),
+            Box::new(LlamaModel::load(model_path)?),
         )?)
     }
 
@@ -374,11 +373,7 @@ impl Engine {
         config: &DaemonConfig,
         learning_directory: impl AsRef<Path>,
     ) -> Result<Self, EngineOpenError> {
-        let mut engine = Self::open_with_llama(
-            &config.dictionary,
-            &config.model,
-            &config.llama_backend_directory,
-        )?;
+        let mut engine = Self::open_with_llama(&config.dictionary, &config.model)?;
         engine.load_hunspell(
             &config.hunspell.english_dictionary,
             &config.hunspell.greek_dictionary,

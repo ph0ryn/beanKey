@@ -146,7 +146,6 @@ let
     dictionary = "${packages.dictionary}/share/beankey/dictionary";
     model = "${packages.model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
     emoji_dictionary = "${packages.emoji}/share/beankey/emoji/emoji_all_E17.0.txt";
-    llama_backend_directory = "${packages.daemon.llamaCpp}/bin";
     runtime_socket = "beankey/daemon.sock";
     hunspell = {
       english_dictionary = "${packages.daemon.hunspellEnglish}/share/hunspell/en_US";

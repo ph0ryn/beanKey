@@ -156,12 +156,9 @@ pub struct LlamaModel {
 }
 
 impl LlamaModel {
-    pub fn load(
-        model_path: impl AsRef<Path>,
-        backend_directory: impl AsRef<Path>,
-    ) -> Result<Self, LlamaError> {
+    pub fn load(model_path: impl AsRef<Path>) -> Result<Self, LlamaError> {
         Ok(Self {
-            context: LlamaContext::load(model_path, backend_directory)?,
+            context: LlamaContext::load(model_path)?,
         })
     }
 }

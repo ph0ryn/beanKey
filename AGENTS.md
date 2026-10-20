@@ -10,9 +10,9 @@
 - Rust で変換本体と daemon を実装し、Fcitx5 addon は薄い C++20 の層とする。
 - Fcitx5 addon と daemon は Unix domain socket 上の Protobuf で通信する。
 - daemon の起動は fcitx5-mozc の方式に合わせ、addon が接続時に必要であれば daemon を直接起動する。systemd service や socket activation は利用しない。
-- ニューラル推論には、`flake.lock` で固定された nixpkgs の `pkgs.llama-cpp` を利用する。
+- ニューラル推論には、Cargo依存の`llama-cpp-sys-2`に同梱されたllama.cppを静的linkして利用する。crateのversionを完全固定し、`Cargo.lock`で取得元とchecksumを固定する。Nixと通常のCargo buildで同じsourceとfeature方針を使う。
 - 英語・ギリシャ語補完にはCargo依存の`spellbook`を利用し、対話的な補完ではn-gram候補生成を無効にする。辞書は同じnixpkgsの`pkgs.hunspellDicts.en_US`および`pkgs.hunspellDicts.el_GR`を利用し、Hunspell本体へは依存しない。
-- 原作が利用する llama.cpp `b4846` と同じ source revision は要求せず、原作との挙動差は固定した `pkgs.llama-cpp` を使って検証する。
+- 原作が利用する llama.cpp `b4846` と同じ source revision は要求せず、原作との挙動差は固定したCargo依存に同梱されたllama.cppを使って検証する。OSごとに別の推論source revisionを選ばない。
 - 対応するGGUFモデルは、[Miwa-Keita/zenz-v3.2-small-gguf](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf) の `ggml-model-Q5_K_M.gguf` だけとする。
 - flakeはモデルrepositoryのcommit `c67e03e07d215c869f591b274c1631170d3e11fe`とhash `sha256-KcIj1MIzJ7gP0T67WrJVUFekYxeZfV2jkVhP++8NtnM=`を持つ`pkgs.fetchurl` derivationを定義する。NixOS moduleはそのNix store pathをdaemonへ渡し、モデルを差し替えるoptionは公開しない。daemon自身もモデルをダウンロードしない。
 - 利用者向け設定はすべて`programs.beanKey`配下へ集約する。手書きのdaemon設定、設定用環境変数または別namespaceを公開しない。
@@ -68,10 +68,10 @@
 
 ### `crates/llama`
 
-- `pkgs.llama-cpp`のC APIのうち必要な部分に対するRust bindingと、モデルのロード、tokenize、decodeおよびlogit取得を所有する。
+- `llama-cpp-sys-2`の生成bindingを通じたllama.cpp C APIの利用と、モデルのロード、tokenize、decodeおよびlogit取得を所有する。
 - llama.cpp 固有の型やポインタを crate の外へ露出させない。
 - 変換アルゴリズムや IPC を実装しない。
-- llama.cpp の取得とビルドは Nix に任せ、`pkgs.llama-cpp`のshared libraryへlinkする。この crate で sourceをvendor、再包装、静的linkまたは独自ビルドしない。
+- llama.cppの取得と静的ビルドは固定した`llama-cpp-sys-2`に任せる。system libraryとの切り替え、外部backend directory、独自C shim、sourceのvendor・再包装・独自derivationは追加しない。CPU backendを維持し、macOSではMetalを有効にしてshader sourceを埋め込む。host固有ISAの暗黙有効化やOpenMP、不要なGPU toolkitへの依存を避ける。
 
 ### `crates/daemon`
 
@@ -125,7 +125,7 @@
 - モデルはflakeが固定した`pkgs.fetchurl { url; hash; }` derivationとしてNixOS moduleから参照し、利用者向けoptionにしない。
 - NixOS moduleはFcitx5 addon、daemon、辞書および固定モデルを導入し、`programs.beanKey`から内部用のdaemon設定を生成する。
 - NixOS moduleは固定nixpkgsのHunspell形式の英語・ギリシャ語辞書を導入し、そのNix store pathを内部用daemon設定へ書く。辞書pathを利用者向けoptionにしない。
-- 直接packageする辞書、モデル、tokenizerおよび絵文字には、資産ごとのlicense本文、取得元、固定revision、attributionおよび変更有無を添付する。通常依存の`pkgs.llama-cpp`および`pkgs.hunspellDicts`をこの資産台帳へ重複登録しない。
+- 直接packageする辞書、モデル、tokenizerおよび絵文字には、資産ごとのlicense本文、取得元、固定revision、attributionおよび変更有無を添付する。通常依存の`llama-cpp-sys-2`と同梱llama.cppおよび`pkgs.hunspellDicts`をこの資産台帳へ重複登録しない。静的linkしたllama.cppなどの必要なlicense本文とnoticeはdaemon packageへ添付する。
 - flakeは`packages.<system>.daemon`、`packages.<system>.model`、Linux向け`fcitx5-addon`、Darwin向け`macos-input-method`、`nixosModules.default`、Linux/macOS共通の`homeModules.default`を公開する。
 - NixOS moduleは内部設定をTOMLとして生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させる。Linux用Home Manager moduleは同じ内部設定を`xdg.configHome`配下の`beankey/config.toml`へ配置する。
 - Linux addonはXDGのユーザー設定を優先し、未配置の場合だけNixOSの内部設定をdaemonの`--config`へ渡す。リンク切れやアクセスエラーではシステム設定へ切り替えない。利用者設定をアドオンへ埋め込まず、Fcitx5の管理元はNixOSまたはHome Managerの一方へ揃える。
@@ -135,7 +135,7 @@
 - addonのshared libraryと設定は、Fcitx5の標準ディレクトリへインストールする。
 - `programs.beanKey`のNixOS moduleは提供するが、daemon起動専用のmoduleやsystemd unitは作成しない。
 - アプリケーションロジック、プロジェクト文書、テストデータを置かない。
-- llama.cpp は `pkgs.llama-cpp` を利用し、独立した flake input や独自 derivation を追加しない。
+- llama.cppはCargo依存に同梱されたsourceをビルドし、`pkgs.llama-cpp`、独立したflake inputや独自derivationを追加しない。NixはCMake、C/C++ toolchain、bindgen用libclang環境を提供する。静的llama/ggml linkはdaemon全体の完全静的linkを意味せず、C++ runtimeとOS frameworkは引き続き必要になる。
 - 英語・ギリシャ語辞書はnixpkgs packageを利用し、辞書をvendorしない。spellbookはCargoで管理し、Hunspell本体のsourceやbindingを追加しない。
 - 実装が存在しない将来用ファイルは作成しない。
 

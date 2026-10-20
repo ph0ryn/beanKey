@@ -1,0 +1,10 @@
+# Keep ordinary x86 builds portable instead of inheriting ggml's host defaults.
+# Explicit Rust target features/target-cpu are still handled by the sys crate.
+[env]
+GGML_SSE42 = "OFF"
+GGML_AVX = "OFF"
+GGML_AVX2 = "OFF"
+GGML_BMI2 = "OFF"
+GGML_FMA = "OFF"
+GGML_F16C = "OFF"
+GGML_METAL_EMBED_LIBRARY = "ON"

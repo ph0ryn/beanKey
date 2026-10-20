@@ -8,6 +8,11 @@ rust-version.workspace = true
 [lib]
 name = "beankey_llama"
 
-[build-dependencies]
-cc = "1.2.33"
-pkg-config = "0.3.32"
+[dependencies]
+llama-cpp-sys-2 = { version = "=0.1.160", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+llama-cpp-sys-2 = { version = "=0.1.160", default-features = false, features = ["metal"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

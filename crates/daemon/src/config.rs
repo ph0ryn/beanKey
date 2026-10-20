@@ -16,7 +16,6 @@ pub struct DaemonConfig {
     pub dictionary: PathBuf,
     pub model: PathBuf,
     pub emoji_dictionary: PathBuf,
-    pub llama_backend_directory: PathBuf,
     pub runtime_socket: PathBuf,
     pub hunspell: HunspellConfig,
     pub conversion: ConversionConfig,
@@ -402,7 +401,6 @@ mod tests {
 dictionary = "/nix/store/dictionary"
 model = "/nix/store/model.gguf"
 emoji_dictionary = "/nix/store/emoji_all_E17.0.txt"
-llama_backend_directory = "/nix/store/llama/bin"
 runtime_socket = "beankey/daemon.sock"
 
 [hunspell]

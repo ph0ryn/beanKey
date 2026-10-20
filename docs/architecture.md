@@ -46,7 +46,9 @@ Fcitx5プロセスへロードするのはC++アドオンだけです。macOSで
 
 `crates/converter`は変換ロジックの所有者です。Fcitx5、Protobuf、ソケット、llama.cpp C API、NixOS設定には依存しません。
 
-`crates/llama`はllama.cpp固有の型、pointer、`unsafe`処理を内部へ閉じ込めます。変換アルゴリズムとIPCは持ちません。
+`crates/llama`はllama.cpp固有の型、pointer、`unsafe`処理を内部へ閉じ込めます。固定した`llama-cpp-sys-2`の生成bindingを利用し、変換アルゴリズムとIPCは持ちません。
+
+llama.cppはsys crateに同梱されたsourceからCargoで静的ビルドします。Nixと通常のCargo buildで別revisionを選ばず、system libraryや外部backend directoryへ切り替える経路も持ちません。CPU backendを使い、macOSではMetalも有効にします。[Cargoのビルド設定](../.cargo/config.toml)はx86の暗黙の追加ISAを抑制し、Metalのshader sourceを埋め込みます。shaderは実行時にMetal frameworkでコンパイルするため、別の`.metal`・`.metallib`資産は必要ありませんが、OS frameworkとC++ runtimeへの動的依存は残ります。
 
 `crates/daemon`はconverterとllamaを組み合わせるアプリケーション境界です。辞書探索や候補順位付けを独自に実装しません。
 
@@ -110,7 +112,7 @@ wire上のUnicode scalar offsetとCocoaのUTF-16 offsetは`macos`内で変換し
 - Rustデーモン
 - 固定辞書と絵文字辞書
 - 固定GGUFモデルとtokenizer
-- nixpkgsのllama.cppとHunspell形式の英語・ギリシャ語辞書
+- nixpkgsのHunspell形式の英語・ギリシャ語辞書
 
 NixOS moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させます。Linux用Home Manager moduleは同じ設定を`xdg.configHome`配下の`beankey/config.toml`へ配置します。option、検証条件、TOML生成は`nix/settings.nix`、Fcitx5の導入とテーマ設定は`nix/fcitx5.nix`を共有します。
 
@@ -138,6 +140,6 @@ Home Manager moduleは`beankey-install`をactivationで実行します。install
 
 直接配布する辞書、絵文字データ、tokenizer、GGUFモデルには、資産ごとのlicense本文、取得元、固定revision、attributionをNix packageへ同梱します。
 
-llama.cppとHunspell形式辞書はnixpkgsの通常依存として使用し、beanKeyの配布資産として複製しません。英語・ギリシャ語の候補生成にはCargo依存のspellbookを使い、Hunspell本体へはリンクしません。製品のビルドと実行にSwiftは使用しません。
+llama.cppはCargo依存として管理し、sys crateに同梱されたsourceを独自にvendorしません。daemon packageは静的linkしたllama.cppなどの必要なlicense本文とnoticeを同梱し、辞書・モデルの資産台帳とは分離します。Hunspell形式辞書はnixpkgsの通常依存として使用し、beanKeyの配布資産として複製しません。英語・ギリシャ語の候補生成にはCargo依存のspellbookを使い、Hunspell本体へはリンクしません。製品のビルドと実行にSwiftは使用しません。
 
 `converter`はaffixファイルの`SET`に従って両辞書ファイルをUTF-8へdecodeし、専用workerでspellbookの候補を生成して入力prefixと一致するものを返します。辞書の欠損、不正なencoding、decode失敗、parse失敗ではロードを失敗させます。対話的な補完の遅延を抑えるため、n-gram候補生成は無効にします。既存の`HunspellCompleter`名と内部設定の`hunspell`は辞書形式を表し、設定pathは変更しません。

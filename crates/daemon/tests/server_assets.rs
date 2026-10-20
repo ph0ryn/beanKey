@@ -114,7 +114,6 @@ fn duplicate_launch_checks_the_lock_before_opening_resources() {
 dictionary = "{}"
 model = "/missing/beankey/model.gguf"
 emoji_dictionary = "/missing/beankey/emoji.txt"
-llama_backend_directory = "/missing/beankey/backend"
 runtime_socket = "beankey/daemon.sock"
 [hunspell]
 english_dictionary = "/missing/beankey/en_US"

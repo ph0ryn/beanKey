@@ -10,9 +10,7 @@ const PROMPTS: [&str; 4] = [
 fn fixed_context() -> LlamaContext {
     let model = std::env::var("BEANKEY_TEST_MODEL")
         .expect("BEANKEY_TEST_MODEL must be provided by the Nix test environment");
-    let backend = std::env::var("BEANKEY_TEST_LLAMA_BACKEND")
-        .expect("BEANKEY_TEST_LLAMA_BACKEND must be provided by the Nix test environment");
-    LlamaContext::load(model, backend).unwrap()
+    LlamaContext::load(model).unwrap()
 }
 
 fn top_token(values: &[f32]) -> usize {
@@ -142,6 +140,51 @@ fn oversized_requests_preserve_the_context_for_shorter_input() {
             &before,
             vocabulary_size,
         );
+    }
+}
+
+#[test]
+fn native_decode_failures_clear_only_the_failed_sequence() {
+    for (sequence, other_sequence) in [
+        (LlamaSequence::Evaluation, LlamaSequence::InputPrediction),
+        (LlamaSequence::InputPrediction, LlamaSequence::Evaluation),
+    ] {
+        let mut context = fixed_context();
+        let vocabulary_size = context.vocabulary_size();
+        let tokens = context.tokenize(PROMPTS[0], true).unwrap();
+        let other_tokens = context.tokenize(PROMPTS[1], true).unwrap();
+        let before = context.logits(&tokens, 0, sequence).unwrap();
+        let other_before = context.logits(&other_tokens, 0, other_sequence).unwrap();
+        let last_index = other_tokens.len() - 1;
+
+        for invalid_token in [-1, vocabulary_size as i32, i32::MAX] {
+            // Copy the other sequence's cached prefix, then make the native decoder reject the
+            // final token. This must clear only the failed destination, including its copied prefix.
+            let mut invalid_tokens = other_tokens.clone();
+            invalid_tokens[last_index] = invalid_token;
+            assert_eq!(
+                context.logits(&invalid_tokens, last_index, sequence),
+                Err(LlamaError::Decode(-1))
+            );
+
+            // Reuse, rather than rebuild, the surviving sequence's prefix to observe its intact KV.
+            let other_after = context
+                .logits(&other_tokens, last_index, other_sequence)
+                .unwrap();
+            assert_token_predictions(
+                "unaffected sequence after native decode rejection",
+                &other_after,
+                &other_before[last_index * vocabulary_size..],
+                vocabulary_size,
+            );
+            let recovered = context.logits(&tokens, 0, sequence).unwrap();
+            assert_token_predictions(
+                "failed sequence after native decode recovery",
+                &recovered,
+                &before,
+                vocabulary_size,
+            );
+        }
     }
 }
 

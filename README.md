@@ -45,7 +45,7 @@ macOSの候補パネルは候補・注釈・予測の表示に限定します。
 動作確認済みの環境は、`x86_64-linux`、NixOS 26.11、Fcitx5 5.1.21、X11です。
 macOSの`aarch64-darwin`では、Nix packageのビルド、Rustテスト、AppKit上のmarked text・候補選択・確定・通信失敗時の復旧、実daemonとの接続を確認しています。通常アプリでの入力操作は引き続き受入検証中です。
 Wayland、`aarch64-linux`、Intel Mac、NixOS以外のLinuxディストリビューションでは、まだ実環境で確認していません。
-推論には、`flake.lock`でnixpkgsのllama.cpp `b10273`を使用します。
+推論には、Cargo依存の[`llama-cpp-sys-2` 0.1.160](https://crates.io/crates/llama-cpp-sys-2/0.1.160)に同梱されたllama.cpp（revision [`d81235049384534c167caea52b85a694f6103d14`](https://github.com/ggml-org/llama.cpp/tree/d81235049384534c167caea52b85a694f6103d14)）を静的linkして使用します。Nixでも通常のCargo buildでも同じsourceを使い、systemのllama.cppや外部backend directoryは必要ありません。macOSではCPUに加えてMetalを使用します。これは推論部分の依存管理の変更であり、Nixを使わない製品全体の導入やWindows対応を提供するものではありません。
 
 ## インストール
 
@@ -128,6 +128,8 @@ nix run .#macos-input-method
 
 コピーしたアプリが参照するdaemonとライブラリは、`~/Library/Application Support/beanKey/package`のNix GC rootで保持します。アンインストールするときは、入力ソースからbeanKeyを外し、アプリとこの参照を削除してください。学習データは別の`learning`ディレクトリに残ります。
 
+旧版から更新する際、内部設定に廃止された`llama_backend_directory`が残っているとinstallerとdaemonはエラーにします。Home Managerでは新しいbeanKeyの設定を再適用してください。単体installerで生成した設定の場合は、`~/Library/Application Support/beanKey/config.toml`を別の場所へ退避し、元の場所にファイルやリンクがない状態でinstallerを再実行すると初期設定を生成します。既存設定をinstallerが書き換えることはありません。必要な変換・学習設定は`programs.beanKey`で管理してください。
+
 初回導入や更新後に入力ソースが反映されない場合は、ログアウトして再ログインしてください。更新済みbundleがあっても、起動中の旧プロセスは自動的に置き換わりません。
 
 daemonは入力メソッドが必要時に起動します。初回のモデル読み込みが終わるまでは、キーを溜めずにアプリへ返します。起動診断ログは`~/Library/Logs/beanKey/daemon.log`にあります。
@@ -178,6 +180,18 @@ programs.beanKey = {
 日本語の補完予測を`Tab`で受け入れると、残りの読みを補って入力を続けられます。Zenzaiによる変換では、受け入れた部分の表記を以降の候補にも維持します。
 
 操作の詳しい一覧と状態ごとの動作は、[usage.md](docs/usage.md)を参照してください。
+
+## 開発時のビルド
+
+`nix develop`はRust toolchain、CMake、C/C++ toolchain、Protobuf、bindgen用libclangとテスト資産のpathを用意します。llama.cppはCargoが固定されたsys crateからビルドし、Nix専用の別実装へ切り替えません。
+
+```sh
+nix develop --command cargo test --locked --workspace --all-targets
+```
+
+通常のCargo環境でも推論crateをビルドできますが、Rustに加えてCMake、C/C++ compiler、bindgenが読み込めるlibclangが必要です。libclangを標準の場所へ配置しない場合は、ビルド時に`LIBCLANG_PATH`で指定します。macOSではSDKとObjective-C/assembly compilerを含むCommand Line Toolsも必要です。daemonまでビルドする場合はProtobuf compilerとmarisaも必要になります。
+
+[`.cargo/config.toml`](.cargo/config.toml)はビルド時だけの設定です。x86で追加ISAが暗黙に有効になることを避け、Metalのshader sourceを実行ファイルへ埋め込みます。外部の`.metal`や`.metallib`ファイルは配布しませんが、実行時のMetal frameworkとshader compilationは引き続き必要です。静的linkはdaemon全体の完全静的linkを意味せず、C++ runtimeとOS frameworkは残ります。可搬性のための設定であり、性能改善の計測結果を示すものではありません。
 
 ## ライセンス
 

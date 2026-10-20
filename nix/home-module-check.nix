@@ -62,6 +62,10 @@ pkgs.runCommand "beankey-home-module" { } (
     grep -F 'dictionary = "${packages.dictionary}/share/beankey/dictionary"' ${configFile}
     grep -F 'model = "${packages.model}/share/beankey/model/ggml-model-Q5_K_M.gguf"' ${configFile}
     grep -F 'type_half_space = true' ${configFile}
+    if grep -qF 'llama_backend_directory' ${configFile}; then
+      echo 'generated config retains the removed backend setting' >&2
+      exit 1
+    fi
   ''
   + pkgs.lib.optionalString isLinux ''
     grep -F 'Theme=beanKey' ${config.xdg.configFile.fcitx5.source}/conf/classicui.conf

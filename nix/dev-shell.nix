@@ -27,8 +27,6 @@ in
     inherit packages;
     buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.fcitx5 ];
     RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
-    BEANKEY_TEST_EN_US_DICTIONARY = "${pkgs.hunspellDicts.en_US}/share/hunspell/en_US";
-    BEANKEY_TEST_EL_GR_DICTIONARY = "${pkgs.hunspellDicts.el_GR}/share/hunspell/el_GR";
     BEANKEY_TEST_MODEL = "${model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
   };
 }

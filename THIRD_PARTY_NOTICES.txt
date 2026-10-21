@@ -3,8 +3,9 @@ beanKey THIRD-PARTY NOTICES
 
 This file preserves the third-party attribution and license texts for the
 components documented below. It covers the directly packaged dictionary,
-emoji dictionary, GGUF model and tokenizer data, plus llama-cpp-sys-2, its
-bundled llama.cpp and rsmarisa. It is not an inventory of all Cargo dependencies
+emoji dictionary, English and Greek Hunspell dictionaries, GGUF model and
+tokenizer data, plus llama-cpp-sys-2, its bundled llama.cpp and rsmarisa.
+It is not an inventory of all Cargo dependencies
 or system packages. beanKey's own license
 is provided separately in LICENSE.
 
@@ -24,6 +25,8 @@ Contents
 5. zenz-v3.2-small GGUF model
 6. EfficientNGram tokenizer data
 7. rsmarisa
+8. English Hunspell dictionary (en_US)
+9. Greek Hunspell dictionary (el_GR)
 Appendix A. llama-cpp-sys-2 MIT license
 Appendix B. Bundled llama.cpp MIT license (also referenced by YaRN notice)
 Appendix C. azooKey MIT license for additional emoji data
@@ -33,6 +36,9 @@ Appendix F1. azooKey dictionary Apache License 2.0
 Appendix F2. Apache License 2.0 supplied with the GGUF model
 Appendix G. Creative Commons Attribution-ShareAlike 4.0 International
 Appendix H. rsmarisa BSD 2-Clause license
+Appendix I. English Hunspell README, license terms and attribution
+Appendix J. Greek Hunspell README and alternative-license notice
+Appendix K. Mozilla Public License 1.1 for the Greek Hunspell dictionary
 
 
 1. llama-cpp-sys-2
@@ -312,11 +318,102 @@ optional file-backed mmap feature disabled. It uses safe owned dictionary
 loading and predictive search instead of the native MARISA library.
 
 
+8. English Hunspell dictionary (en_US)
+=====================================
+
+Source: SCOWL / Wordlist English Hunspell dictionaries
+Fixed release: 2026.02.25, standard en_US (SCOWL size 60, not en_US-large)
+Release URL:
+  https://sourceforge.net/projects/wordlist/files/speller/2026.02.25/
+Fetched archive URL:
+  https://downloads.sourceforge.net/project/wordlist/speller/2026.02.25/hunspell-en_US-2026.02.25.zip
+Archive SHA-256 (flat/SRI):
+  sha256-rI5zMQ6VHYjFLCzyulTOrKNPhIaoFjCsinXcX5MRefk=
+Archive SHA-256 (flat/hex):
+  ac8e73310e951d88c52c2cf2ba54ceaca34f8486a81630ac8a75dc5f931179f9
+Initial vendoring matched the en_US package in nixpkgs revision:
+  0e251e24a4f24e036a084b6b4b2d2491af4167f4
+
+Vendored files and SHA-256 (flat/hex):
+  crates/converter/assets/dictionary/hunspellEnglish/en_US.aff
+    526e1dc32d1c0e8806dd72809c017b5546f2104b08b9424a4c47311aca526cca
+  crates/converter/assets/dictionary/hunspellEnglish/en_US.dic
+    ab012ae86ce4b46b60db5b150869288de9c4a87bc747911764e582125b1b961e
+
+License evidence: README_en_US.txt in the fixed release archive, reproduced
+in full in Appendix I. Original README SHA-256 (flat/hex):
+  d63c711523fc9504fb71e1278489c6d7bb8cafcba75158c107cd17844955470f
+The dictionary carries Kevin Atkinson's custom permissive SCOWLv2/word-list
+terms, Copyright 2000-2026. The affix carries Geoff Kuenning's historical
+BSD-style terms, Copyright 1993, including the modification-marking clause,
+explicitly removed clause 4 and non-endorsement clause. These are the exact
+upstream terms, not a substituted generic BSD-3-Clause license.
+
+Changes by beanKey: none; both files are copied directly without regeneration
+or encoding conversion. The upstream affix is a heavily modified derivative
+of the original Ispell english.aff, as stated in the preserved README;
+beanKey makes no further modifications. Only the standard en_US files are
+shipped. The README's discussion of other variants and source credits is
+retained with its original scope. Its short upstream revision is 7e99eda;
+no full upstream commit is specified by that release README.
+
+
+9. Greek Hunspell dictionary (el_GR)
+==================================
+
+Source: LibreOffice/dictionaries, el_GR/
+Fixed release tag: libreoffice-6.3.0.4
+Fixed source revision: 5f1cbac7f3d06dff91484c5eeca35387162cad70
+Dictionary version: el_GR 0.9, dated 14/03/2015 in the upstream README
+Source URL:
+  https://github.com/LibreOffice/dictionaries/tree/5f1cbac7f3d06dff91484c5eeca35387162cad70/el_GR
+Fetched archive URL:
+  https://github.com/LibreOffice/dictionaries/archive/libreoffice-6.3.0.4.tar.gz
+Extracted source SHA-256 (Nix recursive/SRI):
+  sha256-w/iD26CfTLCMnYPxN1awkN911WOG6qMTRZwdmx9Y5JM=
+Observed archive SHA-256 (flat/hex):
+  fb3ec75b81cdf8efa9810ca42f38b56ba3068e32fbca9748eafbafa2a25e1fee
+Initial vendoring matched the el_GR package in nixpkgs revision:
+  0e251e24a4f24e036a084b6b4b2d2491af4167f4
+
+Vendored files and SHA-256 (flat/hex):
+  crates/converter/assets/dictionary/hunspellGreek/el_GR.aff
+    868dfe13ad7d34251915a745e44d38542831463d56e60732ba3a5bc1dcca582a
+  crates/converter/assets/dictionary/hunspellGreek/el_GR.dic
+    e5b9b9c2cf05bbc59e03fe302b462dae85968f822f4fc219a8ed2879d6943720
+
+License evidence: the fixed README_el_GR.txt, reproduced in full in Appendix J.
+Original README URL:
+  https://raw.githubusercontent.com/LibreOffice/dictionaries/5f1cbac7f3d06dff91484c5eeca35387162cad70/el_GR/README_el_GR.txt
+Original README SHA-256 (flat/hex):
+  8b942846bba64ac1b28c38aee294f1667d0063e2162d59030d0da09332e8c342
+The README offers MPL 1.1 OR GPL version 2 or later OR LGPL version 2.1 or
+later. beanKey redistributes the unmodified files under MPL 1.1 and preserves
+the original alternative-license notice. Full MPL 1.1: Appendix K.
+License source:
+  https://www.mozilla.org/media/MPL/1.1/index.txt
+License SHA-256 (flat/hex):
+  f849fc26a7a99981611a3a370e83078deb617d12a45776d6c4cada4d338be469
+
+Changes by beanKey: none; the original ISO8859-7 bytes, historical affix
+comments and author credits are retained. No generator or conversion is run.
+The unmodified source-form .aff and .dic files are included in beanKey's
+source at the asset paths identified above and are also the exact files in
+installed asset distributions. They are available from the fixed upstream
+source URL. No compiled dictionary form is substituted. The upstream README retains Steve Stavropoulos and the
+other contributors' attribution; no additional copyright holder is inferred.
+Only the spellchecking files are shipped, not the separate hyphenation data.
+
+This notice file accompanies the vendored dictionary files in beanKey source
+and supported installed distributions. The daemon package installs this file
+alongside its existing license notices.
+
+
 FULL LICENSE TEXTS
 ==================
 
-The following appendices reproduce the complete license files previously
-shipped for the components above, including upstream appendices, disclaimers
+The following appendices reproduce the complete upstream notices and license
+files for the components above, including upstream appendices, disclaimers
 and file-scoped notices. Both Apache License copies are retained because the
 dictionary copy contains its own copyright line in the application appendix,
 whereas the standard copy supplied with the model retains the template line.
@@ -1443,3 +1540,693 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+Appendix I. English Hunspell README, license terms and attribution
+==================================================================
+
+en_US Hunspell Dictionary
+Version 2026.02.25
+Wed Feb 25 15:37:24 2026 -0500 [7e99eda]
+
+https://wordlist.aspell.net
+
+README file for English Hunspell dictionaries derived from SCOWL.
+
+These dictionaries are created using the speller/make-hunspell-dict
+script in SCOWL.
+
+The following dictionaries are available:
+
+  en_US (American)
+  en_CA (Canadian)
+  en_GB-ise (British with -ise/traditional spelling)
+  en_GB-ize (British with -ize/Oxford spelling)
+  en_AU (Australian)
+
+  en_US-large
+  en_CA-large
+  en_GB-large (with both -ise and -ize spelling)
+  en_AU-large
+
+The default dictionaries correspond to SCOWL size 60 and, to encourage
+consistent spelling, generally only include one spelling variant for a word.
+The large dictionaries correspond to SCOWL size 70 and include common
+spelling variants.  The larger dictionaries, however, (1) have not been as
+carefully checked for errors as the normal dictionaries and thus may contain
+misspelled or invalid words; and (2) contain uncommon, yet valid, words that
+might cause problems as they are likely to be misspellings of more common
+words (for example, "ort" and "calender").
+
+The American, Canadian, and Australian dictionaries are considered the
+official version for Hunspell.  The British ones are considered an
+alternative version.  The official ones are maintained by Marco A.G.Pinto at
+https://proofingtoolgui.org.
+
+For additional information, including information on how to contribute, see
+https://wordlist.aspell.net/dicts/.
+
+IMPORTANT CHANGES INTRODUCED ON 2026-02-22:
+
+The Unicode "’" (U+2019) character was added to WORDCHARS so that Hunspell can
+recognize words with the apostrophe.  Based on testing, this should allow
+Hunspell to recognize both "can't" and "can’t".  The ASCII single quote at the
+end of the word won't be considered part of the word, but the Unicode
+character will.  This means "'color'" is okay, but "‘color’" will get flagged
+when Hunspell does the tokenization.
+
+IMPORTANT CHANGES INTRODUCED IN 2016.11.20:
+
+New Australian dictionaries thanks to the work of Benjamin Titze
+(btitze@protonmail.ch).
+
+IMPORTANT CHANGES INTRODUCED IN 2016.04.24:
+
+The dictionaries are now in UTF-8 format instead of ISO-8859-1.  This
+was required to handle smart quotes correctly.
+
+IMPORTANT CHANGES INTRODUCED IN 2016.01.19:
+
+"SET UTF8" was changes to "SET UTF-8" in the affix file as some
+versions of Hunspell do not recognize "UTF8".
+
+ADDITIONAL NOTES:
+
+The NOSUGGEST flag was added to certain taboo words.  While I made an
+honest attempt to flag the strongest taboo words with the NOSUGGEST
+flag, I MAKE NO GUARANTEE THAT I FLAGGED EVERY POSSIBLE TABOO WORD.
+The list was originally derived from Németh László, however I removed
+some words which, while being considered taboo by some dictionaries,
+are not really considered swear words in today's society.
+
+COPYRIGHT, SOURCES, and CREDITS:
+
+The English dictionaries come directly from SCOWL and is thus under
+the same copyright terms as SCOWL.  The affix file is a heavily
+modified version of the original english.aff file, which was
+released as part of Geoff Kuenning's Ispell and as such is covered by
+his BSD license.
+
+Copyright 2000-2026 by Kevin Atkinson
+
+Permission to use, copy, modify, distribute, and sell any part of SCOWLv2, or
+word lists created from it, is hereby granted without fee, provided that the
+above copyright notice appears in all copies and that both the above
+copyright notice and this notice appear in supporting documentation.  Kevin
+Atkinson makes no representations about the suitability of this database for
+any purpose.  It is provided "as is" without express or implied warranty.
+
+SCOWL is derived from many sources, most of which are in the Public Domain.
+Data from the Corpus of Contemporary American English (COCA) was also used.
+
+All data from COCA comes from 3-gram data that is not freely available;
+however, the usage is within the rights given by the NDA that was signed when
+purchasing the data.  More information on COCA is available at
+https://www.english-corpora.org/coca/.
+
+The primary source of words for SCOWL comes from 12dicts and ENABLE2K.  Both
+are in the Public Domain, but Alan Beale <biljir@pobox.com> deserves special
+credit as he is the author of 12dicts and a major contributor to ENABLE2K.  In
+addition, he gave me an incredible amount of feedback and created a number of
+special lists in order to help improve the overall quality of SCOWL.
+
+The initial information for Australian English comes from Benjamin Titze:
+
+  Copyright 2016 by Benjamin Titze
+
+  Permission to use, copy, modify, distribute and sell this array, the
+  associated software, and its documentation for any purpose is hereby
+  granted without fee, provided that the above copyright notice appears
+  in all copies and that both that copyright notice and this permission
+  notice appear in supporting documentation. Benjamin Titze makes no
+  representations about the suitability of this array for any
+  purpose. It is provided "as is" without express or implied warranty.
+
+Affix file Copyright:
+
+  Copyright 1993, Geoff Kuenning, Granada Hills, CA
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions
+  are met:
+
+  1. Redistributions of source code must retain the above copyright
+     notice, this list of conditions and the following disclaimer.
+  2. Redistributions in binary form must reproduce the above copyright
+     notice, this list of conditions and the following disclaimer in the
+     documentation and/or other materials provided with the distribution.
+  3. All modifications to the source code must be clearly marked as
+     such.  Binary redistributions based on modified source code
+     must be clearly marked as modified versions in the documentation
+     and/or other materials provided with the distribution.
+  (clause 4 removed with permission from Geoff Kuenning)
+  5. The name of Geoff Kuenning may not be used to endorse or promote
+     products derived from this software without specific prior
+     written permission.
+
+  THIS SOFTWARE IS PROVIDED BY GEOFF KUENNING AND CONTRIBUTORS ``AS IS'' AND
+  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED.  IN NO EVENT SHALL GEOFF KUENNING OR CONTRIBUTORS BE LIABLE
+  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+  OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+  HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+  OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+  SUCH DAMAGE.
+
+Build Date: Wed Feb 25 15:40:53 EST 2026
+Wordlist Command: mk-list --accents=strip en_US 60
+
+
+Appendix J. Greek Hunspell README and alternative-license notice
+================================================================
+
+name      :  el_GR 0.9 version of the greek dictionary
+dd/mm/yyyy:  14/03/2015
+License   :  MPL 1.1/GPL 2.0/LGPL 2.1
+contact   :  Steve Stavropoulos
+URL       :  http://elspell.math.upatras.gr
+
+Added about 240259 new words in this release (courtesy of Γιώργος Γέγος, with the kind help of Nick Demou).
+
+ Steve Stavropoulos
+
+==================
+
+name      : el_GR (v.003) Enhanced Version
+dd/mm/yyyy: 08/02/2002
+License   : GNU GPL
+contact   : evris@source.gr
+URL       : ispell.source.gr
+-----------------------------------------------
+This dictionary is based on greek wordlist and affixes used by ispell
+(which based on older work of Mitalas and Seraskeris). Many thanks to
+Voula Sanida (voulariba@source.gr) and Panayotis Vryonis (vrypan@yassou.net)
+for their help in converting the affix rules and to all the people that
+contributed words to the vocabulary.
+Evripidis Papakostas (evris@source.gr)
+
+==================
+
+The new Licence:
+
+Version: MPL 1.1/GPL 2.0/LGPL 2.1
+
+The contents of this file are subject to the Mozilla Public License Version
+1.1 (the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
+http://www.mozilla.org/MPL/
+
+Software distributed under the License is distributed on an "AS IS" basis,
+WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+for the specific language governing rights and limitations under the
+License.
+
+Alternatively, the contents of this file may be used under the terms of
+either the GNU General Public License Version 2 or later (the "GPL"), or
+the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+in which case the provisions of the GPL or the LGPL are applicable instead
+of those above. If you wish to allow use of your version of this file only
+under the terms of either the GPL or the LGPL, and not to allow others to
+use your version of this file under the terms of the MPL, indicate your
+decision by deleting the provisions above and replace them with the notice
+and other provisions required by the GPL or the LGPL. If you do not delete
+the provisions above, a recipient may use your version of this file under
+the terms of any one of the MPL, the GPL or the LGPL.
+
+
+Appendix K. Mozilla Public License 1.1 for the Greek Hunspell dictionary
+========================================================================
+
+                          MOZILLA PUBLIC LICENSE
+                                Version 1.1
+
+                              ---------------
+
+1. Definitions.
+
+     1.0.1. "Commercial Use" means distribution or otherwise making the
+     Covered Code available to a third party.
+
+     1.1. "Contributor" means each entity that creates or contributes to
+     the creation of Modifications.
+
+     1.2. "Contributor Version" means the combination of the Original
+     Code, prior Modifications used by a Contributor, and the Modifications
+     made by that particular Contributor.
+
+     1.3. "Covered Code" means the Original Code or Modifications or the
+     combination of the Original Code and Modifications, in each case
+     including portions thereof.
+
+     1.4. "Electronic Distribution Mechanism" means a mechanism generally
+     accepted in the software development community for the electronic
+     transfer of data.
+
+     1.5. "Executable" means Covered Code in any form other than Source
+     Code.
+
+     1.6. "Initial Developer" means the individual or entity identified
+     as the Initial Developer in the Source Code notice required by Exhibit
+     A.
+
+     1.7. "Larger Work" means a work which combines Covered Code or
+     portions thereof with code not governed by the terms of this License.
+
+     1.8. "License" means this document.
+
+     1.8.1. "Licensable" means having the right to grant, to the maximum
+     extent possible, whether at the time of the initial grant or
+     subsequently acquired, any and all of the rights conveyed herein.
+
+     1.9. "Modifications" means any addition to or deletion from the
+     substance or structure of either the Original Code or any previous
+     Modifications. When Covered Code is released as a series of files, a
+     Modification is:
+          A. Any addition to or deletion from the contents of a file
+          containing Original Code or previous Modifications.
+
+          B. Any new file that contains any part of the Original Code or
+          previous Modifications.
+
+     1.10. "Original Code" means Source Code of computer software code
+     which is described in the Source Code notice required by Exhibit A as
+     Original Code, and which, at the time of its release under this
+     License is not already Covered Code governed by this License.
+
+     1.10.1. "Patent Claims" means any patent claim(s), now owned or
+     hereafter acquired, including without limitation,  method, process,
+     and apparatus claims, in any patent Licensable by grantor.
+
+     1.11. "Source Code" means the preferred form of the Covered Code for
+     making modifications to it, including all modules it contains, plus
+     any associated interface definition files, scripts used to control
+     compilation and installation of an Executable, or source code
+     differential comparisons against either the Original Code or another
+     well known, available Covered Code of the Contributor's choice. The
+     Source Code can be in a compressed or archival form, provided the
+     appropriate decompression or de-archiving software is widely available
+     for no charge.
+
+     1.12. "You" (or "Your")  means an individual or a legal entity
+     exercising rights under, and complying with all of the terms of, this
+     License or a future version of this License issued under Section 6.1.
+     For legal entities, "You" includes any entity which controls, is
+     controlled by, or is under common control with You. For purposes of
+     this definition, "control" means (a) the power, direct or indirect,
+     to cause the direction or management of such entity, whether by
+     contract or otherwise, or (b) ownership of more than fifty percent
+     (50%) of the outstanding shares or beneficial ownership of such
+     entity.
+
+2. Source Code License.
+
+     2.1. The Initial Developer Grant.
+     The Initial Developer hereby grants You a world-wide, royalty-free,
+     non-exclusive license, subject to third party intellectual property
+     claims:
+          (a)  under intellectual property rights (other than patent or
+          trademark) Licensable by Initial Developer to use, reproduce,
+          modify, display, perform, sublicense and distribute the Original
+          Code (or portions thereof) with or without Modifications, and/or
+          as part of a Larger Work; and
+
+          (b) under Patents Claims infringed by the making, using or
+          selling of Original Code, to make, have made, use, practice,
+          sell, and offer for sale, and/or otherwise dispose of the
+          Original Code (or portions thereof).
+
+          (c) the licenses granted in this Section 2.1(a) and (b) are
+          effective on the date Initial Developer first distributes
+          Original Code under the terms of this License.
+
+          (d) Notwithstanding Section 2.1(b) above, no patent license is
+          granted: 1) for code that You delete from the Original Code; 2)
+          separate from the Original Code;  or 3) for infringements caused
+          by: i) the modification of the Original Code or ii) the
+          combination of the Original Code with other software or devices.
+
+     2.2. Contributor Grant.
+     Subject to third party intellectual property claims, each Contributor
+     hereby grants You a world-wide, royalty-free, non-exclusive license
+
+          (a)  under intellectual property rights (other than patent or
+          trademark) Licensable by Contributor, to use, reproduce, modify,
+          display, perform, sublicense and distribute the Modifications
+          created by such Contributor (or portions thereof) either on an
+          unmodified basis, with other Modifications, as Covered Code
+          and/or as part of a Larger Work; and
+
+          (b) under Patent Claims infringed by the making, using, or
+          selling of  Modifications made by that Contributor either alone
+          and/or in combination with its Contributor Version (or portions
+          of such combination), to make, use, sell, offer for sale, have
+          made, and/or otherwise dispose of: 1) Modifications made by that
+          Contributor (or portions thereof); and 2) the combination of
+          Modifications made by that Contributor with its Contributor
+          Version (or portions of such combination).
+
+          (c) the licenses granted in Sections 2.2(a) and 2.2(b) are
+          effective on the date Contributor first makes Commercial Use of
+          the Covered Code.
+
+          (d)    Notwithstanding Section 2.2(b) above, no patent license is
+          granted: 1) for any code that Contributor has deleted from the
+          Contributor Version; 2)  separate from the Contributor Version;
+          3)  for infringements caused by: i) third party modifications of
+          Contributor Version or ii)  the combination of Modifications made
+          by that Contributor with other software  (except as part of the
+          Contributor Version) or other devices; or 4) under Patent Claims
+          infringed by Covered Code in the absence of Modifications made by
+          that Contributor.
+
+3. Distribution Obligations.
+
+     3.1. Application of License.
+     The Modifications which You create or to which You contribute are
+     governed by the terms of this License, including without limitation
+     Section 2.2. The Source Code version of Covered Code may be
+     distributed only under the terms of this License or a future version
+     of this License released under Section 6.1, and You must include a
+     copy of this License with every copy of the Source Code You
+     distribute. You may not offer or impose any terms on any Source Code
+     version that alters or restricts the applicable version of this
+     License or the recipients' rights hereunder. However, You may include
+     an additional document offering the additional rights described in
+     Section 3.5.
+
+     3.2. Availability of Source Code.
+     Any Modification which You create or to which You contribute must be
+     made available in Source Code form under the terms of this License
+     either on the same media as an Executable version or via an accepted
+     Electronic Distribution Mechanism to anyone to whom you made an
+     Executable version available; and if made available via Electronic
+     Distribution Mechanism, must remain available for at least twelve (12)
+     months after the date it initially became available, or at least six
+     (6) months after a subsequent version of that particular Modification
+     has been made available to such recipients. You are responsible for
+     ensuring that the Source Code version remains available even if the
+     Electronic Distribution Mechanism is maintained by a third party.
+
+     3.3. Description of Modifications.
+     You must cause all Covered Code to which You contribute to contain a
+     file documenting the changes You made to create that Covered Code and
+     the date of any change. You must include a prominent statement that
+     the Modification is derived, directly or indirectly, from Original
+     Code provided by the Initial Developer and including the name of the
+     Initial Developer in (a) the Source Code, and (b) in any notice in an
+     Executable version or related documentation in which You describe the
+     origin or ownership of the Covered Code.
+
+     3.4. Intellectual Property Matters
+          (a) Third Party Claims.
+          If Contributor has knowledge that a license under a third party's
+          intellectual property rights is required to exercise the rights
+          granted by such Contributor under Sections 2.1 or 2.2,
+          Contributor must include a text file with the Source Code
+          distribution titled "LEGAL" which describes the claim and the
+          party making the claim in sufficient detail that a recipient will
+          know whom to contact. If Contributor obtains such knowledge after
+          the Modification is made available as described in Section 3.2,
+          Contributor shall promptly modify the LEGAL file in all copies
+          Contributor makes available thereafter and shall take other steps
+          (such as notifying appropriate mailing lists or newsgroups)
+          reasonably calculated to inform those who received the Covered
+          Code that new knowledge has been obtained.
+
+          (b) Contributor APIs.
+          If Contributor's Modifications include an application programming
+          interface and Contributor has knowledge of patent licenses which
+          are reasonably necessary to implement that API, Contributor must
+          also include this information in the LEGAL file.
+
+               (c)    Representations.
+          Contributor represents that, except as disclosed pursuant to
+          Section 3.4(a) above, Contributor believes that Contributor's
+          Modifications are Contributor's original creation(s) and/or
+          Contributor has sufficient rights to grant the rights conveyed by
+          this License.
+
+     3.5. Required Notices.
+     You must duplicate the notice in Exhibit A in each file of the Source
+     Code.  If it is not possible to put such notice in a particular Source
+     Code file due to its structure, then You must include such notice in a
+     location (such as a relevant directory) where a user would be likely
+     to look for such a notice.  If You created one or more Modification(s)
+     You may add your name as a Contributor to the notice described in
+     Exhibit A.  You must also duplicate this License in any documentation
+     for the Source Code where You describe recipients' rights or ownership
+     rights relating to Covered Code.  You may choose to offer, and to
+     charge a fee for, warranty, support, indemnity or liability
+     obligations to one or more recipients of Covered Code. However, You
+     may do so only on Your own behalf, and not on behalf of the Initial
+     Developer or any Contributor. You must make it absolutely clear than
+     any such warranty, support, indemnity or liability obligation is
+     offered by You alone, and You hereby agree to indemnify the Initial
+     Developer and every Contributor for any liability incurred by the
+     Initial Developer or such Contributor as a result of warranty,
+     support, indemnity or liability terms You offer.
+
+     3.6. Distribution of Executable Versions.
+     You may distribute Covered Code in Executable form only if the
+     requirements of Section 3.1-3.5 have been met for that Covered Code,
+     and if You include a notice stating that the Source Code version of
+     the Covered Code is available under the terms of this License,
+     including a description of how and where You have fulfilled the
+     obligations of Section 3.2. The notice must be conspicuously included
+     in any notice in an Executable version, related documentation or
+     collateral in which You describe recipients' rights relating to the
+     Covered Code. You may distribute the Executable version of Covered
+     Code or ownership rights under a license of Your choice, which may
+     contain terms different from this License, provided that You are in
+     compliance with the terms of this License and that the license for the
+     Executable version does not attempt to limit or alter the recipient's
+     rights in the Source Code version from the rights set forth in this
+     License. If You distribute the Executable version under a different
+     license You must make it absolutely clear that any terms which differ
+     from this License are offered by You alone, not by the Initial
+     Developer or any Contributor. You hereby agree to indemnify the
+     Initial Developer and every Contributor for any liability incurred by
+     the Initial Developer or such Contributor as a result of any such
+     terms You offer.
+
+     3.7. Larger Works.
+     You may create a Larger Work by combining Covered Code with other code
+     not governed by the terms of this License and distribute the Larger
+     Work as a single product. In such a case, You must make sure the
+     requirements of this License are fulfilled for the Covered Code.
+
+4. Inability to Comply Due to Statute or Regulation.
+
+     If it is impossible for You to comply with any of the terms of this
+     License with respect to some or all of the Covered Code due to
+     statute, judicial order, or regulation then You must: (a) comply with
+     the terms of this License to the maximum extent possible; and (b)
+     describe the limitations and the code they affect. Such description
+     must be included in the LEGAL file described in Section 3.4 and must
+     be included with all distributions of the Source Code. Except to the
+     extent prohibited by statute or regulation, such description must be
+     sufficiently detailed for a recipient of ordinary skill to be able to
+     understand it.
+
+5. Application of this License.
+
+     This License applies to code to which the Initial Developer has
+     attached the notice in Exhibit A and to related Covered Code.
+
+6. Versions of the License.
+
+     6.1. New Versions.
+     Netscape Communications Corporation ("Netscape") may publish revised
+     and/or new versions of the License from time to time. Each version
+     will be given a distinguishing version number.
+
+     6.2. Effect of New Versions.
+     Once Covered Code has been published under a particular version of the
+     License, You may always continue to use it under the terms of that
+     version. You may also choose to use such Covered Code under the terms
+     of any subsequent version of the License published by Netscape. No one
+     other than Netscape has the right to modify the terms applicable to
+     Covered Code created under this License.
+
+     6.3. Derivative Works.
+     If You create or use a modified version of this License (which you may
+     only do in order to apply it to code which is not already Covered Code
+     governed by this License), You must (a) rename Your license so that
+     the phrases "Mozilla", "MOZILLAPL", "MOZPL", "Netscape",
+     "MPL", "NPL" or any confusingly similar phrase do not appear in your
+     license (except to note that your license differs from this License)
+     and (b) otherwise make it clear that Your version of the license
+     contains terms which differ from the Mozilla Public License and
+     Netscape Public License. (Filling in the name of the Initial
+     Developer, Original Code or Contributor in the notice described in
+     Exhibit A shall not of themselves be deemed to be modifications of
+     this License.)
+
+7. DISCLAIMER OF WARRANTY.
+
+     COVERED CODE IS PROVIDED UNDER THIS LICENSE ON AN "AS IS" BASIS,
+     WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING,
+     WITHOUT LIMITATION, WARRANTIES THAT THE COVERED CODE IS FREE OF
+     DEFECTS, MERCHANTABLE, FIT FOR A PARTICULAR PURPOSE OR NON-INFRINGING.
+     THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE COVERED CODE
+     IS WITH YOU. SHOULD ANY COVERED CODE PROVE DEFECTIVE IN ANY RESPECT,
+     YOU (NOT THE INITIAL DEVELOPER OR ANY OTHER CONTRIBUTOR) ASSUME THE
+     COST OF ANY NECESSARY SERVICING, REPAIR OR CORRECTION. THIS DISCLAIMER
+     OF WARRANTY CONSTITUTES AN ESSENTIAL PART OF THIS LICENSE. NO USE OF
+     ANY COVERED CODE IS AUTHORIZED HEREUNDER EXCEPT UNDER THIS DISCLAIMER.
+
+8. TERMINATION.
+
+     8.1.  This License and the rights granted hereunder will terminate
+     automatically if You fail to comply with terms herein and fail to cure
+     such breach within 30 days of becoming aware of the breach. All
+     sublicenses to the Covered Code which are properly granted shall
+     survive any termination of this License. Provisions which, by their
+     nature, must remain in effect beyond the termination of this License
+     shall survive.
+
+     8.2.  If You initiate litigation by asserting a patent infringement
+     claim (excluding declatory judgment actions) against Initial Developer
+     or a Contributor (the Initial Developer or Contributor against whom
+     You file such action is referred to as "Participant")  alleging that:
+
+     (a)  such Participant's Contributor Version directly or indirectly
+     infringes any patent, then any and all rights granted by such
+     Participant to You under Sections 2.1 and/or 2.2 of this License
+     shall, upon 60 days notice from Participant terminate prospectively,
+     unless if within 60 days after receipt of notice You either: (i)
+     agree in writing to pay Participant a mutually agreeable reasonable
+     royalty for Your past and future use of Modifications made by such
+     Participant, or (ii) withdraw Your litigation claim with respect to
+     the Contributor Version against such Participant.  If within 60 days
+     of notice, a reasonable royalty and payment arrangement are not
+     mutually agreed upon in writing by the parties or the litigation claim
+     is not withdrawn, the rights granted by Participant to You under
+     Sections 2.1 and/or 2.2 automatically terminate at the expiration of
+     the 60 day notice period specified above.
+
+     (b)  any software, hardware, or device, other than such Participant's
+     Contributor Version, directly or indirectly infringes any patent, then
+     any rights granted to You by such Participant under Sections 2.1(b)
+     and 2.2(b) are revoked effective as of the date You first made, used,
+     sold, distributed, or had made, Modifications made by that
+     Participant.
+
+     8.3.  If You assert a patent infringement claim against Participant
+     alleging that such Participant's Contributor Version directly or
+     indirectly infringes any patent where such claim is resolved (such as
+     by license or settlement) prior to the initiation of patent
+     infringement litigation, then the reasonable value of the licenses
+     granted by such Participant under Sections 2.1 or 2.2 shall be taken
+     into account in determining the amount or value of any payment or
+     license.
+
+     8.4.  In the event of termination under Sections 8.1 or 8.2 above,
+     all end user license agreements (excluding distributors and resellers)
+     which have been validly granted by You or any distributor hereunder
+     prior to termination shall survive termination.
+
+9. LIMITATION OF LIABILITY.
+
+     UNDER NO CIRCUMSTANCES AND UNDER NO LEGAL THEORY, WHETHER TORT
+     (INCLUDING NEGLIGENCE), CONTRACT, OR OTHERWISE, SHALL YOU, THE INITIAL
+     DEVELOPER, ANY OTHER CONTRIBUTOR, OR ANY DISTRIBUTOR OF COVERED CODE,
+     OR ANY SUPPLIER OF ANY OF SUCH PARTIES, BE LIABLE TO ANY PERSON FOR
+     ANY INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES OF ANY
+     CHARACTER INCLUDING, WITHOUT LIMITATION, DAMAGES FOR LOSS OF GOODWILL,
+     WORK STOPPAGE, COMPUTER FAILURE OR MALFUNCTION, OR ANY AND ALL OTHER
+     COMMERCIAL DAMAGES OR LOSSES, EVEN IF SUCH PARTY SHALL HAVE BEEN
+     INFORMED OF THE POSSIBILITY OF SUCH DAMAGES. THIS LIMITATION OF
+     LIABILITY SHALL NOT APPLY TO LIABILITY FOR DEATH OR PERSONAL INJURY
+     RESULTING FROM SUCH PARTY'S NEGLIGENCE TO THE EXTENT APPLICABLE LAW
+     PROHIBITS SUCH LIMITATION. SOME JURISDICTIONS DO NOT ALLOW THE
+     EXCLUSION OR LIMITATION OF INCIDENTAL OR CONSEQUENTIAL DAMAGES, SO
+     THIS EXCLUSION AND LIMITATION MAY NOT APPLY TO YOU.
+
+10. U.S. GOVERNMENT END USERS.
+
+     The Covered Code is a "commercial item," as that term is defined in
+     48 C.F.R. 2.101 (Oct. 1995), consisting of "commercial computer
+     software" and "commercial computer software documentation," as such
+     terms are used in 48 C.F.R. 12.212 (Sept. 1995). Consistent with 48
+     C.F.R. 12.212 and 48 C.F.R. 227.7202-1 through 227.7202-4 (June 1995),
+     all U.S. Government End Users acquire Covered Code with only those
+     rights set forth herein.
+
+11. MISCELLANEOUS.
+
+     This License represents the complete agreement concerning subject
+     matter hereof. If any provision of this License is held to be
+     unenforceable, such provision shall be reformed only to the extent
+     necessary to make it enforceable. This License shall be governed by
+     California law provisions (except to the extent applicable law, if
+     any, provides otherwise), excluding its conflict-of-law provisions.
+     With respect to disputes in which at least one party is a citizen of,
+     or an entity chartered or registered to do business in the United
+     States of America, any litigation relating to this License shall be
+     subject to the jurisdiction of the Federal Courts of the Northern
+     District of California, with venue lying in Santa Clara County,
+     California, with the losing party responsible for costs, including
+     without limitation, court costs and reasonable attorneys' fees and
+     expenses. The application of the United Nations Convention on
+     Contracts for the International Sale of Goods is expressly excluded.
+     Any law or regulation which provides that the language of a contract
+     shall be construed against the drafter shall not apply to this
+     License.
+
+12. RESPONSIBILITY FOR CLAIMS.
+
+     As between Initial Developer and the Contributors, each party is
+     responsible for claims and damages arising, directly or indirectly,
+     out of its utilization of rights under this License and You agree to
+     work with Initial Developer and Contributors to distribute such
+     responsibility on an equitable basis. Nothing herein is intended or
+     shall be deemed to constitute any admission of liability.
+
+13. MULTIPLE-LICENSED CODE.
+
+     Initial Developer may designate portions of the Covered Code as
+     "Multiple-Licensed".  "Multiple-Licensed" means that the Initial
+     Developer permits you to utilize portions of the Covered Code under
+     Your choice of the MPL or the alternative licenses, if any, specified
+     by the Initial Developer in the file described in Exhibit A.
+
+EXHIBIT A -Mozilla Public License.
+
+     ``The contents of this file are subject to the Mozilla Public License
+     Version 1.1 (the "License"); you may not use this file except in
+     compliance with the License. You may obtain a copy of the License at
+     https://www.mozilla.org/MPL/
+
+     Software distributed under the License is distributed on an "AS IS"
+     basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See the
+     License for the specific language governing rights and limitations
+     under the License.
+
+     The Original Code is ______________________________________.
+
+     The Initial Developer of the Original Code is ________________________.
+     Portions created by ______________________ are Copyright (C) ______
+     _______________________. All Rights Reserved.
+
+     Contributor(s): ______________________________________.
+
+     Alternatively, the contents of this file may be used under the terms
+     of the _____ license (the  "[___] License"), in which case the
+     provisions of [______] License are applicable instead of those
+     above.  If you wish to allow use of your version of this file only
+     under the terms of the [____] License and not to allow others to use
+     your version of this file under the MPL, indicate your decision by
+     deleting  the provisions above and replace  them with the notice and
+     other provisions required by the [___] License.  If you do not delete
+     the provisions above, a recipient may use your version of this file
+     under either the MPL or the [___] License."
+
+     [NOTE: The text of this Exhibit A may differ slightly from the text of
+     the notices in the Source Code files of the Original Code. You should
+     use the text of this Exhibit A rather than the text found in the
+     Original Code Source Code for Your Modifications.]

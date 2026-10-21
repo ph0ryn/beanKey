@@ -150,8 +150,8 @@ let
     }";
     runtime_socket = "beankey/daemon.sock";
     hunspell = {
-      english_dictionary = "${packages.daemon.hunspellEnglish}/share/hunspell/en_US";
-      greek_dictionary = "${packages.daemon.hunspellGreek}/share/hunspell/el_GR";
+      english_dictionary = "${../crates/converter/assets/dictionary/hunspellEnglish}/en_US";
+      greek_dictionary = "${../crates/converter/assets/dictionary/hunspellGreek}/el_GR";
     };
     conversion = conversionConfig;
     learning = {

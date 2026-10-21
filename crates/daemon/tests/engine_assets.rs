@@ -1320,8 +1320,10 @@ fn forwards_explicit_kana_key_intention_and_input() {
 fn completes_foreign_input_with_the_configured_hunspell_assets() {
     let mut engine = Engine::open_with_hunspell(
         dictionary_root(),
-        env!("BEANKEY_TEST_EN_US_DICTIONARY"),
-        env!("BEANKEY_TEST_EL_GR_DICTIONARY"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../converter/assets/dictionary/hunspellEnglish/en_US"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../converter/assets/dictionary/hunspellGreek/el_GR"),
     )
     .unwrap();
     response(engine.handle(envelope(

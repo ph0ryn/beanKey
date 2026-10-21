@@ -431,8 +431,9 @@ fn recovers_the_fixed_upstream_roman_typo_regression() {
 #[test]
 fn runs_the_server_executable_with_the_fixed_nixos_assets() {
     let model = required_environment("BEANKEY_TEST_MODEL");
-    let english = required_environment("BEANKEY_TEST_EN_US_DICTIONARY");
-    let greek = required_environment("BEANKEY_TEST_EL_GR_DICTIONARY");
+    let dictionaries = Path::new(env!("CARGO_MANIFEST_DIR")).join("../converter/assets/dictionary");
+    let english = dictionaries.join("hunspellEnglish/en_US");
+    let greek = dictionaries.join("hunspellGreek/el_GR");
     let runtime = TempDir::new().unwrap();
     let config_path = runtime.path().join("config.toml");
     fs::write(
@@ -485,7 +486,9 @@ flash_attention = true
             dictionary_root().display(),
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt")
-                .display()
+                .display(),
+            english = english.display(),
+            greek = greek.display(),
         ),
     )
     .unwrap();

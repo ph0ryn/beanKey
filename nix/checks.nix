@@ -246,6 +246,8 @@ in
       echo 'generated config retains the removed backend setting' >&2
       exit 1
     fi
+    grep -F 'english_dictionary = "${../crates/converter/assets/dictionary/hunspellEnglish}/en_US"' "$config"
+    grep -F 'greek_dictionary = "${../crates/converter/assets/dictionary/hunspellGreek}/el_GR"' "$config"
     grep -F 'runtime_socket = "beankey/daemon.sock"' "$config"
     grep -F 'keyboard_language = "japanese"' "$config"
     grep -F 'japanese_prediction = "disabled"' "$config"

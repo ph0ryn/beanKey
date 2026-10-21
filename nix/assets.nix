@@ -11,7 +11,7 @@
     pkgs.runCommand "beankey-zenz-v3.2-small-gguf"
       {
         meta.license = pkgs.lib.licenses.asl20;
-        outputHash = "sha256-i+n59zvclsiKaN6dcVILHwnFCHiXONuXO1RQ6tisiBg=";
+        outputHash = "sha256-+3+d9hTM2wlPQ7LIAcKCkYMQyPbd524cFMunYnqxH5U=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }

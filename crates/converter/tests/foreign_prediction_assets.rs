@@ -14,8 +14,8 @@ fn dictionary_root() -> PathBuf {
 #[test]
 fn preserves_case_and_filters_suggestions_without_ngram_expansion() {
     let provider = HunspellCompleter::open(
-        env!("BEANKEY_TEST_EN_US_DICTIONARY"),
-        env!("BEANKEY_TEST_EL_GR_DICTIONARY"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/hunspellEnglish/en_US"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/hunspellGreek/el_GR"),
     )
     .unwrap();
     assert_eq!(
@@ -43,8 +43,9 @@ fn preserves_case_and_filters_suggestions_without_ngram_expansion() {
 fn completes_english_and_greek_with_the_pinned_hunspell_dictionaries() {
     let provider = Arc::new(
         HunspellCompleter::open(
-            env!("BEANKEY_TEST_EN_US_DICTIONARY"),
-            env!("BEANKEY_TEST_EL_GR_DICTIONARY"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("assets/dictionary/hunspellEnglish/en_US"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/hunspellGreek/el_GR"),
         )
         .unwrap(),
     );

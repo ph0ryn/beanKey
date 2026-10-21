@@ -25,7 +25,7 @@ in
     pkgs.runCommand "beankey-dictionary"
       {
         meta.license = pkgs.lib.licenses.asl20;
-        outputHash = "sha256-KzQM9fCOVuXVNO/Gka9lWBgoQgoCgz+xb2f4EcqAiOc=";
+        outputHash = "sha256-fW9LETdeXE3UNBj/DNs4OW3FWA1XX9ERFUx+BissgXI=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }
@@ -44,7 +44,7 @@ in
           unicode-30
           mit
         ];
-        outputHash = "sha256-CiWASDsiYwfpkQ69n67nnhpvcym14Zy7VnDQbUdRYGY=";
+        outputHash = "sha256-n+7lYbVF8OgW+8/gD1AdYdWXciYTxcat/uSdx+JB+IU=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }
@@ -65,7 +65,7 @@ in
     pkgs.runCommand "beankey-zenz-v3.2-small-gguf"
       {
         meta.license = pkgs.lib.licenses.asl20;
-        outputHash = "sha256-7UFG6XARP6tGKq7x8vcS/+qWNSzApNBSMeH5nVRsZhI=";
+        outputHash = "sha256-clxRi/dxIGD/q6zOlTfYhQNFQ6wbXB2k4b5BXTgO0mg=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }
@@ -80,7 +80,7 @@ in
     pkgs.runCommand "beankey-zenz-tokenizer"
       {
         meta.license = pkgs.lib.licenses.cc-by-sa-40;
-        outputHash = "sha256-pHYoszHk+D3CHZY6U3MNSFhKvIqQ3px9nfx97yiv9rU=";
+        outputHash = "sha256-UXEdVUGjFz9R77+Q+r3gqaPFbREQJVanRxCP2dGqUNI=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }

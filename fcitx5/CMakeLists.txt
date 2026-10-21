@@ -53,6 +53,8 @@ install(TARGETS fcitx5-beankey DESTINATION ${CMAKE_INSTALL_LIBDIR}/fcitx5)
 install(FILES beankey-addon.conf DESTINATION ${CMAKE_INSTALL_DATADIR}/fcitx5/addon RENAME beankey.conf)
 install(FILES beankey-inputmethod.conf DESTINATION ${CMAKE_INSTALL_DATADIR}/fcitx5/inputmethod RENAME beankey.conf)
 install(FILES themes/beanKey/theme.conf DESTINATION ${CMAKE_INSTALL_DATADIR}/fcitx5/themes/beanKey)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE ${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.txt
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/beankey/fcitx5)
 
 if(BUILD_TESTING)
   add_executable(beankey-key-event-test tests/key_event_test.cpp)

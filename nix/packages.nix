@@ -5,13 +5,6 @@
 
 let
   version = (builtins.fromTOML (builtins.readFile ../Cargo.toml)).workspace.package.version;
-  llamaSysVersion = pkgs.lib.removePrefix "=" (builtins.fromTOML (
-    builtins.readFile ../crates/llama/Cargo.toml
-  )).dependencies.llama-cpp-sys-2.version;
-  llamaSysLicense = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/utilityai/llama-cpp-rs/0dd5814c9b061930965d144c1653cd4d05054873/LICENSE-MIT";
-    hash = "sha256-djkSvQX0KVbb+pAL0aL4A3xwT1xk13jGI+xZUkVOJKo=";
-  };
 
   sourceFor =
     roots:
@@ -33,6 +26,7 @@ let
       "Cargo.lock"
       "Cargo.toml"
       "LICENSE"
+      "THIRD_PARTY_NOTICES.txt"
       "crates"
       "proto"
     ];
@@ -61,23 +55,7 @@ let
     BEANKEY_TEST_ZENZ_TOKENIZER = "${assets.tokenizer}/share/beankey/tokenizer/tokenizer.json";
     postInstall = ''
       install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
-      install -Dm644 ${llamaSysLicense} "$out/share/licenses/beankey/llama-cpp-sys-2-MIT.txt"
-      llama_source="$cargoDeps/llama-cpp-sys-2-${llamaSysVersion}/llama.cpp"
-      install -Dm644 "$llama_source/LICENSE" "$out/share/licenses/beankey/llama.cpp-MIT.txt"
-      cat > "$out/share/licenses/beankey/llama.cpp-NOTICES" <<'EOF'
-      Bundled dependency: llama-cpp-sys-2 ${llamaSysVersion}
-      Rust source: https://github.com/utilityai/llama-cpp-rs/tree/0dd5814c9b061930965d144c1653cd4d05054873
-      llama.cpp source: https://github.com/ggml-org/llama.cpp/tree/d81235049384534c167caea52b85a694f6103d14
-      The bundled source is built without beanKey patches.
-
-      ggml/src/ggml-cpu/ops.cpp (YaRN):
-      MIT licensed. Copyright (c) 2023 Jeffrey Quesnelle and Bowen Peng.
-      Source: https://github.com/jquesnelle/yarn
-      The MIT permission and warranty text is included in llama.cpp-MIT.txt.
-
-      src/llama-vocab.cpp (BPE tokenizer):
-      adapted from https://github.com/cmp-nct/ggllm.cpp [MIT License]
-      EOF
+      install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
     '';
     passthru = {
       hunspellEnglish = pkgs.hunspellDicts.en_US;
@@ -128,7 +106,6 @@ in
         --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out" \
         --subst-var-by NIX ${pkgs.nix}
       chmod +x "$out/bin/beankey-install"
-      install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
     '';
     meta = {
       description = "beanKey InputMethodKit frontend";
@@ -165,9 +142,6 @@ in
       "-DBEANKEY_CONFIG_PATH=/etc/beankey/config.toml"
     ];
     doCheck = true;
-    postInstall = ''
-      install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
-    '';
     meta = {
       description = "Fcitx5 input method addon for beanKey";
       license = pkgs.lib.licenses.mit;

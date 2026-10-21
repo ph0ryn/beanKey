@@ -101,6 +101,53 @@ in
       touch "$out"
     '';
 
+  third-party-notices =
+    let
+      components = builtins.removeAttrs self.packages.${system} [ "default" ];
+      noticeFor =
+        name:
+        if name == "fcitx5-addon" then
+          {
+            source = ../fcitx5/THIRD_PARTY_NOTICES.txt;
+            directory = "beankey/fcitx5";
+          }
+        else if name == "macos-input-method" then
+          {
+            source = ../macos/THIRD_PARTY_NOTICES.txt;
+            directory = "beankey/macos";
+          }
+        else
+          {
+            source = ../THIRD_PARTY_NOTICES.txt;
+            directory = "beankey";
+          };
+    in
+    pkgs.runCommand "beankey-third-party-notices" { } ''
+      ${pkgs.lib.concatStringsSep "\n" (
+        pkgs.lib.mapAttrsToList (
+          name: package:
+          let
+            notice = noticeFor name;
+            directory = "${package}/share/licenses/${notice.directory}";
+          in
+          ''
+            cmp ${notice.source} '${directory}/THIRD_PARTY_NOTICES.txt'
+            ${pkgs.lib.optionalString (!(builtins.elem name assetNames)) ''
+              cmp ${../LICENSE} '${directory}/LICENSE'
+            ''}
+          ''
+        ) components
+      )}
+      ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+        resources='${
+          self.packages.${system}.macos-input-method
+        }/Library/Input Methods/beanKey.app/Contents/Resources'
+        cmp ${../macos/THIRD_PARTY_NOTICES.txt} "$resources/THIRD_PARTY_NOTICES.txt"
+        cmp ${../LICENSE} "$resources/LICENSE"
+      ''}
+      touch "$out"
+    '';
+
   daemon-bundled-llama =
     let
       daemon = self.packages.${system}.daemon;

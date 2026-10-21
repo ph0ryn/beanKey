@@ -49,7 +49,6 @@ let
       pkgs.rustPlatform.bindgenHook
     ];
     dontUseCmakeConfigure = true;
-    BEANKEY_TEST_DICTIONARY = "${assets.dictionary}/share/beankey/dictionary";
     BEANKEY_TEST_EN_US_DICTIONARY = "${pkgs.hunspellDicts.en_US}/share/hunspell/en_US";
     BEANKEY_TEST_EL_GR_DICTIONARY = "${pkgs.hunspellDicts.el_GR}/share/hunspell/el_GR";
     BEANKEY_TEST_MODEL = "${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
@@ -97,7 +96,7 @@ in
     doCheck = true;
     postInstall = ''
       mkdir -p "$out/share/beankey"
-      ln -s ${assets.dictionary}/share/beankey/dictionary "$out/share/beankey/dictionary"
+      ln -s ${../crates/converter/assets/dictionary/azookey/Dictionary} "$out/share/beankey/dictionary"
       ln -s ${../crates/converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt} "$out/share/beankey/emoji-dictionary"
       ln -s ${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf "$out/share/beankey/model"
       ln -s ${daemon.hunspellEnglish}/share/hunspell "$out/share/beankey/hunspell-english"

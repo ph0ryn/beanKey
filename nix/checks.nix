@@ -8,10 +8,7 @@
 }:
 
 let
-  assetNames = [
-    "dictionary"
-    "model"
-  ];
+  assetNames = [ "model" ];
   assetSystems = builtins.attrNames self.packages;
   referenceSystem = builtins.head assetSystems;
   sharedAssetPaths = builtins.all (
@@ -242,7 +239,7 @@ in
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
   nixos-module = pkgs.runCommand "beankey-nixos-module" { } ''
     config=${moduleConfigSource}
-    grep -F 'dictionary = "${self.packages.${system}.dictionary}/share/beankey/dictionary"' "$config"
+    grep -F 'dictionary = "${../crates/converter/assets/dictionary/azookey/Dictionary}"' "$config"
     grep -F 'model = "${self.packages.${system}.model}/share/beankey/model/ggml-model-Q5_K_M.gguf"' "$config"
     grep -F 'emoji_dictionary = "${../crates/converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt}"' "$config"
     if grep -qF 'llama_backend_directory' "$config"; then

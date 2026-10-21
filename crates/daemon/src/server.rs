@@ -482,6 +482,11 @@ mod tests {
 
     use super::*;
 
+    fn dictionary_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../converter/assets/dictionary/azookey/Dictionary")
+    }
+
     struct BlockingModel {
         entered: std::sync::mpsc::Sender<()>,
         release: std::sync::mpsc::Receiver<()>,
@@ -571,7 +576,7 @@ mod tests {
         let active = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let template = Engine::open_with_zenz_model(
-            PathBuf::from(std::env::var_os("BEANKEY_TEST_DICTIONARY").unwrap()),
+            dictionary_root(),
             Box::new(BlockingModel {
                 entered: entered_tx,
                 release: release_rx,
@@ -677,7 +682,7 @@ mod tests {
         let (entered, _) = std::sync::mpsc::channel();
         let (_, release) = std::sync::mpsc::channel();
         let mut engine = Engine::open_with_zenz_model(
-            PathBuf::from(std::env::var_os("BEANKEY_TEST_DICTIONARY").unwrap()),
+            dictionary_root(),
             Box::new(BlockingModel {
                 entered,
                 release,
@@ -711,10 +716,7 @@ mod tests {
     fn malformed_frame_closes_only_its_connection() {
         use std::io::{Read, Write};
 
-        let template = Engine::open(PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY").unwrap(),
-        ))
-        .unwrap();
+        let template = Engine::open(dictionary_root()).unwrap();
         let (mut bad, server_bad) = UnixStream::pair().unwrap();
         let (mut healthy, server_healthy) = UnixStream::pair().unwrap();
         bad.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -815,11 +817,7 @@ mod tests {
     #[test]
     fn rejects_socket_paths_outside_the_canonical_runtime_location() {
         let root = TempDir::new().unwrap();
-        let engine = Engine::open(PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        ))
-        .unwrap();
+        let engine = Engine::open(dictionary_root()).unwrap();
         assert!(matches!(
             DaemonServer::bind(engine, root.path(), "../daemon.sock"),
             Err(ServerError::InvalidSocketPath)

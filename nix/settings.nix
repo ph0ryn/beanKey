@@ -143,7 +143,7 @@ let
   };
 
   configFile = (pkgs.formats.toml { }).generate "beankey-config.toml" {
-    dictionary = "${packages.dictionary}/share/beankey/dictionary";
+    dictionary = "${../crates/converter/assets/dictionary/azookey/Dictionary}";
     model = "${packages.model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
     emoji_dictionary = "${
       ../crates/converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt

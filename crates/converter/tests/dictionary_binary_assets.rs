@@ -4,10 +4,7 @@ use std::path::PathBuf;
 use beankey_converter::{MeaningMatrix, parse_connection_cost_line};
 
 fn dictionary_root() -> PathBuf {
-    PathBuf::from(
-        std::env::var_os("BEANKEY_TEST_DICTIONARY")
-            .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-    )
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookey/Dictionary")
 }
 
 #[test]

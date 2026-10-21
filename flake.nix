@@ -29,10 +29,7 @@
         system:
         import ./nix/dev-shell.nix {
           pkgs = pkgsFor system;
-          inherit (self.packages.${system})
-            dictionary
-            model
-            ;
+          inherit (self.packages.${system}) model;
         };
     in
     {

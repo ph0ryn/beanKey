@@ -2567,6 +2567,11 @@ mod tests {
 
     use super::*;
 
+    fn dictionary_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../converter/assets/dictionary/azookey/Dictionary")
+    }
+
     struct GreekCompleter;
 
     struct PredictionCapacityModel {
@@ -2635,7 +2640,7 @@ mod tests {
     fn prediction_capacity_discards_partial_neural_cache_and_retries() {
         for fail_review in [false, true] {
             let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-            let dictionary = PathBuf::from(std::env::var_os("BEANKEY_TEST_DICTIONARY").unwrap());
+            let dictionary = dictionary_root();
             let mut engine = Engine::open_with_zenz_model(
                 dictionary,
                 Box::new(PredictionCapacityModel {
@@ -2751,7 +2756,7 @@ mod tests {
         let failure = Arc::new(AtomicU8::new(0));
         let calls = Arc::new(AtomicUsize::new(0));
         let mut engine = Engine::open_with_zenz_model(
-            PathBuf::from(std::env::var_os("BEANKEY_TEST_DICTIONARY").unwrap()),
+            dictionary_root(),
             Box::new(TypoFailureModel {
                 failure: Arc::clone(&failure),
                 calls: Arc::clone(&calls),
@@ -2945,10 +2950,7 @@ mod tests {
 
     #[test]
     fn tab_keeps_the_accepted_prediction_in_following_zenz_candidates() {
-        let dictionary = PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        );
+        let dictionary = dictionary_root();
         let mut engine =
             Engine::open_with_zenz_model(dictionary, Box::new(LivePrefixModel)).unwrap();
         engine.zenz_inference_limit = 0;
@@ -3035,10 +3037,7 @@ mod tests {
 
     #[test]
     fn uses_the_finalized_zenz_result_for_live_conversion() {
-        let dictionary = PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        );
+        let dictionary = dictionary_root();
         let mut engine =
             Engine::open_with_zenz_model(dictionary, Box::new(LivePrefixModel)).unwrap();
         engine.live_conversion = true;
@@ -3077,10 +3076,7 @@ mod tests {
 
     #[test]
     fn learns_a_live_candidate_committed_with_enter() {
-        let dictionary = PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        );
+        let dictionary = dictionary_root();
         let learning_directory = tempfile::tempdir().unwrap();
         let mut engine =
             Engine::open_with_zenz_model(dictionary, Box::new(LivePrefixModel)).unwrap();
@@ -3132,10 +3128,7 @@ mod tests {
 
     #[test]
     fn distinguishes_read_only_learning_management_from_candidate_forgetting() {
-        let dictionary = PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        );
+        let dictionary = dictionary_root();
         let state = tempfile::tempdir().unwrap();
         let mut engine = Engine::open(dictionary).unwrap();
         engine
@@ -3169,10 +3162,7 @@ mod tests {
 
     #[test]
     fn uses_the_configured_keyboard_language_for_unspecified_sessions() {
-        let dictionary = PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        );
+        let dictionary = dictionary_root();
         let mut engine = Engine::open(dictionary).unwrap();
         engine.foreign_completion_provider = Some(Arc::new(GreekCompleter));
         engine
@@ -3299,10 +3289,7 @@ mod tests {
 
     #[test]
     fn applies_static_zenz_configuration() {
-        let dictionary = PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        );
+        let dictionary = dictionary_root();
         let mut engine = Engine::open(dictionary).unwrap();
         engine.apply_zenz_options(&crate::ZenzConfig {
             inference_limit: 7,
@@ -3334,10 +3321,7 @@ mod tests {
 
     #[test]
     fn loads_fixed_format_personalization_models() {
-        let dictionary = PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        );
+        let dictionary = dictionary_root();
         let ngram = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter/tests/data/ngram");
         let mut engine = Engine::open(dictionary).unwrap();
         let config = crate::ZenzConfig {
@@ -3356,10 +3340,7 @@ mod tests {
 
     #[test]
     fn returns_lm_typo_candidates_without_mutating_composition() {
-        let dictionary = PathBuf::from(
-            std::env::var_os("BEANKEY_TEST_DICTIONARY")
-                .expect("BEANKEY_TEST_DICTIONARY must be set by the Nix test environment"),
-        );
+        let dictionary = dictionary_root();
         let ngram =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter/tests/data/ngram/lm");
         let tokenizer = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -135,10 +135,122 @@ fn tokenizes_with_the_fixed_upstream_zenz_asset() {
     let tokenizer_path = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
         .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
     let tokenizer = ZenzTokenizer::open(tokenizer_path).unwrap();
-    let tokens = tokenizer.encode("これは日本語です").unwrap();
+    // Golden IDs and decoded text were captured with tokenizers 0.23.1 + onig.
+    // The fixed asset drops ASCII spaces/CR/LF; decode is not a text roundtrip.
+    let cases: &[(&str, &[i32], &str)] = &[
+        ("", &[], ""),
+        (
+            "これは日本語です",
+            &[268, 262, 253, 304, 358, 698, 246, 255],
+            "これは日本語です",
+        ),
+        (
+            " leading  spaces\tand\nnewlines\r\n ",
+            &[
+                79, 72, 68, 71, 76, 81, 74, 86, 83, 68, 70, 72, 86, 185, 68, 81, 71, 81, 72, 90,
+                79, 76, 81, 72, 86,
+            ],
+            "leadingspaces\tandnewlines",
+        ),
+        (
+            " \t\r\n\u{a0}\u{3000}",
+            &[185, 2577, 567],
+            "\t\u{a0}\u{3000}",
+        ),
+        (
+            "we're I've I'll I'd don't it's I'M WE'RE",
+            &[
+                90, 72, 10, 85, 72, 44, 10, 89, 72, 44, 10, 79, 79, 44, 10, 71, 71, 82, 81, 10, 87,
+                76, 87, 10, 86, 44, 10, 48, 58, 40, 10, 53, 40,
+            ],
+            "we'reI'veI'llI'ddon'tit'sI'MWE'RE",
+        ),
+        (
+            "ASCII\u{3000}SPACE",
+            &[36, 54, 38, 44, 44, 567, 54, 51, 36, 38, 40],
+            "ASCII\u{3000}SPACE",
+        ),
+        (
+            "漢字かなカナabc123 １２３ Ελληνικά",
+            &[
+                1922, 1112, 260, 252, 350, 434, 68, 69, 70, 20, 21, 22, 678, 768, 958, 140, 223,
+                4178, 4178, 4912, 4590, 4978, 4010, 140, 109,
+            ],
+            "漢字かなカナabc123１２３Ελληνικά",
+        ),
+        (
+            "é e\u{301} が か\u{3099} ｶﾞ",
+            &[2478, 72, 4095, 254, 260, 2079, 2813, 1963],
+            "ée\u{301}がか\u{3099}ｶﾞ",
+        ),
+        (
+            "👩‍💻🇯🇵👍🏽、。！？",
+            &[
+                3470, 106, 3825, 2913, 123, 4786, 111, 4786, 117, 4412, 3956, 125, 241, 248, 469,
+                608,
+            ],
+            "👩‍💻🇯🇵👍🏽、。！？",
+        ),
+        (
+            "\u{ee00}ハシ\u{ee01}箸",
+            &[172, 120, 202, 623, 330, 172, 120, 203, 2993],
+            "\u{ee00}ハシ\u{ee01}箸",
+        ),
+        (
+            "\u{ee02}前文脈\u{ee00}カンジ\u{ee01}漢字",
+            &[
+                172, 120, 204, 480, 679, 2121, 172, 120, 202, 350, 259, 354, 172, 120, 203, 1922,
+                1112,
+            ],
+            "\u{ee02}前文脈\u{ee00}カンジ\u{ee01}漢字",
+        ),
+        ("a\0b\u{1f}c", &[68, 177, 69, 200, 70], "a\0b\u{1f}c"),
+        (
+            "<s>日本語</s>[PAD][UNK]",
+            &[2, 304, 358, 698, 3, 1, 0],
+            "日本語",
+        ),
+        (
+            "これは  日本語\tです\n漢字\r\nかな\u{85}\u{2028}終",
+            &[
+                268, 262, 253, 304, 358, 698, 185, 246, 255, 1922, 1112, 260, 252, 128, 207, 5434,
+                831,
+            ],
+            "これは日本語\tです漢字かな\u{85}\u{2028}終",
+        ),
+        ("² Ⅳ ٣", &[3769, 4185, 151, 100], "²Ⅳ٣"),
+        (
+            "か\u{3099}☀️’s",
+            &[260, 2079, 4628, 2640, 2289, 86],
+            "か\u{3099}☀️’s",
+        ),
+    ];
+    for (input, expected_tokens, expected_text) in cases {
+        let tokens = tokenizer.encode(input).unwrap();
+        assert_eq!(&tokens, expected_tokens, "token IDs for {input:?}");
+        assert_eq!(
+            tokenizer.decode(&tokens).unwrap(),
+            *expected_text,
+            "decoded text for {input:?}"
+        );
+    }
+}
 
-    assert_eq!(tokens, [268, 262, 253, 304, 358, 698, 246, 255]);
-    assert_eq!(tokenizer.decode(&tokens).unwrap(), "これは日本語です");
+#[test]
+fn preserves_fixed_token_ids_across_long_whitespace_and_text_runs() {
+    let tokenizer_path = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
+        .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
+    let tokenizer = ZenzTokenizer::open(tokenizer_path).unwrap();
+    let text = "これは日本語です";
+    let expected_tokens = [268, 262, 253, 304, 358, 698, 246, 255];
+
+    // Exercise the ByteLevel regex's whitespace lookahead before text and at EOF.
+    let padded = format!("{}{text}{}", " ".repeat(16_384), " ".repeat(16_384));
+    assert_eq!(tokenizer.encode(&padded).unwrap(), expected_tokens);
+    let repeated = format!("{text} ").repeat(1_024);
+    let tokens = tokenizer.encode(&repeated).unwrap();
+    assert_eq!(tokens, expected_tokens.repeat(1_024));
+    assert_eq!(tokenizer.decode(&tokens).unwrap(), text.repeat(1_024));
 }
 
 #[test]

@@ -12,7 +12,6 @@ let
     "dictionary"
     "emoji"
     "model"
-    "tokenizer"
   ];
   assetSystems = builtins.attrNames self.packages;
   referenceSystem = builtins.head assetSystems;

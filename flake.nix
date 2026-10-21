@@ -32,7 +32,6 @@
             dictionary
             emoji
             model
-            tokenizer
             ;
         };
     in

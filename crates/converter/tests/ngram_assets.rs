@@ -9,6 +9,10 @@ fn fixture_prefix() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/ngram/lm")
 }
 
+fn tokenizer_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/tokenizer/tokenizer.json")
+}
+
 #[test]
 fn predicts_with_fixed_marisa_count_tries() {
     let model = EfficientNGram::open(fixture_prefix(), 2, 0.75).unwrap();
@@ -132,9 +136,7 @@ fn rejects_nul_in_the_prefix_with_the_invalid_trie_path() {
 
 #[test]
 fn tokenizes_with_the_fixed_upstream_zenz_asset() {
-    let tokenizer_path = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
-        .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
-    let tokenizer = ZenzTokenizer::open(tokenizer_path).unwrap();
+    let tokenizer = ZenzTokenizer::open(tokenizer_path()).unwrap();
     // Golden IDs and decoded text were captured with tokenizers 0.23.1 + onig.
     // The fixed asset drops ASCII spaces/CR/LF; decode is not a text roundtrip.
     let cases: &[(&str, &[i32], &str)] = &[
@@ -238,9 +240,7 @@ fn tokenizes_with_the_fixed_upstream_zenz_asset() {
 
 #[test]
 fn preserves_fixed_token_ids_across_long_whitespace_and_text_runs() {
-    let tokenizer_path = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
-        .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
-    let tokenizer = ZenzTokenizer::open(tokenizer_path).unwrap();
+    let tokenizer = ZenzTokenizer::open(tokenizer_path()).unwrap();
     let text = "これは日本語です";
     let expected_tokens = [268, 262, 253, 304, 358, 698, 246, 255];
 
@@ -255,9 +255,7 @@ fn preserves_fixed_token_ids_across_long_whitespace_and_text_runs() {
 
 #[test]
 fn exposes_ngram_probabilities_through_the_typo_language_model_boundary() {
-    let tokenizer_path = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
-        .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to the fixed tokenizer.json");
-    let mut model = NGramLanguageModel::open(fixture_prefix(), tokenizer_path, 2, 0.75).unwrap();
+    let mut model = NGramLanguageModel::open(fixture_prefix(), tokenizer_path(), 2, 0.75).unwrap();
     let logits = model.next_logits(&[10]).unwrap();
 
     assert_eq!(logits.len(), 6_000);

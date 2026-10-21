@@ -138,7 +138,7 @@ let
     ngram = {
       inherit (cfg.lmTypo.ngram) discount n;
       prefix = cfg.lmTypo.ngram.prefix;
-      tokenizer = "${packages.tokenizer}/share/beankey/tokenizer/tokenizer.json";
+      tokenizer = "${../crates/converter/assets/tokenizer/tokenizer.json}";
     };
   };
 

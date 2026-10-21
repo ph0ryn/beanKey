@@ -178,7 +178,8 @@ fn fixed_model_capacity_falls_back_without_losing_input_and_recovers() {
 #[test]
 fn fixed_llama_tokenizer_matches_the_upstream_tokenizer_asset() {
     let model_path = required_environment("BEANKEY_TEST_MODEL");
-    let tokenizer_path = required_environment("BEANKEY_TEST_ZENZ_TOKENIZER");
+    let tokenizer_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../converter/assets/tokenizer/tokenizer.json");
     let context = LlamaContext::load(model_path).unwrap();
     let tokenizer = ZenzTokenizer::open(tokenizer_path).unwrap();
 

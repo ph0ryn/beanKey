@@ -13,19 +13,13 @@ let
     rev = "67b822603391b01238d7b80b8b61b63f966cf357";
     hash = "sha256-5Ebm94/W/21lrjMprdwbd6cfaavTaXZGH3WxV9OLt5M=";
   };
-  beanKeyUpstream = pkgs.fetchFromGitHub {
-    owner = "azooKey";
-    repo = "AzooKeyKanaKanjiConverter";
-    rev = "93766c46e31fa6a18b7ced49dab31337780f6f45";
-    hash = "sha256-euGFHvSc0MfXpXg+0GdwgLpCbV9NmM8B/e/wHsKrXDE=";
-  };
 in
 {
   dictionary =
     pkgs.runCommand "beankey-dictionary"
       {
         meta.license = pkgs.lib.licenses.asl20;
-        outputHash = "sha256-fW9LETdeXE3UNBj/DNs4OW3FWA1XX9ERFUx+BissgXI=";
+        outputHash = "sha256-cMSXNHvRl58tau39LeliKEsIH7gcv+mVdB1AiIU2s9g=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }
@@ -44,7 +38,7 @@ in
           unicode-30
           mit
         ];
-        outputHash = "sha256-n+7lYbVF8OgW+8/gD1AdYdWXciYTxcat/uSdx+JB+IU=";
+        outputHash = "sha256-bUe3Vdam1/dbWYCzUaJuSVZ80dGuKKp75bsY8BwNbpc=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }
@@ -65,7 +59,7 @@ in
     pkgs.runCommand "beankey-zenz-v3.2-small-gguf"
       {
         meta.license = pkgs.lib.licenses.asl20;
-        outputHash = "sha256-clxRi/dxIGD/q6zOlTfYhQNFQ6wbXB2k4b5BXTgO0mg=";
+        outputHash = "sha256-i+n59zvclsiKaN6dcVILHwnFCHiXONuXO1RQ6tisiBg=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }
@@ -73,21 +67,6 @@ in
         mkdir -p "$out/share/beankey/model"
         cp ${source} \
           "$out/share/beankey/model/ggml-model-Q5_K_M.gguf"
-        install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
-      '';
-
-  tokenizer =
-    pkgs.runCommand "beankey-zenz-tokenizer"
-      {
-        meta.license = pkgs.lib.licenses.cc-by-sa-40;
-        outputHash = "sha256-UXEdVUGjFz9R77+Q+r3gqaPFbREQJVanRxCP2dGqUNI=";
-        outputHashAlgo = "sha256";
-        outputHashMode = "recursive";
-      }
-      ''
-        mkdir -p "$out/share/beankey/tokenizer"
-        cp -r ${beanKeyUpstream}/Sources/EfficientNGram/tokenizer/. \
-          "$out/share/beankey/tokenizer/"
         install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
       '';
 }

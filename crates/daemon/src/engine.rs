@@ -3362,8 +3362,8 @@ mod tests {
         );
         let ngram =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter/tests/data/ngram/lm");
-        let tokenizer = std::env::var_os("BEANKEY_TEST_ZENZ_TOKENIZER")
-            .expect("BEANKEY_TEST_ZENZ_TOKENIZER must point to tokenizer.json");
+        let tokenizer = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../converter/assets/tokenizer/tokenizer.json");
         let mut engine = Engine::open(dictionary).unwrap();
         engine
             .load_lm_typo(&crate::LmTypoCorrectionConfig {
@@ -3371,7 +3371,7 @@ mod tests {
                 language_model: crate::LmTypoLanguageModel::Ngram,
                 ngram: Some(crate::TypoNGramConfig {
                     prefix: ngram,
-                    tokenizer: tokenizer.into(),
+                    tokenizer,
                     n: 2,
                     discount: 0.75,
                 }),

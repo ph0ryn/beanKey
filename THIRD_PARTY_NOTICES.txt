@@ -258,11 +258,12 @@ Upstream LICENSE and NOTICE: none at the fixed revision.
 
 Source URL:
   https://github.com/azooKey/AzooKeyKanaKanjiConverter/tree/93766c46e31fa6a18b7ced49dab31337780f6f45/Sources/EfficientNGram/tokenizer
-Fetched source SHA-256 (Nix recursive/SRI):
-  sha256-euGFHvSc0MfXpXg+0GdwgLpCbV9NmM8B/e/wHsKrXDE=
-Packaged content: Sources/EfficientNGram/tokenizer/ from the fixed source,
-including README.md, config.json, merges.txt, special_tokens_map.json,
-tokenizer.json, tokenizer_config.json and vocab.json.
+Source file URL:
+  https://raw.githubusercontent.com/azooKey/AzooKeyKanaKanjiConverter/93766c46e31fa6a18b7ced49dab31337780f6f45/Sources/EfficientNGram/tokenizer/tokenizer.json
+Vendored file: crates/converter/assets/tokenizer/tokenizer.json
+File SHA-256 (flat/hex):
+  08de8e713ef76c7fa69e7984f92ff9f9d7a81ff34bf8167fe96bb9319cf0f348
+Packaged content: the vendored tokenizer.json, copied without modification.
 Original distribution URL: https://huggingface.co/ku-nlp/gpt2-small-japanese-char
 
 License evidence: the tokenizer README at the fixed azooKey revision identifies

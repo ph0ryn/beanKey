@@ -30,7 +30,10 @@ let
       "crates"
       "proto"
     ];
-    cargoLock.lockFile = ../Cargo.lock;
+    cargoLock = {
+      lockFile = ../Cargo.lock;
+      allowBuiltinFetchGit = true;
+    };
     cargoBuildFlags = [
       "--package"
       "beankey-daemon"
@@ -45,7 +48,6 @@ let
       pkgs.protobuf
       pkgs.rustPlatform.bindgenHook
     ];
-    buildInputs = [ pkgs.marisa ];
     dontUseCmakeConfigure = true;
     BEANKEY_TEST_DICTIONARY = "${assets.dictionary}/share/beankey/dictionary";
     BEANKEY_TEST_EMOJI_DICTIONARY = "${assets.emoji}/share/beankey/emoji/emoji_all_E17.0.txt";

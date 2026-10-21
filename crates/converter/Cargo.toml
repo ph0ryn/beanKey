@@ -15,14 +15,11 @@ icu_calendar.workspace = true
 icu_datetime.workspace = true
 icu_locale.workspace = true
 rand.workspace = true
+rsmarisa = { git = "https://github.com/ph0ryn/rsmarisa", rev = "2dd48bcf4f8a68aeb60323bb4e1f0e1d6521c5bc", default-features = false }
 spellbook = "0.4.2"
 tokenizers.workspace = true
 unicode-segmentation.workspace = true
 writeable.workspace = true
-
-[build-dependencies]
-cc = "1.4.3"
-pkg-config = "0.3.32"
 
 [dev-dependencies]
 tempfile = "3.27.0"

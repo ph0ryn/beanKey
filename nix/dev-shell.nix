@@ -28,10 +28,7 @@ in
 
   shell = pkgs.mkShell {
     inherit packages;
-    buildInputs = [
-      pkgs.marisa
-    ]
-    ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.fcitx5 ];
+    buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.fcitx5 ];
     RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
     BEANKEY_TEST_DICTIONARY = "${dictionary}/share/beankey/dictionary";
     BEANKEY_TEST_EMOJI_DICTIONARY = "${emoji}/share/beankey/emoji/emoji_all_E17.0.txt";

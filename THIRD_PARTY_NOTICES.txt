@@ -2,10 +2,10 @@ beanKey THIRD-PARTY NOTICES
 ==========================
 
 This file preserves the third-party attribution and license texts for the
-components previously covered by beanKey's asset and bundled-llama notices.
-It covers the directly packaged dictionary, emoji dictionary, GGUF model and
-tokenizer data, plus llama-cpp-sys-2 and its bundled llama.cpp. It is not an
-inventory of all Cargo dependencies or system packages. beanKey's own license
+components documented below. It covers the directly packaged dictionary,
+emoji dictionary, GGUF model and tokenizer data, plus llama-cpp-sys-2, its
+bundled llama.cpp and rsmarisa. It is not an inventory of all Cargo dependencies
+or system packages. beanKey's own license
 is provided separately in LICENSE.
 
 Component sections identify the fixed sources, modifications and supporting
@@ -23,6 +23,7 @@ Contents
 4. azooKey emoji dictionary and upstream data attribution
 5. zenz-v3.2-small GGUF model
 6. EfficientNGram tokenizer data
+7. rsmarisa
 Appendix A. llama-cpp-sys-2 MIT license
 Appendix B. Bundled llama.cpp MIT license (also referenced by YaRN notice)
 Appendix C. azooKey MIT license for additional emoji data
@@ -31,6 +32,7 @@ Appendix E. Unicode License V3
 Appendix F1. azooKey dictionary Apache License 2.0
 Appendix F2. Apache License 2.0 supplied with the GGUF model
 Appendix G. Creative Commons Attribution-ShareAlike 4.0 International
+Appendix H. rsmarisa BSD 2-Clause license
 
 
 1. llama-cpp-sys-2
@@ -290,6 +292,23 @@ Original tokenizer README.md, reproduced verbatim:
 
 This tokenizer data is from [ku-nlp/gpt2-small-japanese-char](https://huggingface.co/ku-nlp/gpt2-small-japanese-char), following CC BY-SA 4.0 License.
 ----- END UPSTREAM TOKENIZER README -----
+
+
+7. rsmarisa
+===========
+
+Component: rsmarisa 0.4.2
+Source: https://github.com/ph0ryn/rsmarisa
+Fixed revision: 2dd48bcf4f8a68aeb60323bb4e1f0e1d6521c5bc
+Upstream: https://github.com/tokuhirom/rsmarisa
+Original MARISA project: https://github.com/s-yata/marisa-trie
+License: BSD 2-Clause; full text in Appendix H.
+License source:
+  https://raw.githubusercontent.com/ph0ryn/rsmarisa/2dd48bcf4f8a68aeb60323bb4e1f0e1d6521c5bc/LICENSE
+
+beanKey builds this fixed fork revision without further patches and with its
+optional file-backed mmap feature disabled. It uses safe owned dictionary
+loading and predictive search instead of the native MARISA library.
 
 
 FULL LICENSE TEXTS
@@ -1389,3 +1408,37 @@ the avoidance of doubt, this paragraph does not form part of the
 public licenses.
 
 Creative Commons may be contacted at creativecommons.org.
+
+
+Appendix H. rsmarisa BSD 2-Clause license
+=======================================
+
+BSD 2-Clause License
+
+Copyright (c) 2026, rust-marisa contributors
+Copyright (c) 2010-2025, Susumu Yata (original marisa-trie)
+
+All rights reserved.
+
+This is a Rust port of marisa-trie (https://github.com/s-yata/marisa-trie).
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

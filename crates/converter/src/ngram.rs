@@ -1,9 +1,8 @@
 use std::error::Error;
-use std::ffi::{CString, c_char, c_void};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::ptr::NonNull;
 
+use rsmarisa::{Agent, Trie};
 use tokenizers::Tokenizer;
 
 use crate::{TokenProbabilityModel, ZenzInferenceError, ZenzLanguageModel};
@@ -318,21 +317,20 @@ fn with_suffix(prefix: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(value)
 }
 
-struct MarisaTrie(NonNull<BeanKeyMarisaTrie>);
+struct MarisaTrie(Trie);
 
 impl MarisaTrie {
     fn load(path: PathBuf) -> Result<Self, NGramError> {
         let path_string = path
             .to_str()
             .ok_or_else(|| NGramError::InvalidPath(path.clone()))?;
-        let path_c =
-            CString::new(path_string).map_err(|_| NGramError::InvalidPath(path.clone()))?;
-        // SAFETY: path_c is a valid null-terminated string for the duration of the call. The C++
-        // boundary catches exceptions and returns null on failure.
-        let trie = unsafe { beankey_marisa_load(path_c.as_ptr()) };
-        NonNull::new(trie)
-            .map(Self)
-            .ok_or(NGramError::LoadTrie(path))
+        if path_string.contains('\0') {
+            return Err(NGramError::InvalidPath(path));
+        }
+        let mut trie = Trie::new();
+        trie.load(path_string)
+            .map_err(|_| NGramError::LoadTrie(path))?;
+        Ok(Self(trie))
     }
 
     fn get_value(&self, key: &[usize]) -> Result<Option<u32>, NGramError> {
@@ -366,49 +364,14 @@ impl MarisaTrie {
     }
 
     fn search(&self, query: &[u8]) -> Result<Vec<Vec<u8>>, NGramError> {
-        unsafe extern "C" fn collect(value: *const u8, size: usize, context: *mut c_void) -> bool {
-            if value.is_null() && size != 0 {
-                return false;
-            }
-            // SAFETY: search passes the address of the live output Vec as context, and Marisa
-            // keeps the key bytes valid for the duration of this callback.
-            let output = unsafe { &mut *context.cast::<Vec<Vec<u8>>>() };
-            if size == 0 {
-                output.push(Vec::new());
-            } else {
-                // SAFETY: The callback contract supplies size readable bytes and value is non-null.
-                let value = unsafe { std::slice::from_raw_parts(value, size) };
-                output.push(value.to_vec());
-            }
-            true
+        let mut agent = Agent::new();
+        agent.set_query_bytes(query);
+        agent.init_state().map_err(|_| NGramError::SearchTrie)?;
+        let mut output = Vec::new();
+        while self.0.predictive_search(&mut agent) {
+            output.push(agent.key().as_bytes().to_vec());
         }
-
-        let mut output = Vec::<Vec<u8>>::new();
-        // SAFETY: self owns a live read-only trie, query remains valid for the call, collect obeys
-        // the callback ABI, and output remains live and exclusively borrowed through context.
-        let succeeded = unsafe {
-            beankey_marisa_predictive_search(
-                self.0.as_ptr(),
-                query.as_ptr(),
-                query.len(),
-                collect,
-                (&mut output as *mut Vec<Vec<u8>>).cast(),
-            )
-        };
-        succeeded.then_some(output).ok_or(NGramError::SearchTrie)
-    }
-}
-
-// SAFETY: A loaded Marisa trie is immutable. Each search creates its own Agent in the C++ shim,
-// and destruction happens only after the last Rust owner is dropped.
-unsafe impl Send for MarisaTrie {}
-// SAFETY: See the Send implementation; concurrent searches do not mutate the trie.
-unsafe impl Sync for MarisaTrie {}
-
-impl Drop for MarisaTrie {
-    fn drop(&mut self) {
-        // SAFETY: The pointer was returned by beankey_marisa_load and is freed exactly once.
-        unsafe { beankey_marisa_free(self.0.as_ptr()) };
+        Ok(output)
     }
 }
 
@@ -443,25 +406,6 @@ fn decode_value(value: &[u8]) -> Result<u32, NGramError> {
             .ok_or(NGramError::CountOverflow)?;
     }
     Ok(decoded)
-}
-
-#[repr(C)]
-struct BeanKeyMarisaTrie {
-    _private: [u8; 0],
-}
-
-type MarisaVisitor = unsafe extern "C" fn(*const u8, usize, *mut c_void) -> bool;
-
-unsafe extern "C" {
-    fn beankey_marisa_load(path: *const c_char) -> *mut BeanKeyMarisaTrie;
-    fn beankey_marisa_free(trie: *mut BeanKeyMarisaTrie);
-    fn beankey_marisa_predictive_search(
-        trie: *const BeanKeyMarisaTrie,
-        query: *const u8,
-        query_size: usize,
-        visitor: MarisaVisitor,
-        visitor_context: *mut c_void,
-    ) -> bool;
 }
 
 #[cfg(test)]

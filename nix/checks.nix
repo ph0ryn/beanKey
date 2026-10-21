@@ -239,9 +239,9 @@ in
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
   nixos-module = pkgs.runCommand "beankey-nixos-module" { } ''
     config=${moduleConfigSource}
-    grep -F 'dictionary = "${../crates/converter/assets/dictionary/azookey/Dictionary}"' "$config"
+    grep -F 'dictionary = "${../crates/converter/assets/dictionary/azookeyKanaKanji/Dictionary}"' "$config"
     grep -F 'model = "${self.packages.${system}.model}/share/beankey/model/ggml-model-Q5_K_M.gguf"' "$config"
-    grep -F 'emoji_dictionary = "${../crates/converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt}"' "$config"
+    grep -F 'emoji_dictionary = "${../crates/converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt}"' "$config"
     if grep -qF 'llama_backend_directory' "$config"; then
       echo 'generated config retains the removed backend setting' >&2
       exit 1

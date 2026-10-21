@@ -7,7 +7,7 @@ use beankey_converter::{
 };
 
 fn dictionary_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookey/Dictionary")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookeyKanaKanji/Dictionary")
 }
 
 fn user_dictionary_root() -> PathBuf {

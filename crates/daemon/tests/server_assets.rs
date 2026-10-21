@@ -13,7 +13,7 @@ use tempfile::TempDir;
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../converter/assets/dictionary/azookey/Dictionary")
+        .join("../converter/assets/dictionary/azookeyKanaKanji/Dictionary")
 }
 
 fn envelope(request_id: u64, payload: Payload) -> protocol::Envelope {

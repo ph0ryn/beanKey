@@ -59,9 +59,9 @@ assert
   );
 pkgs.runCommand "beankey-home-module" { } (
   ''
-    grep -F 'dictionary = "${../crates/converter/assets/dictionary/azookey/Dictionary}"' ${configFile}
+    grep -F 'dictionary = "${../crates/converter/assets/dictionary/azookeyKanaKanji/Dictionary}"' ${configFile}
     grep -F 'model = "${packages.model}/share/beankey/model/ggml-model-Q5_K_M.gguf"' ${configFile}
-    grep -F 'emoji_dictionary = "${../crates/converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt}"' ${configFile}
+    grep -F 'emoji_dictionary = "${../crates/converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt}"' ${configFile}
     grep -F 'type_half_space = true' ${configFile}
     if grep -qF 'llama_backend_directory' ${configFile}; then
       echo 'generated config retains the removed backend setting' >&2

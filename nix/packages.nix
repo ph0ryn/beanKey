@@ -96,8 +96,8 @@ in
     doCheck = true;
     postInstall = ''
       mkdir -p "$out/share/beankey"
-      ln -s ${../crates/converter/assets/dictionary/azookey/Dictionary} "$out/share/beankey/dictionary"
-      ln -s ${../crates/converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt} "$out/share/beankey/emoji-dictionary"
+      ln -s ${../crates/converter/assets/dictionary/azookeyKanaKanji/Dictionary} "$out/share/beankey/dictionary"
+      ln -s ${../crates/converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt} "$out/share/beankey/emoji-dictionary"
       ln -s ${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf "$out/share/beankey/model"
       ln -s ${daemon.hunspellEnglish}/share/hunspell "$out/share/beankey/hunspell-english"
       ln -s ${daemon.hunspellGreek}/share/hunspell "$out/share/beankey/hunspell-greek"

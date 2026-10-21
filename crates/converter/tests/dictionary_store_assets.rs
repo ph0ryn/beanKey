@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use beankey_converter::DictionaryStore;
 
 fn dictionary_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookey/Dictionary")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookeyKanaKanji/Dictionary")
 }
 
 #[test]

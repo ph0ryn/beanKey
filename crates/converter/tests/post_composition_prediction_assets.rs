@@ -6,12 +6,12 @@ use beankey_converter::{
 };
 
 fn dictionary_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookey/Dictionary")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookeyKanaKanji/Dictionary")
 }
 
 fn emoji_dictionary_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt")
+        .join("assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt")
 }
 
 #[test]

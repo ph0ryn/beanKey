@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use beankey_converter::{CharacterIdMap, Louds, escaped_identifier, parse_entry_shard};
 
 fn dictionary_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookey/Dictionary")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/dictionary/azookeyKanaKanji/Dictionary")
 }
 
 #[test]

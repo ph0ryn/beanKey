@@ -13,12 +13,12 @@ use tempfile::TempDir;
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../converter/assets/dictionary/azookey/Dictionary")
+        .join("../converter/assets/dictionary/azookeyKanaKanji/Dictionary")
 }
 
 fn emoji_dictionary_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt")
+        .join("../converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt")
 }
 
 fn envelope(request_id: u64, payload: Payload) -> protocol::Envelope {

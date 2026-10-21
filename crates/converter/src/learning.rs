@@ -868,7 +868,7 @@ mod tests {
 
     fn character_ids() -> CharacterIdMap {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("assets/dictionary/azookey/Dictionary/louds/charID.chid");
+            .join("assets/dictionary/azookeyKanaKanji/Dictionary/louds/charID.chid");
         CharacterIdMap::parse(&fs::read_to_string(path).unwrap()).unwrap()
     }
 

@@ -1,6 +1,6 @@
-[submodule "crates/converter/assets/dictionary/emoji"]
-	path = crates/converter/assets/dictionary/emoji
+[submodule "crates/converter/assets/dictionary/azookeyEmoji"]
+	path = crates/converter/assets/dictionary/azookeyEmoji
 	url = https://github.com/azooKey/azooKey_emoji_dictionary_storage.git
-[submodule "crates/converter/assets/dictionary/azookey"]
-	path = crates/converter/assets/dictionary/azookey
+[submodule "crates/converter/assets/dictionary/azookeyKanaKanji"]
+	path = crates/converter/assets/dictionary/azookeyKanaKanji
 	url = https://github.com/azooKey/azooKey_dictionary_storage.git

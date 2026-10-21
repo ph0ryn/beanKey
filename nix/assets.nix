@@ -7,12 +7,6 @@ let
     rev = "4d418525b090cf49c219819d05a7e3cc2a4346eb";
     hash = "sha256-CsJ9kODrCOtMnMd/5I4A52enoSOyJlioC1i6azOd1Pk=";
   };
-  emojiSource = pkgs.fetchFromGitHub {
-    owner = "azooKey";
-    repo = "azooKey_emoji_dictionary_storage";
-    rev = "67b822603391b01238d7b80b8b61b63f966cf357";
-    hash = "sha256-5Ebm94/W/21lrjMprdwbd6cfaavTaXZGH3WxV9OLt5M=";
-  };
 in
 {
   dictionary =
@@ -27,25 +21,6 @@ in
         mkdir -p "$out/share/beankey/dictionary"
         cp -r ${dictionarySource}/Dictionary/. \
           "$out/share/beankey/dictionary/"
-        install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
-      '';
-
-  emoji =
-    pkgs.runCommand "beankey-emoji-dictionary"
-      {
-        meta.license = with pkgs.lib.licenses; [
-          bsd3
-          unicode-30
-          mit
-        ];
-        outputHash = "sha256-bUe3Vdam1/dbWYCzUaJuSVZ80dGuKKp75bsY8BwNbpc=";
-        outputHashAlgo = "sha256";
-        outputHashMode = "recursive";
-      }
-      ''
-        mkdir -p "$out/share/beankey/emoji"
-        cp ${emojiSource}/EmojiDictionary/emoji_all_E17.0.txt \
-          "$out/share/beankey/emoji/emoji_all_E17.0.txt"
         install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
       '';
 

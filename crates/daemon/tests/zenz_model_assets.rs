@@ -485,12 +485,9 @@ micro_batch_size = 64
 flash_attention = true
 "#,
             dictionary_root().display(),
-            PathBuf::from(
-                std::env::var_os("BEANKEY_TEST_EMOJI_DICTIONARY").expect(
-                    "BEANKEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"
-                )
-            )
-            .display()
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt")
+                .display()
         ),
     )
     .unwrap();

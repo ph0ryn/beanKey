@@ -10,7 +10,6 @@
 let
   assetNames = [
     "dictionary"
-    "emoji"
     "model"
   ];
   assetSystems = builtins.attrNames self.packages;
@@ -245,6 +244,7 @@ in
     config=${moduleConfigSource}
     grep -F 'dictionary = "${self.packages.${system}.dictionary}/share/beankey/dictionary"' "$config"
     grep -F 'model = "${self.packages.${system}.model}/share/beankey/model/ggml-model-Q5_K_M.gguf"' "$config"
+    grep -F 'emoji_dictionary = "${../crates/converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt}"' "$config"
     if grep -qF 'llama_backend_directory' "$config"; then
       echo 'generated config retains the removed backend setting' >&2
       exit 1

@@ -2,6 +2,7 @@
   description = "Development environment for beanKey";
 
   inputs = {
+    self.submodules = true;
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     home-manager = {
       url = "github:nix-community/home-manager";
@@ -30,7 +31,6 @@
           pkgs = pkgsFor system;
           inherit (self.packages.${system})
             dictionary
-            emoji
             model
             ;
         };

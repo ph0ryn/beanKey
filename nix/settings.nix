@@ -145,7 +145,9 @@ let
   configFile = (pkgs.formats.toml { }).generate "beankey-config.toml" {
     dictionary = "${packages.dictionary}/share/beankey/dictionary";
     model = "${packages.model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
-    emoji_dictionary = "${packages.emoji}/share/beankey/emoji/emoji_all_E17.0.txt";
+    emoji_dictionary = "${
+      ../crates/converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt
+    }";
     runtime_socket = "beankey/daemon.sock";
     hunspell = {
       english_dictionary = "${packages.daemon.hunspellEnglish}/share/hunspell/en_US";

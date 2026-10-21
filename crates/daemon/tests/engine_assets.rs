@@ -19,10 +19,8 @@ fn dictionary_root() -> PathBuf {
 }
 
 fn emoji_dictionary_path() -> PathBuf {
-    PathBuf::from(
-        std::env::var_os("BEANKEY_TEST_EMOJI_DICTIONARY")
-            .expect("BEANKEY_TEST_EMOJI_DICTIONARY must be set by the Nix test environment"),
-    )
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../converter/assets/dictionary/emoji/EmojiDictionary/emoji_all_E17.0.txt")
 }
 
 fn envelope(request_id: u64, payload: Payload) -> protocol::Envelope {

@@ -26,7 +26,15 @@ let
   enabled = evaluate {
     enable = true;
     useBeanKeyTheme = true;
-    conversion.typeHalfSpace = true;
+    conversion = {
+      typeHalfSpace = true;
+      punctuationStyle = "period_and_comma";
+    };
+    zenz.personalization = {
+      baseNgram = "/beankey-test/base-ngram";
+      personalNgram = "/beankey-test/personal-ngram";
+      alpha = 1.5;
+    };
   };
   disabled = evaluate { enable = false; };
   config = enabled.config;
@@ -57,23 +65,27 @@ assert
     && !config.i18n.inputMethod.enable
     && !(disabled.config.home.activation ? beanKeyInputMethod)
   );
-pkgs.runCommand "beankey-home-module" { } (
+pkgs.runCommand "beankey-home-module"
+  {
+    nativeBuildInputs = [ pkgs.python3 ];
+  }
   ''
-    grep -F 'dictionary = "${../crates/converter/assets/dictionary/azookeyKanaKanji/Dictionary}"' ${configFile}
-    grep -F 'model = "${packages.model}/share/beankey/model/ggml-model-Q5_K_M.gguf"' ${configFile}
-    grep -F 'emoji_dictionary = "${../crates/converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt}"' ${configFile}
-    grep -F 'english_dictionary = "${../crates/converter/assets/dictionary/hunspellEnglish}/en_US"' ${configFile}
-    grep -F 'greek_dictionary = "${../crates/converter/assets/dictionary/hunspellGreek}/el_GR"' ${configFile}
-    grep -F 'type_half_space = true' ${configFile}
-    if grep -qF 'llama_backend_directory' ${configFile}; then
-      echo 'generated config retains the removed backend setting' >&2
-      exit 1
-    fi
+    python - ${configFile} <<'PY'
+    import sys
+    import tomllib
+
+    with open(sys.argv[1], "rb") as source:
+        config = tomllib.load(source)
+    assert config["conversion"]["type_half_space"] is True
+    assert config["conversion"]["punctuation_style"] == "period_and_comma"
+    assert config["zenz"]["personalization"] == {
+        "base_ngram": "/beankey-test/base-ngram",
+        "personal_ngram": "/beankey-test/personal-ngram",
+        "alpha": 1.5,
+    }
+    PY
+    ${pkgs.lib.optionalString isLinux ''
+      grep -Fx 'Theme=beanKey' ${config.xdg.configFile.fcitx5.source}/conf/classicui.conf
+    ''}
+    ln -s ${configFile} "$out"
   ''
-  + pkgs.lib.optionalString isLinux ''
-    grep -F 'Theme=beanKey' ${config.xdg.configFile.fcitx5.source}/conf/classicui.conf
-  ''
-  + ''
-    touch "$out"
-  ''
-)

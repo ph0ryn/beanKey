@@ -25,12 +25,6 @@
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       pkgsFor = system: import nixpkgs { inherit system; };
-      developmentFor =
-        system:
-        import ./nix/dev-shell.nix {
-          pkgs = pkgsFor system;
-          inherit (self.packages.${system}) model;
-        };
     in
     {
       nixosModules.default = import ./nix/module.nix { inherit self; };
@@ -53,7 +47,10 @@
       );
 
       devShells = forAllSystems (system: {
-        default = (developmentFor system).shell;
+        default = import ./nix/dev-shell.nix {
+          pkgs = pkgsFor system;
+          inherit (self.packages.${system}) model;
+        };
       });
 
       formatter = forAllSystems (system: (pkgsFor system).nixfmt);
@@ -62,7 +59,6 @@
         system:
         import ./nix/checks.nix {
           pkgs = pkgsFor system;
-          developmentPackages = (developmentFor system).packages;
           inherit
             home-manager
             nixpkgs

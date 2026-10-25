@@ -3,7 +3,7 @@
   pkgs,
 }:
 
-let
+pkgs.mkShell {
   packages = [
     pkgs.cargo
     pkgs.clang
@@ -19,14 +19,7 @@ let
     pkgs.rustfmt
     pkgs.rustPlatform.bindgenHook
   ];
-in
-{
-  inherit packages;
-
-  shell = pkgs.mkShell {
-    inherit packages;
-    buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.fcitx5 ];
-    RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
-    BEANKEY_TEST_MODEL = "${model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
-  };
+  buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.fcitx5 ];
+  RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+  BEANKEY_TEST_MODEL = "${model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
 }

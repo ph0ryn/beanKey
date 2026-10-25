@@ -31,13 +31,6 @@ let
       default = null;
       inherit description;
     };
-  absolutePath =
-    description:
-    mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      inherit description;
-    };
 
   personalizationConfig = types.submodule {
     options = {
@@ -265,8 +258,8 @@ in
         default = "kuten_and_toten";
         description = "Punctuation pair used for the comma and period keys.";
       };
-      userDictionary = absolutePath "Absolute path to a JSON user dictionary.";
-      userDictionaryDirectory = absolutePath "Absolute path to an azooKey user dictionary directory.";
+      userDictionary = optionalString "Absolute path to a JSON user dictionary.";
+      userDictionaryDirectory = optionalString "Absolute path to an azooKey user dictionary directory.";
       customInputTables = mkOption {
         type = types.attrsOf types.path;
         default = { };

@@ -105,19 +105,7 @@ fn duplicate_launch_checks_the_lock_before_opening_resources() {
     )
     .unwrap();
     let config = runtime.path().join("config.toml");
-    fs::write(
-        &config,
-        r#"
-[conversion]
-[zenz]
-[inference]
-context_size = 512
-batch_size = 512
-micro_batch_size = 64
-flash_attention = true
-"#,
-    )
-    .unwrap();
+    fs::write(&config, "").unwrap();
     beankey_daemon::DaemonConfig::load(&config).unwrap();
     let learning = runtime.path().join("learning");
     let launch = || {

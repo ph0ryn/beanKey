@@ -10,14 +10,12 @@ const EXPECTED_CONTEXT_SIZE: usize = 512;
 const EXPECTED_BATCH_SIZE: usize = 512;
 const EXPECTED_MICRO_BATCH_SIZE: usize = 64;
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
 pub struct DaemonConfig {
     pub conversion: ConversionConfig,
-    #[serde(default)]
     pub learning: LearningConfig,
     pub zenz: ZenzConfig,
-    #[serde(default)]
     pub lm_typo: LmTypoCorrectionConfig,
     pub inference: InferenceConfig,
 }
@@ -233,12 +231,23 @@ pub struct TypoNGramConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct InferenceConfig {
     pub context_size: usize,
     pub batch_size: usize,
     pub micro_batch_size: usize,
     pub flash_attention: bool,
+}
+
+impl Default for InferenceConfig {
+    fn default() -> Self {
+        Self {
+            context_size: EXPECTED_CONTEXT_SIZE,
+            batch_size: EXPECTED_BATCH_SIZE,
+            micro_batch_size: EXPECTED_MICRO_BATCH_SIZE,
+            flash_attention: true,
+        }
+    }
 }
 
 #[derive(Debug)]

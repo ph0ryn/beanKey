@@ -36,7 +36,7 @@ beanKeyは、AzooKeyKanaKanjiConverterのかな漢字変換機能と、azooKey D
 
 macOSの候補パネルは候補・注釈・予測の表示に限定します。変換候補、内部trace、prompt、token、logitが固定原作と完全に一致するかの厳密な適合検証は、まだ行っていません。
 
-英語・ギリシャ語補完には、原作のOS標準APIの代わりに[spellbook 0.4.2](https://docs.rs/spellbook/0.4.2/spellbook/)と固定nixpkgsのHunspell形式辞書を使います。n-gramによる候補生成は無効にしており、候補の内容や順位は原作およびHunspell本体と異なる場合があります。
+英語・ギリシャ語補完には、原作のOS標準APIの代わりに[spellbook 0.4.2](https://docs.rs/spellbook/0.4.2/spellbook/)とリポジトリに固定した英語・ギリシャ語のHunspell形式辞書を使います。n-gramによる候補生成は無効にしており、候補の内容や順位は原作およびHunspell本体と異なる場合があります。
 
 候補の確定は、固定したazooKey Desktopと同様に両OSとも通常の文字列挿入として行います。括弧候補を確定しても、カーソルを括弧の内側へ自動では移動しません。
 
@@ -128,38 +128,31 @@ nix run .#macos-input-method
 
 コピーしたアプリが参照するdaemonとライブラリは、`~/Library/Application Support/beanKey/package`のNix GC rootで保持します。アンインストールするときは、入力ソースからbeanKeyを外し、アプリとこの参照を削除してください。学習データは別の`learning`ディレクトリに残ります。
 
-旧版から更新する際、内部設定に廃止された`llama_backend_directory`が残っているとinstallerとdaemonはエラーにします。Home Managerでは新しいbeanKeyの設定を再適用してください。単体installerで生成した設定の場合は、`~/Library/Application Support/beanKey/config.toml`を別の場所へ退避し、元の場所にファイルやリンクがない状態でinstallerを再実行すると初期設定を生成します。既存設定をinstallerが書き換えることはありません。必要な変換・学習設定は`programs.beanKey`で管理してください。
-
-初回導入や更新後に入力ソースが反映されない場合は、ログアウトして再ログインしてください。更新済みbundleがあっても、起動中の旧プロセスは自動的に置き換わりません。
+初回導入や更新後に入力ソースが反映されない場合は、ログアウトして再ログインしてください。単体installerは起動中の旧プロセスを停止しません。Home Managerではpackageや設定の変更時などにフロントエンドとdaemonを停止し、次回の必要時に新しいプロセスを起動します。
 
 daemonは入力メソッドが必要時に起動します。初回のモデル読み込みが終わるまでは、キーを溜めずにアプリへ返します。起動診断ログは`~/Library/Logs/beanKey/daemon.log`にあります。
 
 ## 設定
 
-設定例
+設定例（`settings`内はすべて省略可能）
 
 ```nix
 programs.beanKey = {
   enable = true;
   useBeanKeyTheme = true; # Linuxのみ。macOSではこの行を省略します。
 
-  conversion = {
-    inputStyle = "roman_to_kana";
-    typeBackslash = true;
-    typeHalfSpace = true;
-    punctuationStyle = "kuten_and_toten";
-  };
-
-  learning = {
-    mode = "input_and_output";
-    maxCount = 65536;
-  };
-
-  zenz = {
-    inferenceLimit = 4;
-    profile = "学生";
-    topic = "プログラミング";
-    preference = "カタカナ優先";
+  settings = {
+    conversion = {
+      input_style = "roman_to_kana";
+      type_backslash = false;
+      type_half_space = false;
+      punctuation_style = "kuten_and_toten";
+    };
+    learning = {
+      mode = "input_and_output";
+      max_count = 65536;
+    };
+    zenz.inference_limit = 5;
   };
 };
 ```
@@ -189,7 +182,7 @@ programs.beanKey = {
 nix develop --command cargo test --locked --workspace --all-targets
 ```
 
-通常のCargo環境でも推論crateをビルドできますが、Rustに加えてCMake、C/C++ compiler、bindgenが読み込めるlibclangが必要です。libclangを標準の場所へ配置しない場合は、ビルド時に`LIBCLANG_PATH`で指定します。macOSではSDKとObjective-C/assembly compilerを含むCommand Line Toolsも必要です。daemonまでビルドする場合はProtobuf compilerとmarisaも必要になります。
+通常のCargo環境でも推論crateをビルドできますが、Rustに加えてCMake、C/C++ compiler、bindgenが読み込めるlibclangが必要です。libclangを標準の場所へ配置しない場合は、ビルド時に`LIBCLANG_PATH`で指定します。macOSではSDKとObjective-C/assembly compilerを含むCommand Line Toolsも必要です。daemonまでビルドする場合はProtobuf compilerも必要です。辞書の読み込みはRustの`rsmarisa`を使うため、native MARISAは不要です。Hunspell本体にも依存しません。
 
 [`.cargo/config.toml`](.cargo/config.toml)はビルド時だけの設定です。x86で追加ISAが暗黙に有効になることを避け、Metalのshader sourceを実行ファイルへ埋め込みます。外部の`.metal`や`.metallib`ファイルは配布しませんが、実行時のMetal frameworkとshader compilationは引き続き必要です。静的linkはdaemon全体の完全静的linkを意味せず、C++ runtimeとOS frameworkは残ります。可搬性のための設定であり、性能改善の計測結果を示すものではありません。
 
@@ -205,11 +198,6 @@ beanKeyは、次の実装を設計と動作の基準として参照していま�
 - [azooKey Desktop](https://github.com/azooKey/azooKey-Desktop/tree/3ae5a4651c329d48fee9b9ec7ac1bcd60b940a12): 日本語入力の操作と表示
 - [fcitx5-mozc](https://github.com/fcitx/mozc/tree/3f8dea4bdf72c6af200ecdbe3d456871fb1d5e03/src/unix/fcitx5): Fcitx5連携とデーモン起動
 
-予測受理後の表記維持は、上記スナップショット以降の[azooKey Desktop #373](https://github.com/azooKey/azooKey-Desktop/pull/373)と[AzooKeyKanaKanjiConverter #357](https://github.com/azooKey/AzooKeyKanaKanjiConverter/pull/357)を取り込んでいます。
-
 ### 再配布資産
 
-- [azooKey_dictionary_storage](https://github.com/ensan-hcl/azooKey_dictionary_storage/tree/4d418525b090cf49c219819d05a7e3cc2a4346eb): デフォルト辞書
-- [azooKey_emoji_dictionary_storage](https://github.com/ensan-hcl/azooKey_emoji_dictionary_storage/tree/67b822603391b01238d7b80b8b61b63f966cf357): 絵文字辞書
-- [gpt2-small-japanese-char](https://huggingface.co/ku-nlp/gpt2-small-japanese-char): tokenizer
-- [zenz-v3.2-small-gguf](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf/tree/c67e03e07d215c869f591b274c1631170d3e11fe): Zenzaiモデル
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)に記載しています。

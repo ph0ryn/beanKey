@@ -39,7 +39,7 @@ Fcitx5プロセスへロードするのはC++アドオンだけです。macOSで
 | `fcitx5` | Fcitx5 key eventの正規化、プリエディット、候補UI、確定、デーモン起動 |
 | `macos` | InputMethodKit、キー正規化、UTF-16変換、marked text、候補パネル、確定、デーモン起動 |
 | `ipc` | RustとC++の通信契約（`beankey.proto`）、両フロントエンドの共有Unix socket transportと生成Protobuf型 |
-| `nix` | package、固定資産、NixOS/Home Manager module、共有optionと内部設定の生成 |
+| `nix` | package、固定資産、NixOS/Home Manager module、共有の導入optionとTOML生成 |
 
 ## 依存境界
 
@@ -103,31 +103,39 @@ wire上のUnicode scalar offsetとCocoaのUTF-16 offsetは`macos`内で変換し
 
 候補の確定は、固定したazooKey Desktopと同様に文字列の挿入だけを行います。Fcitx5でも通常のcommit APIを使い、確定後にカーソル位置を調整する追加アクションは生成・転送しません。
 
+## 設定
+
+NixOSとHome Managerは、[共通の設定生成](../nix/settings.nix)で`programs.beanKey.settings`をそのままTOMLへ書き出します。キー・構造は手書きTOMLと共通で、未指定の項目は出力しません。`settings = { };`では空ファイルを生成します。
+
+既定値と検証は[daemon](../crates/daemon/src/config.rs)が所有します。空TOMLやtableの省略には既定値を適用し、未知のキーや不正な値はdaemon起動時に拒否します。導入用の`enable`と`useBeanKeyTheme`はTOMLに含めません。
+
+固定資産はdaemonの正規化した実行ファイルから`../share/beankey`を解決して読み込みます。固定辞書やモデルのpath、socket名は設定へ書きません。runtime rootと学習directoryはフロントエンドが指定します。
+
 ## Linux統合
 
-公開設定は`programs.beanKey`だけです。NixOS moduleは次のものを導入します。
+NixOS moduleは次のものを導入します。
 
 - Fcitx5アドオン
 - Rustデーモン
 - 固定辞書と絵文字辞書
-- 固定GGUFモデルとtokenizer
-- nixpkgsのHunspell形式の英語・ギリシャ語辞書
+- 固定GGUFモデル
+- リポジトリに固定した英語・ギリシャ語のHunspell形式辞書
 
-NixOS moduleは`programs.beanKey`から内部TOMLを生成し、`/etc/beankey/config.toml`からNix store上の生成物を参照させます。Linux用Home Manager moduleは同じ設定を`xdg.configHome`配下の`beankey/config.toml`へ配置します。option、検証条件、TOML生成は`nix/settings.nix`、Fcitx5の導入とテーマ設定は`nix/fcitx5.nix`を共有します。
+NixOS moduleは生成TOMLを`/etc/beankey/config.toml`から参照させます。Linux用Home Manager moduleは同じ設定を`xdg.configHome`配下の`beankey/config.toml`へ配置します。Fcitx5の導入とテーマ設定は[共通のFcitx5設定](../nix/fcitx5.nix)を使います。
 
 アドオンは`$XDG_CONFIG_HOME/beankey/config.toml`（未指定・空・相対パスの場合は`$HOME/.config/beankey/config.toml`）を優先し、未配置の場合だけ`/etc/beankey/config.toml`を指定してデーモンを起動します。ユーザー設定へのリンク切れやアクセスエラーを、システム設定への切り替えで隠しません。利用者の設定値や生成TOMLのstore pathはアドオンへ埋め込みません。
 
 Fcitx5はNixOSかHome Managerの一方で管理します。beanKey daemonはどちらの場合もアドオンが必要時に直接起動し、専用のsystemd unitは作成しません。
 
-モデル、辞書、tokenizer、実行ファイルはNix storeへ置きます。学習データなどの可変状態はユーザーのXDG state directoryに置き、Nix管理の不変資産と分離します。
+モデル、辞書、実行ファイルはNix storeへ置きます。学習データなどの可変状態はユーザーのXDG state directoryに置き、Nix管理の不変資産と分離します。
 
 ## macOS統合
 
-`nix/settings.nix`がNixOSとHome Managerの共通option、検証条件、内部TOML生成を所有します。macOS packageはdaemonのNix store pathをbundleへ埋め込みます。利用者ごとの設定はbundleに含めないため、`programs.beanKey`の値を変えてもInputMethodKit packageは変わりません。
+macOS packageはdaemonのNix store pathをbundleへ埋め込みます。利用者ごとの設定はbundleに含めないため、`programs.beanKey.settings`を変えてもInputMethodKit packageは変わりません。
 
-Home Manager moduleは生成した内部TOMLを`~/Library/Application Support/beanKey/config.toml`から参照させます。単体インストールでは、このパスに設定もリンクもない場合にinstallerが初期設定を生成します。フロントエンドは起動時にこの設定を読み、設定の欠損、リンク切れや読み取り不能ではデーモンの起動を失敗させます。
+Home Manager moduleは生成TOMLを`~/Library/Application Support/beanKey/config.toml`から参照させます。単体installerはこのパスに設定もリンクもない場合だけ、一部の既定値を記載したサンプルを生成します。既存設定の内容は検証・変更しません。フロントエンドは設定が読み取れるファイルかを確認し、内容の読み込みと検証はdaemonが行います。
 
-Home Manager moduleは`beankey-install`をactivationで実行します。installerは署名したbundleの実体を`~/Library/Input Methods/beanKey.app`へ置き、公開TIS APIで登録します。有効化・選択は利用者がシステム設定で行い、既存の入力ソースは変更しません。更新後は起動中の旧プロセスを使わないよう、必要に応じて再ログインします。
+Home Manager moduleは`beankey-install`をactivationで実行します。installerは署名したbundleの実体を`~/Library/Input Methods/beanKey.app`へ置き、公開TIS APIで登録します。有効化・選択は利用者がシステム設定で行い、既存の入力ソースは変更しません。Home Managerはpackage・設定の変更時などに旧プロセスを停止します。単体installerは停止しないため、更新が反映されない場合は再ログインしてください。
 
 単体インストールでもNix storeのdaemonと動的ライブラリがGCで削除されないよう、`~/Library/Application Support/beanKey/package`をpackageへの間接GC rootにします。更新時には同じ参照を新packageへ置き換えます。
 
@@ -135,10 +143,14 @@ Home Manager moduleは`beankey-install`をactivationで実行します。install
 
 ## 配布資産
 
-辞書と絵文字辞書は、`nix/assets.nix`の`fetchFromGitHub`でcommitとhashを固定して取得し、生成済みデータを直接packageします。Git submoduleは使用しません。開発環境とpackageのテストには、同じ辞書packageのNix store pathをテスト専用の`BEANKEY_TEST_DICTIONARY`と`BEANKEY_TEST_EMOJI_DICTIONARY`で渡します。
+日本語辞書と絵文字辞書は[Git submodule](../.gitmodules)でrevisionを固定し、生成済みデータを直接packageします。英語・ギリシャ語のHunspell形式辞書とn-gram用tokenizer JSONはリポジトリ内の固定コピーを使います。モデルは[資産定義](../nix/assets.nix)の`fetchurl`でrevisionとhashを固定して取得します。
+
+[daemon package](../nix/packages.nix)は`share/beankey`以下へ日本語辞書、絵文字、モデル、英語・ギリシャ語辞書を配置します。tokenizerはこの配置には含まれず、n-gram入力訂正を使う場合に設定でpathを指定します。
+
+辞書テストはリポジトリ内の資産を参照します。固定GGUFモデルのテスト用pathだけを`BEANKEY_TEST_MODEL`で渡し、daemonの利用者設定には使いません。
 
 直接配布する辞書、絵文字データ、tokenizer、GGUFモデルには、資産ごとのlicense本文、取得元、固定revision、attributionをNix packageへ同梱します。
 
-llama.cppはCargo依存として管理し、sys crateに同梱されたsourceを独自にvendorしません。daemon packageは静的linkしたllama.cppなどの必要なlicense本文とnoticeを同梱し、辞書・モデルの資産台帳とは分離します。Hunspell形式辞書はnixpkgsの通常依存として使用し、beanKeyの配布資産として複製しません。英語・ギリシャ語の候補生成にはCargo依存のspellbookを使い、Hunspell本体へはリンクしません。製品のビルドと実行にSwiftは使用しません。
+llama.cppはCargo依存として管理し、sys crateに同梱されたsourceを独自にvendorしません。daemon packageは静的linkしたllama.cppなどの必要なlicense本文とnoticeを同梱し、辞書・モデルの資産台帳とは分離します。英語・ギリシャ語辞書の取得元、revision、hash、licenseは[THIRD_PARTY_NOTICES.txt](../THIRD_PARTY_NOTICES.txt)へ記録します。候補生成にはCargo依存のspellbookを使い、Hunspell本体へはリンクしません。製品のビルドと実行にSwiftは使用しません。
 
-`converter`はaffixファイルの`SET`に従って両辞書ファイルをUTF-8へdecodeし、専用workerでspellbookの候補を生成して入力prefixと一致するものを返します。辞書の欠損、不正なencoding、decode失敗、parse失敗ではロードを失敗させます。対話的な補完の遅延を抑えるため、n-gram候補生成は無効にします。既存の`HunspellCompleter`名と内部設定の`hunspell`は辞書形式を表し、設定pathは変更しません。
+`converter`はaffixファイルの`SET`に従って両辞書ファイルをUTF-8へdecodeし、専用workerでspellbookの候補を生成して入力prefixと一致するものを返します。辞書の欠損、不正なencoding、decode失敗、parse失敗ではロードを失敗させます。対話的な補完の遅延を抑えるため、n-gram候補生成は無効にします。

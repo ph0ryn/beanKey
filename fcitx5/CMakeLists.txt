@@ -13,7 +13,7 @@ include(CTest)
 
 find_package(Fcitx5Core 5.1.21 REQUIRED)
 find_package(Threads REQUIRED)
-add_subdirectory(../ipc/cpp ${CMAKE_CURRENT_BINARY_DIR}/ipc)
+add_subdirectory(../ipc ${CMAKE_CURRENT_BINARY_DIR}/ipc)
 
 set(BEANKEY_DAEMON_PATH "beankey-daemon" CACHE FILEPATH "Absolute beanKey daemon path")
 set(BEANKEY_CONFIG_PATH "/etc/beankey/config.toml" CACHE FILEPATH "Internal daemon configuration path")

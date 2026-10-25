@@ -45,10 +45,9 @@
 ├── fcitx5/          # 薄い C++20 addon
 │   ├── CMakeLists.txt
 │   └── src/
-├── ipc/cpp/         # 共有C++ IPC transport
-├── macos/           # Objective-C++ InputMethodKit frontend
-├── proto/
+├── ipc/             # 通信仕様と共有C++ IPC transport
 │   └── beankey.proto
+├── macos/           # Objective-C++ InputMethodKit frontend
 ├── nix/             # package、共有設定、NixOS/Home Manager module
 ├── flake.nix
 └── flake.lock
@@ -89,14 +88,20 @@
 
 - Fcitx5 の入力コンテキスト、キーイベントの意味的操作への正規化、標準 UI への候補提示および daemon との通信を所有する。
 - かな漢字変換やニューラル推論を実装しない。
-- Rust 実装へ直接リンクせず、`proto/beankey.proto` で定義した IPC 境界を利用する。
+- Rust 実装へ直接リンクせず、`ipc/beankey.proto` で定義した IPC 境界を利用する。
 - daemonへ接続できない場合はserver executableを起動し、接続を再試行する。
 - fcitx5-mozcと同様に、daemon応答がキーをconsumedとした場合だけFcitx5のeventをacceptし、結果を標準のプリエディット、候補UIおよびcommit APIへ反映する。
 - daemonへの接続または要求が失敗した場合はセッションとUIをresetし、未処理のキーをFcitx5へ返す。キーをaddon内でbufferまたは再送しない。
 
-### `ipc/cpp`
+### `ipc`
 
 - 両フロントエンドの共有C++ transportと生成Protobuf型を所有する。OSのUIや変換状態遷移を持たない。
+- `beankey.proto`をRustとC++の間で共有する通信仕様の唯一の正本とする。
+- 生成コードはコミットせず、各ビルドで生成する。
+- 内部実装の都合だけで通信仕様を拡張しない。
+- Fcitx5固有のkey symbolをwireへ流さず、意味的操作、入力状態、候補window、注釈付き候補および独立した予測を表現する。
+- wire formatはvarint length-delimited Protobufとし、各envelopeにprotocol version、request ID、session IDおよびpayloadを持たせる。
+- 1メッセージの上限は1 MiBとし、超過、未知のversion、不正なpayloadは接続単位の明示的なprotocol errorとして扱う。
 
 ### `macos`
 
@@ -105,15 +110,6 @@
 - 準備中・通信失敗時は未処理のキーをアプリへ返し、bufferや再送はしない。
 - 候補パネルは非アクティブとし、入力先からキーボードフォーカスを奪わない。
 - bundleは`~/Library/Input Methods/beanKey.app`へ実体をコピーしてローカル署名・登録する。入力ソースの有効化や選択はinstallerで変更しない。
-
-### `proto`
-
-- Rust と C++ の間で共有する通信仕様の唯一の正本とする。
-- 生成コードはコミットせず、各ビルドで生成する。
-- 内部実装の都合だけで通信仕様を拡張しない。
-- Fcitx5固有のkey symbolをwireへ流さず、意味的操作、入力状態、候補window、注釈付き候補および独立した予測を表現する。
-- wire formatはvarint length-delimited Protobufとし、各envelopeにprotocol version、request ID、session IDおよびpayloadを持たせる。
-- 1メッセージの上限は1 MiBとし、超過、未知のversion、不正なpayloadは接続単位の明示的なprotocol errorとして扱う。
 
 ### `nix`
 
@@ -141,8 +137,8 @@
 
 ## 依存方向
 
-- `daemon` は `converter` と `llama` を利用し、`proto/beankey.proto` から生成した型を IPC に利用する。
-- `fcitx5`と`macos`は`ipc/cpp`と`proto/beankey.proto`から生成した型をIPCに利用するが、Rust crateへ依存しない。
+- `daemon` は `converter` と `llama` を利用し、`ipc/beankey.proto` から生成した型を IPC に利用する。
+- `fcitx5`と`macos`は`ipc`と`ipc/beankey.proto`から生成した型をIPCに利用するが、Rust crateへ依存しない。
 - `converter` は実行時に渡されたパスから固定辞書とHunspell辞書を読むが、`daemon`、`fcitx5`、Protobuf または llama.cpp の C API へ依存しない。
 - `llama` は `daemon`、`fcitx5` または Protobuf へ依存しない。
 - 上記と逆向きの依存が必要になった場合は、責務の置き場所を先に見直す。
@@ -150,7 +146,7 @@
 ## テストの配置
 
 - Rust の単体テストと crate 単位の統合テストは、所有する crate 内へ置く。
-- C++ addonのテストは`fcitx5`、共有IPCのテストは`ipc/cpp`、macOSフロントエンドのテストは`macos`内へ置く。
+- C++ addonのテストは`fcitx5`、共有IPCのテストは`ipc`、macOSフロントエンドのテストは`macos`内へ置く。
 - daemon、IPC、addon など複数の境界を跨ぐテストが必要になった場合だけ、ルートに `tests/` を追加する。
 - 辞書ファイルや依存パッケージの存在だけを確認する先行テストは追加せず、実際の利用境界で検証する。
 - 各機能は、入力、候補生成、選択、確定、必要な永続化および異常時の状態復旧を外部から確認できる最小シナリオで検証する。

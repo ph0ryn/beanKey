@@ -6,7 +6,7 @@ set(protobuf_MODULE_COMPATIBLE TRUE)
 find_package(Protobuf CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 protobuf_generate_cpp(BEANKEY_PROTO_SOURCES BEANKEY_PROTO_HEADERS
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../proto/beankey.proto)
+  ${CMAKE_CURRENT_SOURCE_DIR}/beankey.proto)
 if(APPLE)
   set_source_files_properties(${BEANKEY_PROTO_SOURCES}
     PROPERTIES COMPILE_OPTIONS -Wno-nullability-extension)

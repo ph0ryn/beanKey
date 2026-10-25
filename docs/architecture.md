@@ -38,8 +38,7 @@ Fcitx5プロセスへロードするのはC++アドオンだけです。macOSで
 | `crates/daemon` | 設定、Unix socket、Protobuf、入力セッション、converterとllamaの接続 |
 | `fcitx5` | Fcitx5 key eventの正規化、プリエディット、候補UI、確定、デーモン起動 |
 | `macos` | InputMethodKit、キー正規化、UTF-16変換、marked text、候補パネル、確定、デーモン起動 |
-| `ipc/cpp` | 両フロントエンドの共有Unix socket transportと生成Protobuf型 |
-| `proto/beankey.proto` | RustとC++の通信契約 |
+| `ipc` | RustとC++の通信契約（`beankey.proto`）、両フロントエンドの共有Unix socket transportと生成Protobuf型 |
 | `nix` | package、固定資産、NixOS/Home Manager module、共有optionと内部設定の生成 |
 
 ## 依存境界

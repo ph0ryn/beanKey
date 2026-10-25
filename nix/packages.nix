@@ -28,7 +28,7 @@ let
       "LICENSE"
       "THIRD_PARTY_NOTICES.txt"
       "crates"
-      "proto"
+      "ipc"
     ];
     cargoLock = {
       lockFile = ../Cargo.lock;
@@ -75,7 +75,6 @@ in
       "LICENSE"
       "macos"
       "ipc"
-      "proto"
     ];
     cmakeDir = "../macos";
     nativeBuildInputs = [
@@ -117,7 +116,6 @@ in
       "LICENSE"
       "fcitx5"
       "ipc"
-      "proto"
     ];
     cmakeDir = "../fcitx5";
     nativeBuildInputs = [

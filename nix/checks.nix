@@ -74,16 +74,6 @@ assert pkgs.lib.assertMsg sharedModelPath
         test ! -e '${daemon}/share/beankey/llama-backend'
         touch "$out"
       '';
-
-  macos-installer-upgrade =
-    pkgs.runCommand "beankey-macos-installer-upgrade"
-      {
-        nativeBuildInputs = [ pkgs.bash ];
-      }
-      ''
-        bash ${../macos/tests/installer_upgrade_test.sh} ${../macos/install.sh.in}
-        touch "$out"
-      '';
 }
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
   macos-input-method = packages.macos-input-method;

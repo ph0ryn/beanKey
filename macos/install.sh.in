@@ -18,17 +18,6 @@ if [[ -e "$destination" ]]; then
     exit 1
   fi
 fi
-# Reject obsolete configuration before changing the package; never rewrite it.
-if [[ -f "$config_path" ]]; then
-  awk '
-    /^[[:space:]]*((dictionary|emoji_dictionary|llama_backend_directory|model|runtime_socket)[[:space:]]*=|\[hunspell\])/ {
-      print "既存の設定に廃止された項目があります: " $0 > "/dev/stderr"
-      print "Home Managerを利用している場合は、新しいbeanKeyの設定を再適用してください。" > "/dev/stderr"
-      print "単体installerの場合は、Library/Application Support/beanKey/config.tomlを退避して元の場所から外し、installerを再実行してください。既存の設定は変更していません。" > "/dev/stderr"
-      exit 1
-    }
-  ' "$config_path"
-fi
 # The copied bundle still links to its immutable Nix closure. Keep it alive even
 # when installed with `nix run` instead of a Home Manager generation.
 mkdir -p "$support_root"

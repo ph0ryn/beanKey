@@ -1,17 +1,6 @@
-use std::path::Path;
-
 use beankey_daemon::{DaemonConfig, DaemonConfigError};
 
 const CONFIG: &str = r#"
-dictionary = "/nix/store/dictionary"
-model = "/nix/store/model.gguf"
-emoji_dictionary = "/nix/store/emoji_all_E17.0.txt"
-runtime_socket = "beankey/daemon.sock"
-
-[hunspell]
-english_dictionary = "/nix/store/en_US"
-greek_dictionary = "/nix/store/el_GR"
-
 [conversion]
 [zenz]
 [inference]
@@ -22,11 +11,9 @@ flash_attention = true
 "#;
 
 #[test]
-fn parses_model_configuration_without_an_external_backend_directory() {
+fn parses_configuration_without_fixed_asset_paths_or_socket() {
     let config = DaemonConfig::parse(CONFIG).unwrap();
-
-    assert_eq!(config.model, Path::new("/nix/store/model.gguf"));
-    assert_eq!(config.runtime_socket, Path::new("beankey/daemon.sock"));
+    assert_eq!(config.conversion.n_best, 10);
 }
 
 #[test]

@@ -107,15 +107,7 @@ fn duplicate_launch_checks_the_lock_before_opening_resources() {
     let config = runtime.path().join("config.toml");
     fs::write(
         &config,
-        format!(
-            r#"
-dictionary = "{}"
-model = "/missing/beankey/model.gguf"
-emoji_dictionary = "/missing/beankey/emoji.txt"
-runtime_socket = "beankey/daemon.sock"
-[hunspell]
-english_dictionary = "/missing/beankey/en_US"
-greek_dictionary = "/missing/beankey/el_GR"
+        r#"
 [conversion]
 [zenz]
 [inference]
@@ -124,8 +116,6 @@ batch_size = 512
 micro_batch_size = 64
 flash_attention = true
 "#,
-            dictionary_root().display()
-        ),
     )
     .unwrap();
     beankey_daemon::DaemonConfig::load(&config).unwrap();

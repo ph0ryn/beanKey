@@ -2,7 +2,6 @@
   cfg,
   lib,
   pkgs,
-  packages,
 }:
 let
   inherit (lib)
@@ -136,16 +135,6 @@ let
   };
 
   configFile = (pkgs.formats.toml { }).generate "beankey-config.toml" {
-    dictionary = "${../crates/converter/assets/dictionary/azookeyKanaKanji/Dictionary}";
-    model = "${packages.model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
-    emoji_dictionary = "${
-      ../crates/converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt
-    }";
-    runtime_socket = "beankey/daemon.sock";
-    hunspell = {
-      english_dictionary = "${../crates/converter/assets/dictionary/hunspellEnglish}/en_US";
-      greek_dictionary = "${../crates/converter/assets/dictionary/hunspellGreek}/el_GR";
-    };
     conversion = conversionConfig;
     learning = {
       mode = cfg.learning.mode;

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -13,11 +13,6 @@ const EXPECTED_MICRO_BATCH_SIZE: usize = 64;
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DaemonConfig {
-    pub dictionary: PathBuf,
-    pub model: PathBuf,
-    pub emoji_dictionary: PathBuf,
-    pub runtime_socket: PathBuf,
-    pub hunspell: HunspellConfig,
     pub conversion: ConversionConfig,
     #[serde(default)]
     pub learning: LearningConfig,
@@ -239,13 +234,6 @@ pub struct TypoNGramConfig {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct HunspellConfig {
-    pub english_dictionary: PathBuf,
-    pub greek_dictionary: PathBuf,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct InferenceConfig {
     pub context_size: usize,
     pub batch_size: usize,
@@ -257,7 +245,6 @@ pub struct InferenceConfig {
 pub enum DaemonConfigError {
     Read(std::io::Error),
     Parse(toml::de::Error),
-    InvalidRuntimeSocket,
     InvalidConversionCandidateCount,
     InvalidDefaultInputTable,
     InvalidPersonalizationAlpha,
@@ -270,9 +257,6 @@ impl fmt::Display for DaemonConfigError {
         match self {
             Self::Read(error) => write!(formatter, "could not read daemon configuration: {error}"),
             Self::Parse(error) => write!(formatter, "invalid daemon configuration: {error}"),
-            Self::InvalidRuntimeSocket => {
-                write!(formatter, "runtime_socket must be beankey/daemon.sock")
-            }
             Self::InvalidConversionCandidateCount => {
                 write!(formatter, "conversion.n_best must be greater than zero")
             }
@@ -305,8 +289,7 @@ impl Error for DaemonConfigError {
         match self {
             Self::Read(error) => Some(error),
             Self::Parse(error) => Some(error),
-            Self::InvalidRuntimeSocket
-            | Self::InvalidConversionCandidateCount
+            Self::InvalidConversionCandidateCount
             | Self::InvalidDefaultInputTable
             | Self::InvalidPersonalizationAlpha
             | Self::InvalidLmTypoConfiguration
@@ -328,16 +311,6 @@ impl DaemonConfig {
     }
 
     fn validate(&self) -> Result<(), DaemonConfigError> {
-        if self.runtime_socket != Path::new("beankey/daemon.sock")
-            || self.runtime_socket.components().any(|component| {
-                matches!(
-                    component,
-                    Component::Prefix(_) | Component::RootDir | Component::ParentDir
-                )
-            })
-        {
-            return Err(DaemonConfigError::InvalidRuntimeSocket);
-        }
         if self.inference.context_size != EXPECTED_CONTEXT_SIZE
             || self.inference.batch_size != EXPECTED_BATCH_SIZE
             || self.inference.micro_batch_size != EXPECTED_MICRO_BATCH_SIZE
@@ -398,15 +371,6 @@ mod tests {
     use super::*;
 
     const CONFIG: &str = r#"
-dictionary = "/nix/store/dictionary"
-model = "/nix/store/model.gguf"
-emoji_dictionary = "/nix/store/emoji_all_E17.0.txt"
-runtime_socket = "beankey/daemon.sock"
-
-[hunspell]
-english_dictionary = "/nix/store/en_US"
-greek_dictionary = "/nix/store/el_GR"
-
 [conversion]
 input_style = "roman_to_kana"
 keyboard_language = "japanese"
@@ -454,7 +418,6 @@ flash_attention = true
     #[test]
     fn parses_the_internal_nixos_configuration() {
         let config = DaemonConfig::parse(CONFIG).unwrap();
-        assert_eq!(config.runtime_socket, Path::new("beankey/daemon.sock"));
         assert_eq!(config.inference.context_size, 512);
         assert_eq!(config.zenz.inference_limit, 10);
         assert_eq!(
@@ -472,16 +435,7 @@ flash_attention = true
     }
 
     #[test]
-    fn rejects_path_traversal_and_noncanonical_inference_profiles() {
-        let traversal = CONFIG.replace(
-            "runtime_socket = \"beankey/daemon.sock\"",
-            "runtime_socket = \"../daemon.sock\"",
-        );
-        assert!(matches!(
-            DaemonConfig::parse(&traversal),
-            Err(DaemonConfigError::InvalidRuntimeSocket)
-        ));
-
+    fn rejects_noncanonical_inference_profiles() {
         let profile = CONFIG.replace("context_size = 512", "context_size = 1024");
         assert!(matches!(
             DaemonConfig::parse(&profile),

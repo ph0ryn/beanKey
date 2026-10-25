@@ -371,15 +371,17 @@ impl Engine {
 
     pub fn open_with_config(
         config: &DaemonConfig,
+        assets_directory: impl AsRef<Path>,
         learning_directory: impl AsRef<Path>,
     ) -> Result<Self, EngineOpenError> {
-        let mut engine = Self::open_with_llama(&config.dictionary, &config.model)?;
+        let assets = assets_directory.as_ref();
+        let mut engine = Self::open_with_llama(assets.join("dictionary"), assets.join("model"))?;
         engine.load_hunspell(
-            &config.hunspell.english_dictionary,
-            &config.hunspell.greek_dictionary,
+            assets.join("hunspell-english/en_US"),
+            assets.join("hunspell-greek/el_GR"),
         )?;
         engine.load_learning(learning_directory, &config.learning)?;
-        engine.load_text_replacer(&config.emoji_dictionary)?;
+        engine.load_text_replacer(assets.join("emoji-dictionary"))?;
         engine.load_conversion_resources(&config.conversion)?;
         engine.apply_conversion_options(&config.conversion)?;
         engine.apply_zenz_options(&config.zenz);

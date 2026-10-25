@@ -432,23 +432,30 @@ fn recovers_the_fixed_upstream_roman_typo_regression() {
 fn runs_the_server_executable_with_the_fixed_nixos_assets() {
     let model = required_environment("BEANKEY_TEST_MODEL");
     let dictionaries = Path::new(env!("CARGO_MANIFEST_DIR")).join("../converter/assets/dictionary");
-    let english = dictionaries.join("hunspellEnglish/en_US");
-    let greek = dictionaries.join("hunspellGreek/el_GR");
+    let package = TempDir::new().unwrap();
+    let bin = package.path().join("bin");
+    let assets = package.path().join("share/beankey");
+    fs::create_dir(&bin).unwrap();
+    fs::create_dir_all(&assets).unwrap();
+    let executable = bin.join("beankey-daemon");
+    fs::copy(env!("CARGO_BIN_EXE_beankey-daemon"), &executable).unwrap();
+    for (name, path) in [
+        ("dictionary", dictionary_root()),
+        ("model", PathBuf::from(model)),
+        (
+            "emoji-dictionary",
+            dictionaries.join("azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt"),
+        ),
+        ("hunspell-english", dictionaries.join("hunspellEnglish")),
+        ("hunspell-greek", dictionaries.join("hunspellGreek")),
+    ] {
+        std::os::unix::fs::symlink(path, assets.join(name)).unwrap();
+    }
     let runtime = TempDir::new().unwrap();
     let config_path = runtime.path().join("config.toml");
     fs::write(
         &config_path,
-        format!(
-            r#"
-dictionary = "{}"
-model = "{model}"
-emoji_dictionary = "{}"
-runtime_socket = "beankey/daemon.sock"
-
-[hunspell]
-english_dictionary = "{english}"
-greek_dictionary = "{greek}"
-
+        r#"
 [conversion]
 input_style = "roman_to_kana"
 n_best = 10
@@ -459,7 +466,7 @@ half_width_kana = false
 typography = false
 typo_correction = "automatic"
 live_conversion = false
-custom_input_tables = {{}}
+custom_input_tables = {}
 
 [zenz]
 inference_limit = 10
@@ -483,17 +490,10 @@ batch_size = 512
 micro_batch_size = 64
 flash_attention = true
 "#,
-            dictionary_root().display(),
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt")
-                .display(),
-            english = english.display(),
-            greek = greek.display(),
-        ),
     )
     .unwrap();
     let learning_directory = runtime.path().join("state/beankey/learning");
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_beankey-daemon"))
+    let mut daemon = Command::new(&executable)
         .arg("--config")
         .arg(&config_path)
         .arg("--runtime-root")

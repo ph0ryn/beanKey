@@ -51,6 +51,12 @@ let
     dontUseCmakeConfigure = true;
     BEANKEY_TEST_MODEL = "${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
     postInstall = ''
+      mkdir -p "$out/share/beankey"
+      ln -s ${../crates/converter/assets/dictionary/azookeyKanaKanji/Dictionary} "$out/share/beankey/dictionary"
+      ln -s ${../crates/converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt} "$out/share/beankey/emoji-dictionary"
+      ln -s ${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf "$out/share/beankey/model"
+      ln -s ${../crates/converter/assets/dictionary/hunspellEnglish} "$out/share/beankey/hunspell-english"
+      ln -s ${../crates/converter/assets/dictionary/hunspellGreek} "$out/share/beankey/hunspell-greek"
       install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
       install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
     '';
@@ -88,12 +94,6 @@ in
     ];
     doCheck = true;
     postInstall = ''
-      mkdir -p "$out/share/beankey"
-      ln -s ${../crates/converter/assets/dictionary/azookeyKanaKanji/Dictionary} "$out/share/beankey/dictionary"
-      ln -s ${../crates/converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt} "$out/share/beankey/emoji-dictionary"
-      ln -s ${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf "$out/share/beankey/model"
-      ln -s ${../crates/converter/assets/dictionary/hunspellEnglish} "$out/share/beankey/hunspell-english"
-      ln -s ${../crates/converter/assets/dictionary/hunspellGreek} "$out/share/beankey/hunspell-greek"
       substitute ${../macos/install.sh.in} "$out/bin/beankey-install" \
         --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out" \
         --subst-var-by NIX ${pkgs.nix}

@@ -13,7 +13,6 @@ let
       cfg
       lib
       pkgs
-      packages
       ;
   };
 in

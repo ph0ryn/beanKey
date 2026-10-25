@@ -103,8 +103,8 @@ assert pkgs.lib.assertMsg sharedModelPath
         test ! -e '${inputMethod}/share/beankey/config.toml'
         test ! -e '${inputMethod}/share/beankey/llama-backend'
         for asset in dictionary emoji-dictionary model hunspell-english hunspell-greek; do
-          test -L '${inputMethod}/share/beankey/'"$asset"
-          test -e '${inputMethod}/share/beankey/'"$asset"
+          test -L '${packages.daemon}/share/beankey/'"$asset"
+          test -e '${packages.daemon}/share/beankey/'"$asset"
         done
         bash -n '${inputMethod}/bin/beankey-install'
         if grep -aqE '/nix/store/[a-z0-9]{32}-beankey-config.toml' '${binary}'; then

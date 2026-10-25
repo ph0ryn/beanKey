@@ -14,12 +14,17 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let arguments = parse_arguments(std::env::args_os().skip(1))?;
     let config = DaemonConfig::load(arguments.config_path)?;
-    let reservation = match DaemonServer::reserve(arguments.runtime_root, &config.runtime_socket) {
+    let reservation = match DaemonServer::reserve(arguments.runtime_root, "beankey/daemon.sock") {
         Ok(reservation) => reservation,
         Err(ServerError::AlreadyRunning) => return Ok(()),
         Err(error) => return Err(error.into()),
     };
-    let engine = Engine::open_with_config(&config, arguments.learning_directory)?;
+    let executable = std::env::current_exe()?.canonicalize()?;
+    let assets = executable
+        .parent()
+        .ok_or("daemon executable has no parent directory")?
+        .join("../share/beankey");
+    let engine = Engine::open_with_config(&config, assets, arguments.learning_directory)?;
     reservation.bind(engine)?.run()?;
     Ok(())
 }

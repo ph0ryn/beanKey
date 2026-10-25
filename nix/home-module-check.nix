@@ -26,23 +26,42 @@ let
   enabled = evaluate {
     enable = true;
     useBeanKeyTheme = true;
-    conversion = {
-      typeHalfSpace = true;
-      punctuationStyle = "period_and_comma";
-    };
-    zenz.personalization = {
-      baseNgram = "/beankey-test/base-ngram";
-      personalNgram = "/beankey-test/personal-ngram";
-      alpha = 1.5;
+    settings = {
+      conversion = {
+        input_style = "roman_to_kana";
+        type_backslash = false;
+        type_half_space = true;
+        punctuation_style = "period_and_comma";
+        custom_input_tables = { };
+      };
+      learning.max_count = 65536;
+      zenz.personalization = {
+        base_ngram = "/beankey-test/base-ngram";
+        personal_ngram = "/beankey-test/personal-ngram";
+        alpha = 1.5;
+      };
+      lm_typo = {
+        enabled = true;
+        language_model = "ngram";
+        ngram = {
+          prefix = "/beankey-test/typo-ngram";
+          tokenizer = "/beankey-test/tokenizer.json";
+          n = 5;
+          discount = 0.75;
+        };
+      };
     };
   };
   disabled = evaluate { enable = false; };
+  defaults = evaluate { enable = true; };
   config = enabled.config;
-  configFile =
+  configFileFor =
+    config:
     if isLinux then
       config.xdg.configFile."beankey/config.toml".source
     else
       config.home.file."Library/Application Support/beanKey/config.toml".source;
+  configFile = configFileFor config;
 in
 assert builtins.all (value: value.assertion) config.assertions;
 assert builtins.all (value: value.assertion) disabled.config.assertions;
@@ -70,19 +89,39 @@ pkgs.runCommand "beankey-home-module"
     nativeBuildInputs = [ pkgs.python3 ];
   }
   ''
-    python - ${configFile} <<'PY'
+    python - ${configFile} ${configFileFor defaults.config} <<'PY'
     import sys
     import tomllib
 
     with open(sys.argv[1], "rb") as source:
         config = tomllib.load(source)
-    assert config["conversion"]["type_half_space"] is True
-    assert config["conversion"]["punctuation_style"] == "period_and_comma"
-    assert config["zenz"]["personalization"] == {
-        "base_ngram": "/beankey-test/base-ngram",
-        "personal_ngram": "/beankey-test/personal-ngram",
-        "alpha": 1.5,
-    }
+    assert config == {
+        "conversion": {
+            "input_style": "roman_to_kana",
+            "type_backslash": False,
+            "type_half_space": True,
+            "punctuation_style": "period_and_comma",
+            "custom_input_tables": {},
+        },
+        "learning": {"max_count": 65536},
+        "zenz": {"personalization": {
+            "base_ngram": "/beankey-test/base-ngram",
+            "personal_ngram": "/beankey-test/personal-ngram",
+            "alpha": 1.5,
+        }},
+        "lm_typo": {
+            "enabled": True,
+            "language_model": "ngram",
+            "ngram": {
+                "prefix": "/beankey-test/typo-ngram",
+                "tokenizer": "/beankey-test/tokenizer.json",
+                "n": 5,
+                "discount": 0.75,
+            },
+        },
+    }, config
+    with open(sys.argv[2], "rb") as source:
+        assert tomllib.load(source) == {}
     PY
     ${pkgs.lib.optionalString isLinux ''
       grep -Fx 'Theme=beanKey' ${config.xdg.configFile.fcitx5.source}/conf/classicui.conf

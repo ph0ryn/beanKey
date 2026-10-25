@@ -20,7 +20,6 @@ in
   options.programs.beanKey = settings.options;
   config = lib.mkIf cfg.enable (
     lib.mkMerge [
-      { inherit (settings) assertions; }
       (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
         i18n.inputMethod = import ./fcitx5.nix {
           inherit cfg lib packages;

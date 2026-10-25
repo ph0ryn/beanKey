@@ -19,7 +19,6 @@ in
 {
   options.programs.beanKey = settings.options;
   config = lib.mkIf cfg.enable {
-    inherit (settings) assertions;
     i18n.inputMethod = import ./fcitx5.nix {
       inherit cfg lib packages;
     };

@@ -28,7 +28,13 @@ let
     enable = true;
     useBeanKeyTheme = true;
   };
-  withoutTheme = moduleConfig { enable = true; };
+  withoutTheme = moduleConfig {
+    enable = true;
+    settings = {
+      conversion.live_conversion = false;
+      learning.max_count = 65536;
+    };
+  };
 in
 assert pkgs.lib.assertMsg sharedModelPath
   "beanKey model must have the same store path on all supported systems";
@@ -112,10 +118,24 @@ assert pkgs.lib.assertMsg sharedModelPath
     assert builtins.elem packages.daemon enabled.environment.systemPackages;
     assert !(enabled.systemd.services ? beanKey);
     assert !(enabled.systemd.sockets ? beanKey);
-    pkgs.runCommand "beankey-nixos-module" { } ''
+    pkgs.runCommand "beankey-nixos-module" { nativeBuildInputs = [ pkgs.python3 ]; } ''
       classic_ui_config=${enabled.environment.etc."xdg/fcitx5/conf/classicui.conf".source}
       grep -Fx 'Theme=beanKey' "$classic_ui_config"
       test -f ${packages.fcitx5-addon}/share/fcitx5/themes/beanKey/theme.conf
+      python - ${enabled.environment.etc."beankey/config.toml".source} ${
+        withoutTheme.environment.etc."beankey/config.toml".source
+      } <<'PY'
+      import sys
+      import tomllib
+
+      with open(sys.argv[1], "rb") as source:
+          assert tomllib.load(source) == {}
+      with open(sys.argv[2], "rb") as source:
+          assert tomllib.load(source) == {
+              "conversion": {"live_conversion": False},
+              "learning": {"max_count": 65536},
+          }
+      PY
       ln -s ${enabled.environment.etc."beankey/config.toml".source} "$out"
     '';
 }

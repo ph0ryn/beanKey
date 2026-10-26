@@ -68,7 +68,7 @@ in
             elif daemon_pids=$(/usr/bin/pgrep -x -u "$(id -u)" beankey-daemon); then
               for pid in $daemon_pids; do
                 if daemon_path=$(/bin/ps -ww -p "$pid" -o comm=); then
-                  if [[ "$daemon_path" != "${packages.daemon}/bin/beankey-daemon" ]]; then
+                  if [[ "$daemon_path" != "$HOME/Library/Input Methods/beanKey.app/Contents/Resources/beankey/bin/beankey-daemon" ]]; then
                     restart=true
                     break
                   fi

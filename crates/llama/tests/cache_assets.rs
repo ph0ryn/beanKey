@@ -9,7 +9,7 @@ const PROMPTS: [&str; 4] = [
 
 fn fixed_context() -> LlamaContext {
     let model = std::env::var("BEANKEY_TEST_MODEL")
-        .expect("BEANKEY_TEST_MODEL must be provided by the Nix test environment");
+        .expect("BEANKEY_TEST_MODEL must identify the fixed GGUF model");
     LlamaContext::load(model).unwrap()
 }
 

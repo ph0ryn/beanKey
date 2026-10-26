@@ -98,10 +98,15 @@ assert pkgs.lib.assertMsg sharedModelPath
       ''
         test ! -e '${inputMethod}/share/beankey/config.toml'
         test ! -e '${inputMethod}/share/beankey/llama-backend'
+        runtime='${inputMethod}/Library/Input Methods/beanKey.app/Contents/Resources/beankey'
+        test -x "$runtime/bin/beankey-daemon"
         for asset in dictionary emoji-dictionary model hunspell-english hunspell-greek; do
-          test -L '${packages.daemon}/share/beankey/'"$asset"
+          test ! -L '${packages.daemon}/share/beankey/'"$asset"
           test -e '${packages.daemon}/share/beankey/'"$asset"
+          test ! -L "$runtime/share/beankey/$asset"
+          test -e "$runtime/share/beankey/$asset"
         done
+        cmp '${packages.daemon}/share/beankey/model' "$runtime/share/beankey/model"
         bash -n '${inputMethod}/bin/beankey-install'
         if grep -aqE '/nix/store/[a-z0-9]{32}-beankey-config.toml' '${binary}'; then
           echo 'macOS frontend embeds a generated configuration store path' >&2

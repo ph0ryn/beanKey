@@ -3,7 +3,10 @@ project(beankey-ipc LANGUAGES CXX)
 include(CTest)
 
 set(protobuf_MODULE_COMPATIBLE TRUE)
-find_package(Protobuf CONFIG REQUIRED)
+find_package(Protobuf CONFIG QUIET)
+if(NOT Protobuf_FOUND)
+  find_package(Protobuf REQUIRED)
+endif()
 find_package(Threads REQUIRED)
 protobuf_generate_cpp(BEANKEY_PROTO_SOURCES BEANKEY_PROTO_HEADERS
   ${CMAKE_CURRENT_SOURCE_DIR}/beankey.proto)

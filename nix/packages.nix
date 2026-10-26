@@ -1,142 +1,103 @@
-{
-  assets,
-  pkgs,
-}:
+{ assets, pkgs }:
 
 let
   version = (builtins.fromTOML (builtins.readFile ../Cargo.toml)).workspace.package.version;
-
-  sourceFor =
-    roots:
-    pkgs.lib.cleanSourceWith {
+  product = pkgs.rustPlatform.buildRustPackage {
+    pname = "beankey";
+    inherit version;
+    outputs = [
+      "out"
+      "daemon"
+    ];
+    src = pkgs.lib.cleanSourceWith {
       src = ../.;
       filter =
         path: _:
         let
           relative = pkgs.lib.removePrefix "${toString ../.}/" (toString path);
         in
-        builtins.any (root: relative == root || pkgs.lib.hasPrefix "${root}/" relative) roots;
+        builtins.any (root: relative == root || pkgs.lib.hasPrefix "${root}/" relative) [
+          ".cargo"
+          "CMakeLists.txt"
+          "Cargo.lock"
+          "Cargo.toml"
+          "LICENSE"
+          "THIRD_PARTY_NOTICES.txt"
+          "crates"
+          "fcitx5"
+          "macos"
+          "ipc"
+        ];
     };
-
-  daemon = pkgs.rustPlatform.buildRustPackage {
-    pname = "beankey-daemon";
-    inherit version;
-    src = sourceFor [
-      ".cargo"
-      "Cargo.lock"
-      "Cargo.toml"
-      "LICENSE"
-      "THIRD_PARTY_NOTICES.txt"
-      "crates"
-      "ipc"
-    ];
     cargoLock = {
       lockFile = ../Cargo.lock;
       allowBuiltinFetchGit = true;
     };
-    cargoBuildFlags = [
-      "--package"
-      "beankey-daemon"
-    ];
-    cargoTestFlags = [
-      "--workspace"
-      "--all-targets"
-    ];
     nativeBuildInputs = [
       pkgs.cmake
+      pkgs.ninja
       pkgs.pkg-config
       pkgs.protobuf
       pkgs.rustPlatform.bindgenHook
     ];
+    buildInputs = [
+      pkgs.protobuf
+    ]
+    ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.fcitx5 ];
     dontUseCmakeConfigure = true;
-    BEANKEY_TEST_MODEL = "${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
-    postInstall = ''
-      mkdir -p "$out/share/beankey"
-      ln -s ${../crates/converter/assets/dictionary/azookeyKanaKanji/Dictionary} "$out/share/beankey/dictionary"
-      ln -s ${../crates/converter/assets/dictionary/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt} "$out/share/beankey/emoji-dictionary"
-      ln -s ${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf "$out/share/beankey/model"
-      ln -s ${../crates/converter/assets/dictionary/hunspellEnglish} "$out/share/beankey/hunspell-english"
-      ln -s ${../crates/converter/assets/dictionary/hunspellGreek} "$out/share/beankey/hunspell-greek"
-      install -Dm644 ${../LICENSE} "$out/share/licenses/beankey/LICENSE"
-      install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
+    configurePhase = ''
+      runHook preConfigure
+      cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$out" \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DBEANKEY_MODEL=${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf \
+        ${
+          if pkgs.stdenv.hostPlatform.isDarwin then
+            "-DBEANKEY_NIX_STORE=${pkgs.nix}/bin/nix-store"
+          else
+            ''-DBEANKEY_DAEMON_PATH="$daemon/bin/beankey-daemon"''
+        }
+      runHook postConfigure
+    '';
+    buildPhase = ''
+      runHook preBuild
+      cmake --build build --parallel "$NIX_BUILD_CORES"
+      runHook postBuild
+    '';
+    checkPhase = ''
+      runHook preCheck
+      ctest --test-dir build --output-on-failure
+      runHook postCheck
+    '';
+    installPhase = ''
+      runHook preInstall
+      cmake --install build --prefix "$daemon" --component Daemon
+      cmake --install build --prefix "$out" --component Frontend
+      runHook postInstall
     '';
     meta = {
-      description = "beanKey kana-kanji conversion daemon";
+      description = "beanKey kana-kanji input method";
       license = pkgs.lib.licenses.mit;
-      mainProgram = "beankey-daemon";
       platforms = pkgs.lib.platforms.linux ++ [ "aarch64-darwin" ];
     };
   };
-
 in
 {
-  inherit daemon;
+  daemon = product.daemon // {
+    meta = product.meta // {
+      description = "beanKey kana-kanji conversion daemon";
+      mainProgram = "beankey-daemon";
+    };
+  };
 }
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-  macos-input-method = pkgs.stdenv.mkDerivation {
-    pname = "beankey-macos-input-method";
-    inherit version;
-    src = sourceFor [
-      "Cargo.toml"
-      "LICENSE"
-      "macos"
-      "ipc"
-    ];
-    cmakeDir = "../macos";
-    nativeBuildInputs = [
-      pkgs.cmake
-      pkgs.ninja
-      pkgs.protobuf
-    ];
-    buildInputs = [ pkgs.protobuf ];
-    cmakeFlags = [
-      "-DBEANKEY_DAEMON_PATH=${daemon}/bin/beankey-daemon"
-    ];
-    doCheck = true;
-    postInstall = ''
-      substitute ${../macos/install.sh.in} "$out/bin/beankey-install" \
-        --subst-var-by BASH ${pkgs.bash} --subst-var-by BUNDLE "$out" \
-        --subst-var-by NIX ${pkgs.nix}
-      chmod +x "$out/bin/beankey-install"
-    '';
-    meta = {
-      description = "beanKey InputMethodKit frontend";
-      license = pkgs.lib.licenses.mit;
-      platforms = [ "aarch64-darwin" ];
+  macos-input-method = product // {
+    meta = product.meta // {
       mainProgram = "beankey-install";
     };
   };
 }
 // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-  fcitx5-addon = pkgs.stdenv.mkDerivation {
-    pname = "fcitx5-beankey";
-    inherit version;
-    src = sourceFor [
-      "Cargo.toml"
-      "LICENSE"
-      "fcitx5"
-      "ipc"
-    ];
-    cmakeDir = "../fcitx5";
-    nativeBuildInputs = [
-      pkgs.cmake
-      pkgs.ninja
-      pkgs.pkg-config
-      pkgs.protobuf
-    ];
-    buildInputs = [
-      pkgs.fcitx5
-      pkgs.protobuf
-    ];
-    cmakeFlags = [
-      "-DBEANKEY_DAEMON_PATH=${daemon}/bin/beankey-daemon"
-      "-DBEANKEY_CONFIG_PATH=/etc/beankey/config.toml"
-    ];
-    doCheck = true;
-    meta = {
-      description = "Fcitx5 input method addon for beanKey";
-      license = pkgs.lib.licenses.mit;
-      platforms = pkgs.lib.platforms.linux;
-    };
-  };
+  fcitx5-addon = product;
 }

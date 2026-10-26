@@ -32,8 +32,7 @@ fn envelope(request_id: u64, payload: Payload) -> protocol::Envelope {
 }
 
 fn required_environment(name: &str) -> String {
-    std::env::var(name)
-        .unwrap_or_else(|_| panic!("{name} must be provided by the Nix test environment"))
+    std::env::var(name).unwrap_or_else(|_| panic!("{name} must identify the fixed test asset"))
 }
 
 #[test]
@@ -429,27 +428,40 @@ fn recovers_the_fixed_upstream_roman_typo_regression() {
 }
 
 #[test]
-fn runs_the_server_executable_with_the_fixed_nixos_assets() {
-    let model = required_environment("BEANKEY_TEST_MODEL");
-    let dictionaries = Path::new(env!("CARGO_MANIFEST_DIR")).join("../converter/assets/dictionary");
+fn runs_the_server_executable_with_the_fixed_assets() {
     let package = TempDir::new().unwrap();
-    let bin = package.path().join("bin");
-    let assets = package.path().join("share/beankey");
-    fs::create_dir(&bin).unwrap();
-    fs::create_dir_all(&assets).unwrap();
-    let executable = bin.join("beankey-daemon");
-    fs::copy(env!("CARGO_BIN_EXE_beankey-daemon"), &executable).unwrap();
-    for (name, path) in [
-        ("dictionary", dictionary_root()),
-        ("model", PathBuf::from(model)),
-        (
-            "emoji-dictionary",
-            dictionaries.join("azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt"),
-        ),
-        ("hunspell-english", dictionaries.join("hunspellEnglish")),
-        ("hunspell-greek", dictionaries.join("hunspellGreek")),
-    ] {
-        std::os::unix::fs::symlink(path, assets.join(name)).unwrap();
+    let root = package.path().join("relocated 日本語");
+    let executable = root.join("bin/beankey-daemon");
+    if let Some(source) = std::env::var_os("BEANKEY_TEST_PACKAGE") {
+        assert!(
+            Command::new("cp")
+                .arg("-R")
+                .arg(source)
+                .arg(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    } else {
+        let model = required_environment("BEANKEY_TEST_MODEL");
+        let dictionaries =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../converter/assets/dictionary");
+        let assets = root.join("share/beankey");
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir_all(&assets).unwrap();
+        fs::copy(env!("CARGO_BIN_EXE_beankey-daemon"), &executable).unwrap();
+        for (name, path) in [
+            ("dictionary", dictionary_root()),
+            ("model", PathBuf::from(model)),
+            (
+                "emoji-dictionary",
+                dictionaries.join("azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt"),
+            ),
+            ("hunspell-english", dictionaries.join("hunspellEnglish")),
+            ("hunspell-greek", dictionaries.join("hunspellGreek")),
+        ] {
+            std::os::unix::fs::symlink(path, assets.join(name)).unwrap();
+        }
     }
     let runtime = TempDir::new().unwrap();
     let config_path = runtime.path().join("config.toml");

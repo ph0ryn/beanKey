@@ -21,6 +21,13 @@
   }
   return configPath;
 }
++ (NSURL *)daemonURLForBundle:(NSBundle *)bundle {
+  NSString *path = @BEANKEY_DAEMON_PATH;
+  if (path.length)
+    return [NSURL fileURLWithPath:path];
+  return [bundle.resourceURL
+      URLByAppendingPathComponent:@"beankey/bin/beankey-daemon"];
+}
 + (instancetype)sharedConnection {
   static BKDaemonConnection *connection;
   static dispatch_once_t once;
@@ -51,8 +58,8 @@
                       return;
                     }
                     NSTask *task = [[NSTask alloc] init];
-                    task.executableURL =
-                        [NSURL fileURLWithPath:@BEANKEY_DAEMON_PATH];
+                    task.executableURL = [BKDaemonConnection
+                        daemonURLForBundle:NSBundle.mainBundle];
                     task.arguments = @[
                       @"--config", configPath, @"--runtime-root", runtime,
                       @"--learning-directory", learning

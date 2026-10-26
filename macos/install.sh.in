@@ -1,13 +1,21 @@
-#!@BASH@/bin/bash
+#!/bin/bash
 set -euo pipefail
 
-source_bundle='@BUNDLE@/Library/Input Methods/beanKey.app'
+script_path=$0
+while [[ -L "$script_path" ]]; do
+  script_directory=$(cd -- "$(dirname -- "$script_path")" && pwd -P)
+  script_path=$(readlink "$script_path")
+  if [[ "$script_path" != /* ]]; then script_path="$script_directory/$script_path"; fi
+done
+bundle_root=$(cd -- "$(dirname -- "$script_path")/.." && pwd -P)
+source_bundle="$bundle_root/Library/Input Methods/beanKey.app"
 destination="$HOME/Library/Input Methods/beanKey.app"
 parent="$HOME/Library/Input Methods"
 package_root="$HOME/Library/Application Support/beanKey/package"
 support_root="$(dirname "$package_root")"
 config_path="$support_root/config.toml"
-if [[ -e "$package_root" && ! -L "$package_root" ]]; then
+nix_store='@BEANKEY_NIX_STORE@'
+if [[ -n "$nix_store" && -e "$package_root" && ! -L "$package_root" ]]; then
   echo 'パッケージ保持用の場所に別のファイルがあります。Library/Application Support/beanKey/packageを確認してください。' >&2
   exit 1
 fi
@@ -18,10 +26,11 @@ if [[ -e "$destination" ]]; then
     exit 1
   fi
 fi
-# The copied bundle still links to its immutable Nix closure. Keep it alive even
-# when installed with `nix run` instead of a Home Manager generation.
 mkdir -p "$support_root"
-'@NIX@/bin/nix-store' --realise '@BUNDLE@' --add-root "$package_root" --indirect >/dev/null
+# Nix builds retain their external libraries; other builds need no GC root.
+if [[ -n "$nix_store" ]]; then
+  "$nix_store" --realise "$bundle_root" --add-root "$package_root" --indirect >/dev/null
+fi
 if [[ ! -e "$config_path" && ! -L "$config_path" ]]; then
   config_staging=$(mktemp "$support_root/.config.XXXXXX")
   trap 'rm -f -- "$config_staging"' EXIT
@@ -49,6 +58,7 @@ mkdir -p "$parent"
 staging=$(mktemp -d "$parent/.beanKey-install.XXXXXX")
 /usr/bin/ditto "$source_bundle" "$staging/beanKey.app"
 chmod -R u+w "$staging/beanKey.app"
+/usr/bin/codesign --force --sign - "$staging/beanKey.app/Contents/Resources/beankey/bin/beankey-daemon"
 /usr/bin/codesign --force --sign - "$staging/beanKey.app"
 if [[ -e "$destination" ]]; then
   mv "$destination" "$staging/previous.app"
@@ -57,6 +67,6 @@ if ! mv "$staging/beanKey.app" "$destination"; then
   if [[ -e "$staging/previous.app" ]]; then mv "$staging/previous.app" "$destination"; fi
   exit 1
 fi
-'@BUNDLE@/bin/beankey-register-input-method' "$destination"
+"$bundle_root/bin/beankey-register-input-method" "$destination"
 # Only remove this invocation's staging directory after successful registration.
 rm -r -- "$staging"

@@ -63,6 +63,8 @@ if(BUILD_TESTING)
   add_test(NAME beankey-macos-input COMMAND beankey-macos-input-test)
   add_executable(beankey-macos-config-test tests/config_path_test.mm)
   target_compile_options(beankey-macos-config-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
+  target_compile_definitions(beankey-macos-config-test PRIVATE
+    BEANKEY_DAEMON_PATH="${BEANKEY_DAEMON_PATH}")
   target_link_libraries(beankey-macos-config-test PRIVATE beankey-macos-input)
   add_test(NAME beankey-macos-config COMMAND beankey-macos-config-test)
   add_executable(beankey-macos-menu-test tests/menu_test.mm src/input_controller.mm)

@@ -20,10 +20,6 @@ std::string printableKeyText(fcitx::KeySym symbol) {
   return fcitx::Key::keySymToUTF8(symbol);
 }
 
-std::string japaneseInputText(const std::string &text) {
-  return text == "-" ? "ー" : text;
-}
-
 v1::UserAction shortcutAction(fcitx::KeySym symbol) {
   switch (symbol) {
   case FcitxKey_h:
@@ -140,14 +136,14 @@ void populateKeyEvent(const fcitx::KeyEvent &source, v1::KeyEvent *target) {
                      !states.test(fcitx::KeyState::Ctrl));
   if (target->action() == v1::USER_ACTION_INPUT &&
       !states.testAny(shortcutModifiers)) {
-    target->set_text(japaneseInputText(printableKeyText(source.key().sym())));
+    target->set_text(printableKeyText(source.key().sym()));
   }
   const std::string inputText = printableKeyText(source.key().sym());
   const std::string rawText = printableKeyText(source.rawKey().sym());
   target->set_input(target->option() && !target->shift()
                         ? rawText
                         : (inputText.empty() ? rawText : inputText));
-  target->set_intention(japaneseInputText(rawText));
+  target->set_intention(rawText);
 }
 
 } // namespace beankey

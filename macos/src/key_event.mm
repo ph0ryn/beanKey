@@ -13,9 +13,6 @@ std::string printable(NSString *text) {
   const char *utf8 = text.UTF8String;
   return utf8 ? utf8 : "";
 }
-std::string japanese(const std::string &text) {
-  return text == "-" ? "ー" : text;
-}
 v1::UserAction controlAction(NSString *raw, unsigned short code, bool shift) {
   if (code == kVK_Delete || code == kVK_ForwardDelete)
     return v1::USER_ACTION_FORGET;
@@ -113,9 +110,9 @@ v1::KeyEvent keyEvent(NSEvent *event) {
   if (key.action() == v1::USER_ACTION_INPUT &&
       !(modifiers & (NSEventModifierFlagOption | NSEventModifierFlagControl |
                      NSEventModifierFlagCommand)))
-    key.set_text(japanese(text));
+    key.set_text(text);
   key.set_input(key.option() ? raw : (text.empty() ? raw : text));
-  key.set_intention(japanese(raw));
+  key.set_intention(raw);
   return key;
 }
 } // namespace beankey::macos

@@ -42,7 +42,6 @@ public:
 
 private:
   bool start();
-  bool pageCandidates(beankey::v1::PageCandidates::Direction direction);
   bool commitComposition();
   bool send(beankey::v1::Envelope request);
   bool apply(const beankey::v1::Envelope &response);

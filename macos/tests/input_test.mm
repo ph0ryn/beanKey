@@ -38,8 +38,10 @@ int main() {
     }
     require(!macos::utf16Offset(text, 10),
             "Reject out of range scalar offsets");
-    require(macos::keyEvent(event(kVK_ANSI_Minus, @"-", @"-")).text() == "ー",
-            "Japanese long vowel mapping");
+    const auto hyphen = macos::keyEvent(event(kVK_ANSI_Minus, @"-", @"-"));
+    require(hyphen.action() == v1::USER_ACTION_INPUT && hyphen.text() == "-" &&
+                hyphen.input() == "-" && hyphen.intention() == "-",
+            "Hyphen reaches the daemon without Japanese normalization");
     require(macos::keyEvent(event(kVK_Return, @"\r", @"\r")).action() ==
                 v1::USER_ACTION_ENTER,
             "Return");

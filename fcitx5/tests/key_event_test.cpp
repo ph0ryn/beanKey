@@ -49,9 +49,9 @@ int main() {
   beankey::v1::KeyEvent longVowelTarget;
   beankey::populateKeyEvent(longVowelSource, &longVowelTarget);
   if (longVowelTarget.action() != beankey::v1::USER_ACTION_INPUT ||
-      longVowelTarget.text() != "ー" || longVowelTarget.input() != "-" ||
-      longVowelTarget.intention() != "ー") {
-    std::cerr << "Japanese hyphen key did not produce a long vowel mark\n";
+      longVowelTarget.text() != "-" || longVowelTarget.input() != "-" ||
+      longVowelTarget.intention() != "-") {
+    std::cerr << "hyphen must reach the daemon without Japanese normalization\n";
     return 1;
   }
 

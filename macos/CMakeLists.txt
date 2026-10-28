@@ -67,6 +67,9 @@ if(BUILD_TESTING)
     BEANKEY_DAEMON_PATH="${BEANKEY_DAEMON_PATH}")
   target_link_libraries(beankey-macos-config-test PRIVATE beankey-macos-input)
   add_test(NAME beankey-macos-config COMMAND beankey-macos-config-test)
+  add_test(NAME beankey-macos-install COMMAND /bin/bash
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/install_test.sh"
+    "${CMAKE_CURRENT_SOURCE_DIR}/install.sh.in" "$<TARGET_BUNDLE_DIR:beanKey>")
   add_executable(beankey-macos-menu-test tests/menu_test.mm src/input_controller.mm)
   target_compile_options(beankey-macos-menu-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
   target_link_libraries(beankey-macos-menu-test PRIVATE beankey-macos-input)

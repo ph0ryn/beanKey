@@ -374,18 +374,6 @@ bool BeanKeyState::start() {
   return true;
 }
 
-bool BeanKeyState::pageCandidates(
-    beankey::v1::PageCandidates::Direction direction) {
-  if (candidateIndices_.empty()) {
-    return false;
-  }
-  auto request = envelope();
-  auto *page = request.mutable_page_candidates();
-  page->set_direction(direction);
-  page->set_page_size(kCandidatePageSize);
-  return send(std::move(request));
-}
-
 bool BeanKeyState::commitComposition() {
   auto request = envelope();
   request.mutable_commit_composition();

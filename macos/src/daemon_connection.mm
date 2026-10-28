@@ -148,11 +148,8 @@
   if (!self.ready)
     return std::nullopt;
   auto response = _client->request(request, std::chrono::seconds(5));
-  if (!response || response->protocol_version() != request.protocol_version() ||
-      response->request_id() != request.request_id() ||
-      response->session_id() != request.session_id() ||
-      (!response->has_state_response() &&
-       !response->has_typo_correction_response())) {
+  if (!response || (!response->has_state_response() &&
+                    !response->has_typo_correction_response())) {
     [self disconnect];
     return std::nullopt;
   }

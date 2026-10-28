@@ -125,7 +125,10 @@ std::optional<v1::Envelope> Client::request(const v1::Envelope &request,
         return std::nullopt;
       }
       v1::Envelope response;
-      if (!response.ParseFromString(responsePayload)) {
+      if (!response.ParseFromString(responsePayload) ||
+          response.protocol_version() != request.protocol_version() ||
+          response.request_id() != request.request_id() ||
+          response.session_id() != request.session_id()) {
         disconnect();
         return std::nullopt;
       }

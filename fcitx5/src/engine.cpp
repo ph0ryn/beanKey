@@ -318,10 +318,7 @@ bool BeanKeyState::requestTypoCorrections() {
   request.mutable_request_typo_corrections();
   const auto response =
       engine_->client().request(request, engine_->requestTimeout());
-  if (!response || response->protocol_version() != kProtocolVersion ||
-      response->request_id() != request.request_id() ||
-      response->session_id() != sessionId_ ||
-      !response->has_typo_correction_response()) {
+  if (!response || !response->has_typo_correction_response()) {
     failSession();
     return false;
   }
@@ -362,9 +359,7 @@ bool BeanKeyState::start() {
   fillSurroundingText(start->mutable_surrounding_text());
   const auto response =
       engine_->client().request(request, engine_->requestTimeout());
-  if (!response || response->protocol_version() != kProtocolVersion ||
-      response->request_id() != request.request_id() ||
-      response->session_id() != sessionId_ || !response->has_state_response()) {
+  if (!response || !response->has_state_response()) {
     engine_->client().disconnect();
     sessionId_.clear();
     return false;
@@ -383,9 +378,7 @@ bool BeanKeyState::commitComposition() {
 bool BeanKeyState::send(beankey::v1::Envelope request) {
   const auto response =
       engine_->client().request(request, engine_->requestTimeout());
-  if (!response || response->protocol_version() != kProtocolVersion ||
-      response->request_id() != request.request_id() ||
-      response->session_id() != sessionId_ || !response->has_state_response()) {
+  if (!response || !response->has_state_response()) {
     failSession();
     return false;
   }

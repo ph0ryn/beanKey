@@ -157,6 +157,68 @@ int main() {
   client.disconnect();
   assert(unlink(socketPath.c_str()) == 0);
 
+  enum class ResponseCase {
+    WrongVersion,
+    WrongRequestId,
+    WrongSessionId,
+    TypoCorrection,
+    ProtocolError
+  };
+  for (const auto responseCase :
+       {ResponseCase::WrongVersion, ResponseCase::WrongRequestId,
+        ResponseCase::WrongSessionId, ResponseCase::TypoCorrection,
+        ResponseCase::ProtocolError}) {
+    const int responseListener = createListenerSocket();
+    assert(responseListener >= 0);
+    assert(bind(responseListener, reinterpret_cast<const sockaddr *>(&address),
+                sizeof(address)) == 0);
+    assert(listen(responseListener, 1) == 0);
+    std::thread responseServer([responseListener, responseCase] {
+      const int connection = acceptConnection(responseListener);
+      assert(connection >= 0);
+      beankey::v1::Envelope response;
+      assert(response.ParseFromString(readFrame(connection)));
+      response.mutable_state_response()->set_consumed(true);
+      switch (responseCase) {
+      case ResponseCase::WrongVersion:
+        response.set_protocol_version(response.protocol_version() + 1);
+        break;
+      case ResponseCase::WrongRequestId:
+        response.set_request_id(response.request_id() + 1);
+        break;
+      case ResponseCase::WrongSessionId:
+        response.set_session_id(response.session_id() + "-other");
+        break;
+      case ResponseCase::TypoCorrection:
+        response.mutable_typo_correction_response();
+        break;
+      case ResponseCase::ProtocolError:
+        response.mutable_protocol_error()->set_code(
+            beankey::v1::ProtocolError::CODE_INTERNAL);
+        break;
+      }
+      writeFrame(connection, response.SerializeAsString());
+      close(connection);
+      close(responseListener);
+    });
+    beankey::Client responseClient(socketPath);
+    assert(responseClient.ensureConnected([] {}, std::chrono::milliseconds(500)));
+    const auto reply =
+        responseClient.request(request, std::chrono::milliseconds(500));
+    if (responseCase == ResponseCase::TypoCorrection ||
+        responseCase == ResponseCase::ProtocolError) {
+      assert(reply && responseClient.connected());
+      assert(reply->has_typo_correction_response() ==
+             (responseCase == ResponseCase::TypoCorrection));
+      assert(reply->has_protocol_error() ==
+             (responseCase == ResponseCase::ProtocolError));
+    } else {
+      assert(!reply && !responseClient.connected());
+    }
+    responseServer.join();
+    assert(unlink(socketPath.c_str()) == 0);
+  }
+
   const int oversizedListener = createListenerSocket();
   assert(oversizedListener >= 0);
   assert(bind(oversizedListener, reinterpret_cast<const sockaddr *>(&address),

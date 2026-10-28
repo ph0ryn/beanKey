@@ -111,8 +111,15 @@ v1::KeyEvent keyEvent(NSEvent *event) {
       !(modifiers & (NSEventModifierFlagOption | NSEventModifierFlagControl |
                      NSEventModifierFlagCommand)))
     key.set_text(text);
-  key.set_input(key.option() ? raw : (text.empty() ? raw : text));
-  key.set_intention(raw);
+  key.set_input(text.empty() ? raw : text);
+  // Keep generated Option glyphs separate from the logical text used by the
+  // daemon's special punctuation and optional direct-fullwidth handling.
+  key.set_intention(
+      key.option()
+          ? printable([event
+                charactersByApplyingModifiers:modifiers &
+                                              ~NSEventModifierFlagOption])
+          : raw);
   return key;
 }
 } // namespace beankey::macos

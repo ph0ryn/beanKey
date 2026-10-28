@@ -70,7 +70,9 @@ message KeyEvent {
   bool shift = 2;
   string text = 3;
   SurroundingText surrounding_text = 4;
+  // Native generated characters, including Option/Alt effects.
   string input = 5;
+  // Logical key text without Option/Alt, retaining Shift where exposed by the OS.
   string intention = 6;
   bool option = 7;
 }

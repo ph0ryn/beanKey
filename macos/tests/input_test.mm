@@ -55,8 +55,28 @@ int main() {
             "Ctrl Shift U");
     const auto option = macos::keyEvent(
         event(kVK_ANSI_A, @"å", @"a", NSEventModifierFlagOption));
-    require(option.option() && option.input() == "a" && option.text().empty(),
-            "Option carries the original alphanumeric key");
+    require(option.action() == v1::USER_ACTION_INPUT && option.option() &&
+                option.input() == "å" && option.intention() == "a" &&
+                option.text().empty(),
+            "Option preserves generated text separately from its logical key");
+    const auto shiftedOption = macos::keyEvent(
+        event(kVK_ANSI_A, @"Å", @"A",
+              NSEventModifierFlagOption | NSEventModifierFlagShift));
+    require(shiftedOption.option() && shiftedOption.shift() &&
+                shiftedOption.input() == "Å" &&
+                shiftedOption.intention() == "A" &&
+                shiftedOption.text().empty(),
+            "Shift Option preserves generated text and shifted logical text");
+    const auto optionMinus = macos::keyEvent(
+        event(kVK_ANSI_Minus, @"¯", @"-", NSEventModifierFlagOption));
+    require(optionMinus.input() == "¯" && optionMinus.intention() == "-",
+            "Option punctuation remains generated input until daemon handling");
+    const auto shiftedOptionPeriod = macos::keyEvent(
+        event(kVK_ANSI_Period, @"˘", @">",
+              NSEventModifierFlagOption | NSEventModifierFlagShift));
+    require(shiftedOptionPeriod.input() == "˘" &&
+                shiftedOptionPeriod.intention() == ">",
+            "Option-stripped punctuation retains Shift for direct fullwidth");
     require(macos::keyEvent(
                 event(kVK_ANSI_C, @"c", @"c", NSEventModifierFlagCommand))
                     .action() == v1::USER_ACTION_UNSPECIFIED,

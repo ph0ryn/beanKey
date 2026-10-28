@@ -988,6 +988,7 @@ impl Engine {
 
         if action == protocol::UserAction::Input
             && session.input_mode == InputMode::None
+            && session.input_language == InputLanguage::Japanese
             && self.input_behavior.option_direct_full_width_input
             && event.option
             && let Some(text) = option_direct_input_text(&event, self.input_behavior.type_backslash)
@@ -2011,10 +2012,12 @@ fn valid_event_text(event: &protocol::KeyEvent) -> bool {
 }
 
 fn option_direct_input_text(event: &protocol::KeyEvent, type_backslash: bool) -> Option<String> {
-    let input = if event.input.is_empty() {
-        event.text.as_str()
-    } else {
+    let input = if !event.intention.is_empty() {
+        event.intention.as_str()
+    } else if !event.input.is_empty() {
         event.input.as_str()
+    } else {
+        event.text.as_str()
     };
     if input.is_empty() || input.chars().any(char::is_control) {
         return None;
@@ -2036,17 +2039,23 @@ fn normalize_input_event(event: &mut protocol::KeyEvent, behavior: InputBehavior
     } else {
         event.input.as_str()
     };
-    let normalized = match input {
+    // Option shortcuts use the logical key; ordinary input keeps its generated glyph.
+    let logical = if event.option && !event.intention.is_empty() {
+        event.intention.as_str()
+    } else {
+        input
+    };
+    let normalized = match logical {
         "¥" | "\\" if event.shift => Some("｜"),
         "¥" | "\\" if behavior.type_backslash != event.option => Some("＼"),
         "¥" | "\\" => Some("￥"),
         "," if !event.shift => Some(behavior.punctuation_style.comma(event.option)),
         "." if !event.shift => Some(behavior.punctuation_style.period(event.option)),
-        "/" | "?" if event.option && event.shift => Some("…"),
+        "/" if event.option && event.shift => Some("…"),
         "/" if event.option => Some("／"),
-        "[" | "{" if event.option && event.shift => Some("｛"),
+        "[" if event.option && event.shift => Some("｛"),
         "[" if event.option => Some("［"),
-        "]" | "}" if event.option && event.shift => Some("｝"),
+        "]" if event.option && event.shift => Some("｝"),
         "]" if event.option => Some("］"),
         _ => japanese_symbol_intention(input),
     };
@@ -2056,7 +2065,6 @@ fn normalize_input_event(event: &mut protocol::KeyEvent, behavior: InputBehavior
     } else if event.option
         && !input.is_empty()
         && input.chars().all(|character| !character.is_control())
-        && !input.is_ascii()
     {
         let generated = input.to_owned();
         event.text.clone_from(&generated);

@@ -221,15 +221,38 @@ int main() {
     valid = false;
   }
 
-  fcitx::KeyEvent shiftedOptionSource(
-      nullptr, fcitx::Key(FcitxKey_a, fcitx::KeyStates{fcitx::KeyState::Shift,
-                                                       fcitx::KeyState::Alt}));
-  beankey::v1::KeyEvent shiftedOptionTarget;
-  beankey::populateKeyEvent(shiftedOptionSource, &shiftedOptionTarget);
-  if (!shiftedOptionTarget.option() || !shiftedOptionTarget.shift() ||
-      shiftedOptionTarget.input() != "A") {
-    std::cerr << "Shift-Alt input lost its shifted printable text\n";
-    valid = false;
+  // Fcitx raw symbols already include the keyboard layout's Shift result.
+  // Key::normalize's Alt shortcut uppercasing must not generate input glyphs.
+  for (const auto &[symbol, expected] :
+       {std::pair{FcitxKey_A, "A"}, std::pair{FcitxKey_a, "a"},
+        std::pair{FcitxKey_greater, ">"},
+        std::pair{fcitx::Key::keySymFromUnicode(0x00c5), "Å"},
+        std::pair{fcitx::Key::keySymFromUnicode(0x02d8), "˘"}}) {
+    fcitx::KeyEvent source(
+        nullptr, fcitx::Key(symbol, fcitx::KeyStates{fcitx::KeyState::Shift,
+                                                     fcitx::KeyState::Alt}));
+    beankey::v1::KeyEvent target;
+    beankey::populateKeyEvent(source, &target);
+    if (target.action() != beankey::v1::USER_ACTION_INPUT || !target.option() ||
+        !target.shift() || !target.text().empty() ||
+        target.input() != expected || target.intention() != expected) {
+      std::cerr << "Shift-Alt must preserve the native printable symbol: "
+                << expected << '\n';
+      valid = false;
+    }
+  }
+  for (const auto &[symbol, expected] :
+       {std::pair{fcitx::Key::keySymFromUnicode(0x00e5), "å"},
+        std::pair{fcitx::Key::keySymFromUnicode(0x00af), "¯"}}) {
+    fcitx::KeyEvent source(nullptr, fcitx::Key(symbol, fcitx::KeyState::Alt));
+    beankey::v1::KeyEvent target;
+    beankey::populateKeyEvent(source, &target);
+    if (target.input() != expected || target.intention() != expected ||
+        !target.option() || !target.text().empty()) {
+      std::cerr << "Alt must preserve the native generated symbol: " << expected
+                << '\n';
+      valid = false;
+    }
   }
 
   fcitx::KeyEvent modifiedOptionSource(

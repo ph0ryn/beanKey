@@ -245,13 +245,16 @@ fn matches_desktop_option_symbol_intentions_while_composing() {
     });
     start_roman_session(&mut engine, 1);
 
-    for (index, (input, shift, expected)) in [
-        ("/", false, "／"),
-        ("?", true, "…"),
-        ("[", false, "［"),
-        ("{", true, "｛"),
-        ("]", false, "］"),
-        ("}", true, "｝"),
+    for (index, (input, intention, shift, expected)) in [
+        ("÷", "/", false, "／"),
+        ("¿", "/", true, "…"),
+        ("¿", "?", true, "¿"),
+        ("“", "[", false, "［"),
+        ("”", "[", true, "｛"),
+        ("‘", "]", false, "］"),
+        ("’", "]", true, "｝"),
+        ("≤", ",", false, "，"),
+        ("≥", ".", false, "．"),
     ]
     .into_iter()
     .enumerate()
@@ -259,7 +262,7 @@ fn matches_desktop_option_symbol_intentions_while_composing() {
         let request_id = 2 + index as u64 * 2;
         let mut event = key_event(0, "");
         event.input = input.into();
-        event.intention = input.into();
+        event.intention = intention.into();
         event.option = true;
         event.shift = shift;
         let state = response(engine.handle(envelope(request_id, Payload::KeyEvent(event))));
@@ -279,7 +282,10 @@ fn inserts_printable_option_generated_characters() {
     });
     start_roman_session(&mut engine, 1);
 
-    for (index, (input, intention)) in [("¯", "<"), ("˘", ">")].into_iter().enumerate() {
+    for (index, (input, intention)) in [("¯", "<"), ("˘", ">"), ("Å", "A"), ("A", "A")]
+        .into_iter()
+        .enumerate()
+    {
         let request_id = 2 + index as u64 * 2;
         let mut event = key_event(0, "");
         event.input = input.into();
@@ -351,16 +357,62 @@ fn directly_commits_full_width_text_for_option_input() {
     });
     start_roman_session(&mut engine, 1);
 
-    for (request_id, input, expected) in [(2, "a", "ａ"), (3, "¥", "＼"), (4, "-", "－")] {
+    for (request_id, input, intention, shift, expected) in [
+        (2, "å", "a", false, "ａ"),
+        (3, "Å", "A", true, "Ａ"),
+        (4, "¥", "¥", false, "＼"),
+        (5, "–", "-", false, "－"),
+        (6, "¯", "<", true, "＜"),
+    ] {
         let mut event = key_event(0, "");
         event.input = input.into();
-        event.intention = input.into();
+        event.intention = intention.into();
         event.option = true;
+        event.shift = shift;
         let state = response(engine.handle(envelope(request_id, Payload::KeyEvent(event))));
         assert!(state.consumed);
         assert_eq!(state.commit, expected);
         assert!(state.preedit.is_empty());
         assert_eq!(state.input_state, protocol::InputState::None as i32);
+    }
+}
+
+#[test]
+fn option_full_width_input_does_not_override_english_or_active_composition() {
+    for english in [false, true] {
+        let mut engine = configured_engine(ConversionConfig {
+            live_conversion: false,
+            option_direct_full_width_input: true,
+            ..Default::default()
+        });
+        start_roman_session(&mut engine, 1);
+        let setup = if english {
+            protocol::KeyEvent {
+                action: protocol::UserAction::Eisu as i32,
+                ..Default::default()
+            }
+        } else {
+            key_event(0, "ka")
+        };
+        response(engine.handle(envelope(2, Payload::KeyEvent(setup))));
+        let state = response(engine.handle(envelope(
+            3,
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Input as i32,
+                input: if english { "a" } else { "Å" }.into(),
+                intention: if english { "a" } else { "A" }.into(),
+                option: true,
+                shift: true,
+                ..Default::default()
+            }),
+        )));
+        if english {
+            assert_eq!(state.commit, "a");
+            assert!(state.preedit.is_empty());
+        } else {
+            assert!(state.commit.is_empty());
+            assert_eq!(state.preedit, "かÅ");
+        }
     }
 }
 

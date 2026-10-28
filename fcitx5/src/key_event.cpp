@@ -140,9 +140,11 @@ void populateKeyEvent(const fcitx::KeyEvent &source, v1::KeyEvent *target) {
   }
   const std::string inputText = printableKeyText(source.key().sym());
   const std::string rawText = printableKeyText(source.rawKey().sym());
-  target->set_input(target->option() && !target->shift()
-                        ? rawText
-                        : (inputText.empty() ? rawText : inputText));
+  // Raw symbols already include the layout's Shift result. Normalization may
+  // uppercase Alt shortcuts; that is not generated text. Fcitx exposes no
+  // separate Alt-stripped symbol for layouts where Alt itself produces a glyph.
+  target->set_input(
+      target->option() ? rawText : (inputText.empty() ? rawText : inputText));
   target->set_intention(rawText);
 }
 

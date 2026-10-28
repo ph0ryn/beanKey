@@ -58,7 +58,8 @@ static void require(bool value, const char *message) {
 @end
 
 static NSEvent *key(unsigned short code, NSString *text,
-                    NSEventModifierFlags modifiers = 0) {
+                    NSEventModifierFlags modifiers = 0,
+                    NSString *logical = nil) {
   return [NSEvent keyEventWithType:NSEventTypeKeyDown
                           location:NSZeroPoint
                      modifierFlags:modifiers
@@ -66,9 +67,19 @@ static NSEvent *key(unsigned short code, NSString *text,
                       windowNumber:0
                            context:nil
                         characters:text
-       charactersIgnoringModifiers:text
+       charactersIgnoringModifiers:logical ? logical : text
                          isARepeat:NO
                            keyCode:code];
+}
+static NSArray<NSEvent *> *optionEvents() {
+  return @[
+    key(kVK_ANSI_A, @"å", NSEventModifierFlagOption, @"a"),
+    key(kVK_ANSI_A, @"Å", NSEventModifierFlagOption | NSEventModifierFlagShift,
+        @"A"),
+    key(kVK_ANSI_Minus, @"¯", NSEventModifierFlagOption, @"-"),
+    key(kVK_ANSI_Period, @"˘",
+        NSEventModifierFlagOption | NSEventModifierFlagShift, @">")
+  ];
 }
 static void waitReady(BKDaemonConnection *connection) {
   [connection prepare];
@@ -168,6 +179,10 @@ static void fakeDaemonTest() {
       if (request.has_key_event() && request.key_event().text() == "x") {
         response.set_request_id(request.request_id() +
                                 1); // must reset, not apply
+      } else if (request.has_key_event() && request.key_event().option()) {
+        // Echo the generated wire input; conversion decisions belong to daemon.
+        state->set_commit(request.key_event().input());
+        preedit.clear();
       } else if (request.has_select_candidate() ||
                  request.has_commit_composition() ||
                  (request.has_key_event() &&
@@ -373,6 +388,14 @@ static void fakeDaemonTest() {
                 NSEqualRanges(view.selectedRange, NSMakeRange(5, 0)),
             "bracket commit leaves the caret after the inserted text");
   }
+  view.string = @"";
+  view.selectedRange = NSMakeRange(0, 0);
+  for (NSEvent *event in optionEvents())
+    require([session handleEvent:event client:client],
+            "Option events reach daemon transport");
+  require(
+      [view.string isEqualToString:@"åÅ¯˘"] && !view.hasMarkedText,
+      "generated Option text survives native event, IPC and client insertion");
   view.string = @"仮名😀仮名😀";
   view.selectedRange = NSMakeRange(view.string.length, 0);
   require([session handleEvent:key(kVK_ANSI_A, @"a") client:client],
@@ -392,15 +415,26 @@ static void fakeDaemonTest() {
   std::vector<uint32_t> selectedTypos;
   int forwardedDown = 0;
   int forwardedUpOrSpace = 0;
+  std::vector<std::pair<std::string, std::string>> optionInputs;
   for (const auto &request : requests) {
     if (request.has_select_typo_correction())
       selectedTypos.push_back(request.select_typo_correction().index());
     if (request.has_key_event()) {
+      if (request.key_event().option()) {
+        require(request.key_event().text().empty(),
+                "Option bypasses ordinary frontend text routing");
+        optionInputs.emplace_back(request.key_event().input(),
+                                  request.key_event().intention());
+      }
       forwardedDown += request.key_event().action() == v1::USER_ACTION_DOWN;
       forwardedUpOrSpace += request.key_event().action() == v1::USER_ACTION_UP ||
                             request.key_event().action() == v1::USER_ACTION_SPACE;
     }
   }
+  require(
+      optionInputs == std::vector<std::pair<std::string, std::string>>(
+                          {{"å", "a"}, {"Å", "A"}, {"¯", "-"}, {"˘", ">"}}),
+      "wire separates generated Option text from Shift-retaining logical text");
   require(selectedTypos == std::vector<uint32_t>({11, 9, 10}),
           "digit, click and Enter use exact absolute typo indices on the wire");
   require(forwardedDown == 1 && forwardedUpOrSpace == 0,
@@ -559,6 +593,29 @@ static void realDaemonTest(NSString *socketPath) {
     require(!view.hasMarkedText && view.string.length > 0,
             "real committed text");
   }
+  for (NSEvent *event in optionEvents()) {
+    view.string = @"";
+    view.selectedRange = NSMakeRange(0, 0);
+    require([session handleEvent:event client:client],
+            "real daemon consumes generated Option input in Japanese");
+    require([session handleEvent:key(kVK_Return, @"\r") client:client],
+            "real daemon commits generated Option composition");
+    [session commit:client];
+    require([view.string isEqualToString:event.characters] &&
+                !view.hasMarkedText,
+            "Japanese Option commit preserves the native generated glyph");
+  }
+  require([session handleEvent:key(kVK_JIS_Eisu, @"") client:client],
+          "switch to English for generated Option input");
+  view.string = @"";
+  view.selectedRange = NSMakeRange(0, 0);
+  for (NSEvent *event in optionEvents())
+    require([session handleEvent:event client:client],
+            "real daemon consumes generated Option input in English");
+  require([view.string isEqualToString:@"åÅ¯˘"] && !view.hasMarkedText,
+          "English Option input immediately commits native generated glyphs");
+  require([session handleEvent:key(kVK_JIS_Kana, @"") client:client],
+          "restore Japanese after generated Option input");
   [session deactivate:client];
   [connection disconnect];
   std::sort(latency.begin(), latency.end());

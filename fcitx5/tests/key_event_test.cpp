@@ -32,6 +32,82 @@ bool rejectsControlText(const KeyCase &keyCase) {
   return false;
 }
 
+bool matchesDesktopControlShortcuts() {
+  using namespace beankey::v1;
+  struct Shortcut {
+    fcitx::KeySym lower;
+    fcitx::KeySym upper;
+    UserAction action;
+    bool editSegment = false;
+  };
+  constexpr std::array shortcuts{
+      Shortcut{FcitxKey_h, FcitxKey_H, USER_ACTION_BACKSPACE},
+      Shortcut{FcitxKey_p, FcitxKey_P, USER_ACTION_UP},
+      Shortcut{FcitxKey_m, FcitxKey_M, USER_ACTION_ENTER},
+      Shortcut{FcitxKey_n, FcitxKey_N, USER_ACTION_DOWN},
+      Shortcut{FcitxKey_f, FcitxKey_F, USER_ACTION_RIGHT},
+      Shortcut{FcitxKey_i, FcitxKey_I, USER_ACTION_LEFT, true},
+      Shortcut{FcitxKey_o, FcitxKey_O, USER_ACTION_RIGHT, true},
+      Shortcut{FcitxKey_l, FcitxKey_L, USER_ACTION_FULL_WIDTH_ROMAN},
+      Shortcut{FcitxKey_j, FcitxKey_J, USER_ACTION_HIRAGANA},
+      Shortcut{FcitxKey_k, FcitxKey_K, USER_ACTION_KATAKANA},
+      Shortcut{FcitxKey_semicolon, FcitxKey_semicolon,
+               USER_ACTION_HALF_WIDTH_KATAKANA},
+      Shortcut{FcitxKey_colon, FcitxKey_colon, USER_ACTION_HALF_WIDTH_ROMAN},
+      Shortcut{FcitxKey_apostrophe, FcitxKey_apostrophe,
+               USER_ACTION_HALF_WIDTH_ROMAN},
+  };
+  bool valid = true;
+  const auto check = [&](fcitx::KeySym symbol, fcitx::KeyStates states,
+                         UserAction action, bool shift) {
+    fcitx::KeyEvent source(nullptr, fcitx::Key(symbol, states));
+    KeyEvent target;
+    beankey::populateKeyEvent(source, &target);
+    if (target.action() != action || target.shift() != shift ||
+        !target.text().empty() || target.option()) {
+      std::cerr << "Desktop Control shortcut mismatch for "
+                << fcitx::Key::keySymToUTF8(symbol) << ": expected " << action
+                << ", got " << target.action() << '\n';
+      valid = false;
+    }
+  };
+  for (const auto &shortcut : shortcuts) {
+    for (const auto symbol : {shortcut.lower, shortcut.upper}) {
+      for (const auto states :
+           {fcitx::KeyStates{fcitx::KeyState::Ctrl},
+            fcitx::KeyStates{fcitx::KeyState::Ctrl,
+                             fcitx::KeyState::CapsLock}}) {
+        check(symbol, states, shortcut.action, shortcut.editSegment);
+      }
+      check(symbol, {fcitx::KeyState::Ctrl, fcitx::KeyState::Shift},
+            USER_ACTION_CONSUME, true);
+      check(symbol, {fcitx::KeyState::Ctrl, fcitx::KeyState::Alt},
+            USER_ACTION_UNSPECIFIED, false);
+    }
+  }
+  for (const auto symbol : {FcitxKey_u, FcitxKey_U}) {
+    check(symbol, {fcitx::KeyState::Ctrl, fcitx::KeyState::Shift},
+          USER_ACTION_START_UNICODE_INPUT, true);
+    check(symbol, {fcitx::KeyState::Ctrl, fcitx::KeyState::CapsLock},
+          USER_ACTION_CONSUME, false);
+    check(symbol, {fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
+                   fcitx::KeyState::Shift},
+          USER_ACTION_UNSPECIFIED, true);
+  }
+  for (const auto symbol : {FcitxKey_Return, FcitxKey_space, FcitxKey_Left,
+                            FcitxKey_F6, FcitxKey_1, FcitxKey_q}) {
+    check(symbol, {fcitx::KeyState::Ctrl}, USER_ACTION_CONSUME, false);
+  }
+  check(FcitxKey_BackSpace, {fcitx::KeyState::Ctrl}, USER_ACTION_FORGET, false);
+  check(FcitxKey_BackSpace,
+        {fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}, USER_ACTION_FORGET,
+        true);
+  check(FcitxKey_BackSpace,
+        {fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}, USER_ACTION_UNSPECIFIED,
+        false);
+  return valid;
+}
+
 } // namespace
 
 int main() {
@@ -64,7 +140,7 @@ int main() {
       KeyCase{"Tab", FcitxKey_Tab},
       KeyCase{"ISO_Left_Tab", FcitxKey_ISO_Left_Tab},
   };
-  bool valid = true;
+  bool valid = matchesDesktopControlShortcuts();
   for (const auto modifier : {fcitx::KeyState::Super, fcitx::KeyState::Super2,
                               fcitx::KeyState::Meta, fcitx::KeyState::Hyper}) {
     for (const auto states : {fcitx::KeyStates{modifier},

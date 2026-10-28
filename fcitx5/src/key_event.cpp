@@ -20,6 +20,13 @@ std::string printableKeyText(fcitx::KeySym symbol) {
   return fcitx::Key::keySymToUTF8(symbol);
 }
 
+fcitx::KeySym controlSymbol(fcitx::KeySym symbol) {
+  if (symbol >= FcitxKey_A && symbol <= FcitxKey_Z) {
+    return static_cast<fcitx::KeySym>(symbol + (FcitxKey_a - FcitxKey_A));
+  }
+  return symbol;
+}
+
 v1::UserAction shortcutAction(fcitx::KeySym symbol) {
   switch (symbol) {
   case FcitxKey_h:
@@ -56,13 +63,18 @@ v1::UserAction keyAction(const fcitx::KeyEvent &source) {
   const auto symbol = source.key().sym();
   const auto states = source.rawKey().states();
   if (states.test(fcitx::KeyState::Ctrl)) {
-    const auto logicalSymbol = source.rawKey().sym();
-    if (logicalSymbol == FcitxKey_u && states.test(fcitx::KeyState::Shift)) {
-      return v1::USER_ACTION_START_UNICODE_INPUT;
+    // Desktop's Option fallthrough precedes its unknown-Control handling.
+    if (states.test(fcitx::KeyState::Alt)) {
+      return v1::USER_ACTION_UNSPECIFIED;
     }
+    const auto logicalSymbol = controlSymbol(source.rawKey().sym());
     if (logicalSymbol == FcitxKey_Delete ||
         logicalSymbol == FcitxKey_BackSpace) {
       return v1::USER_ACTION_FORGET;
+    }
+    if (states.test(fcitx::KeyState::Shift)) {
+      return logicalSymbol == FcitxKey_u ? v1::USER_ACTION_START_UNICODE_INPUT
+                                        : v1::USER_ACTION_CONSUME;
     }
     const auto action = shortcutAction(logicalSymbol);
     return action == v1::USER_ACTION_UNSPECIFIED ? v1::USER_ACTION_CONSUME
@@ -126,9 +138,12 @@ void populateKeyEvent(const fcitx::KeyEvent &source, v1::KeyEvent *target) {
     target->set_shift(true);
   }
   if (states.test(fcitx::KeyState::Ctrl) &&
-      (source.rawKey().sym() == FcitxKey_i ||
-       source.rawKey().sym() == FcitxKey_o)) {
-    target->set_shift(true);
+      (target->action() == v1::USER_ACTION_LEFT ||
+       target->action() == v1::USER_ACTION_RIGHT)) {
+    const auto logicalSymbol = controlSymbol(source.rawKey().sym());
+    if (logicalSymbol == FcitxKey_i || logicalSymbol == FcitxKey_o) {
+      target->set_shift(true);
+    }
   }
   const fcitx::KeyStates shortcutModifiers(
       {fcitx::KeyState::Ctrl, fcitx::KeyState::Alt});

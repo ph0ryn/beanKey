@@ -17,8 +17,9 @@ v1::UserAction controlAction(NSString *raw, unsigned short code, bool shift) {
   if (code == kVK_Delete || code == kVK_ForwardDelete)
     return v1::USER_ACTION_FORGET;
   const auto text = printable(raw.lowercaseString);
-  if (shift && text == "u")
-    return v1::USER_ACTION_START_UNICODE_INPUT;
+  if (shift)
+    return text == "u" ? v1::USER_ACTION_START_UNICODE_INPUT
+                       : v1::USER_ACTION_CONSUME;
   if (text == "h")
     return v1::USER_ACTION_BACKSPACE;
   if (text == "p")
@@ -47,9 +48,13 @@ v1::UserAction action(NSEvent *event) {
   if (event.type != NSEventTypeKeyDown ||
       (event.modifierFlags & NSEventModifierFlagCommand))
     return v1::USER_ACTION_UNSPECIFIED;
-  if (event.modifierFlags & NSEventModifierFlagControl)
+  if (event.modifierFlags & NSEventModifierFlagControl) {
+    // Desktop's Option fallthrough precedes its unknown-Control handling.
+    if (event.modifierFlags & NSEventModifierFlagOption)
+      return v1::USER_ACTION_UNSPECIFIED;
     return controlAction(event.charactersIgnoringModifiers, event.keyCode,
                          event.modifierFlags & NSEventModifierFlagShift);
+  }
   switch (event.keyCode) {
   case kVK_Delete:
     return v1::USER_ACTION_BACKSPACE;
@@ -101,8 +106,14 @@ v1::KeyEvent keyEvent(NSEvent *event) {
   const auto modifiers = event.modifierFlags;
   key.set_shift(modifiers & NSEventModifierFlagShift);
   const auto raw = printable(event.charactersIgnoringModifiers);
-  if ((modifiers & NSEventModifierFlagControl) && (raw == "i" || raw == "o"))
-    key.set_shift(true);
+  if ((modifiers & NSEventModifierFlagControl) &&
+      (key.action() == v1::USER_ACTION_LEFT ||
+       key.action() == v1::USER_ACTION_RIGHT)) {
+    const auto logical =
+        printable(event.charactersIgnoringModifiers.lowercaseString);
+    if (logical == "i" || logical == "o")
+      key.set_shift(true);
+  }
   key.set_option(
       (modifiers & NSEventModifierFlagOption) &&
       !(modifiers & (NSEventModifierFlagControl | NSEventModifierFlagCommand)));

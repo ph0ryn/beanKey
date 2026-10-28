@@ -480,6 +480,120 @@ static void fakeDaemonTest() {
   rmdir(pattern.data());
 }
 
+static void sharedConnectionRecoveryTest() {
+  using namespace beankey;
+  std::array<char, 64> pattern{};
+  std::strcpy(pattern.data(), "/private/tmp/beankey-macos-recovery.XXXXXX");
+  require(mkdtemp(pattern.data()) != nullptr, "recovery socket directory");
+  const std::string path = std::string(pattern.data()) + "/test.sock";
+  const int listener = socket(AF_UNIX, SOCK_STREAM, 0);
+  sockaddr_un address{};
+  address.sun_family = AF_UNIX;
+  std::strcpy(address.sun_path, path.c_str());
+  require(listener >= 0 &&
+              bind(listener, reinterpret_cast<sockaddr *>(&address),
+                   sizeof(address)) == 0 &&
+              listen(listener, 1) == 0,
+          "recovery listener");
+  std::array<std::vector<v1::Envelope>, 2> requests;
+  std::thread server([listener, &requests] {
+    for (auto &received : requests) {
+      const int socket = accept(listener, nullptr, nullptr);
+      const timeval timeout{5, 0};
+      require(socket >= 0 && setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO,
+                                        &timeout, sizeof(timeout)) == 0,
+              "recovery connection with bounded reads");
+      v1::Envelope request;
+      while (readFrame(socket, request)) {
+        received.push_back(request);
+        v1::Envelope response;
+        response.set_protocol_version(request.protocol_version());
+        response.set_request_id(request.request_id());
+        response.set_session_id(request.session_id());
+        auto *state = response.mutable_state_response();
+        state->set_candidate_window(v1::CANDIDATE_WINDOW_HIDDEN);
+        if (request.has_key_event()) {
+          state->set_consumed(true);
+          state->set_preedit(request.key_event().input());
+          state->set_preedit_cursor(1);
+          if (request.key_event().input() == "x")
+            response.set_request_id(request.request_id() + 1);
+        }
+        writeFrame(socket, response);
+      }
+      close(socket);
+    }
+    close(listener);
+  });
+  BKDaemonConnection *connection =
+      [[BKDaemonConnection alloc] initWithSocketPath:macos::string(path)
+                                            launcher:^{
+                                            }];
+  waitReady(connection);
+  NSMutableArray<BKInputSession *> *sessions = [NSMutableArray array];
+  NSMutableArray<BKTestTextView *> *views = [NSMutableArray array];
+  // Separate stale sessions exercise key input, commit and deactivate after
+  // another session invalidates their shared transport.
+  for (int i = 0; i < 4; ++i) {
+    [sessions addObject:[[BKInputSession alloc] initWithConnection:connection]];
+    [views addObject:[[BKTestTextView alloc]
+                         initWithFrame:NSMakeRect(0, 0, 500, 300)]];
+    require([sessions[i] handleEvent:key(kVK_ANSI_A, @"a")
+                              client:(id<IMKTextInput>)views[i]] &&
+                views[i].hasMarkedText,
+            "shared sessions establish independent marked text");
+  }
+  require(![sessions[0] handleEvent:key(kVK_ANSI_X, @"x")
+                             client:(id<IMKTextInput>)views[0]] &&
+              !connection.ready && !views[0].hasMarkedText,
+          "one session's invalid response disconnects the shared transport");
+  waitReady(connection);
+  require([sessions[1] handleEvent:key(kVK_ANSI_B, @"b")
+                            client:(id<IMKTextInput>)views[1]] &&
+              [views[1].string isEqualToString:@"b"] && views[1].hasMarkedText,
+          "another session starts fresh and consumes its first recovery key");
+  [sessions[2] commit:(id<IMKTextInput>)views[2]];
+  [sessions[3] deactivate:(id<IMKTextInput>)views[3]];
+  require(!views[2].hasMarkedText && views[2].string.length == 0 &&
+              !views[3].hasMarkedText && views[3].string.length == 0 &&
+              connection.ready && [views[1].string isEqualToString:@"b"],
+          "stale commit and deactivate clear only their own marked text");
+  require([sessions[1] handleEvent:key(kVK_ANSI_C, @"c")
+                            client:(id<IMKTextInput>)views[1]] &&
+              [views[1].string isEqualToString:@"c"],
+          "stale lifecycle calls do not invalidate the recovered session");
+  [sessions[1] deactivate:(id<IMKTextInput>)views[1]];
+  [connection disconnect];
+  server.join();
+  require(
+      requests[0].size() == 9 && requests[1].size() == 5,
+      "stale lifecycle calls send no requests on the replacement connection");
+  for (int i = 0; i < 4; ++i) {
+    const auto &start = requests[0][i * 2];
+    const auto &input = requests[0][i * 2 + 1];
+    require(start.has_start_session() && start.request_id() == 1 &&
+                input.has_key_event() && input.request_id() == 2 &&
+                input.session_id() == start.session_id(),
+            "each original session starts before its first key");
+    require(requests[1][0].session_id() != start.session_id(),
+            "recovery never reuses an old session ID");
+  }
+  require(requests[1][0].has_start_session() &&
+              requests[1][1].has_key_event() &&
+              requests[1][1].key_event().input() == "b" &&
+              requests[1][2].has_key_event() &&
+              requests[1][2].key_event().input() == "c" &&
+              requests[1][3].has_commit_composition() &&
+              requests[1][4].has_end_session(),
+          "replacement connection receives StartSession before fresh input");
+  for (std::size_t i = 0; i < requests[1].size(); ++i)
+    require(requests[1][i].session_id() == requests[1][0].session_id() &&
+                requests[1][i].request_id() == i + 1,
+            "recovered session request IDs restart and remain ordered");
+  require(unlink(path.c_str()) == 0 && rmdir(pattern.data()) == 0,
+          "remove recovery socket directory");
+}
+
 static void candidateAnnotationTest() {
   BKTestTextView *view =
       [[BKTestTextView alloc] initWithFrame:NSMakeRect(0, 0, 500, 300)];
@@ -668,6 +782,7 @@ int main(int argc, const char *argv[]) {
     candidateAnnotationTest();
     candidateTypoWindowTest();
     fakeDaemonTest();
+    sharedConnectionRecoveryTest();
     if (argc == 2)
       realDaemonTest([NSString stringWithUTF8String:argv[1]]);
   }

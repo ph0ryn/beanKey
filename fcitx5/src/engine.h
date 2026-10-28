@@ -48,6 +48,7 @@ private:
   void showTypoCorrections(const beankey::v1::TypoCorrectionResponse &response);
   void fillSurroundingText(beankey::v1::SurroundingText *surrounding) const;
   void clearUi();
+  void invalidateStaleSession();
   void failSession();
   beankey::v1::Envelope envelope();
 
@@ -55,6 +56,7 @@ private:
   BeanKeyEngine *engine_;
   std::string sessionId_;
   std::uint64_t nextRequestId_ = 1;
+  std::uint64_t connectionGeneration_ = 0;
   bool started_ = false;
   std::int32_t selectedCandidate_ = -1;
   std::int32_t candidateWindowStart_ = 0;
@@ -89,6 +91,7 @@ private:
   std::string runtimeRoot_;
   std::string learningDirectory_;
   std::shared_ptr<beankey::Client> client_;
+  std::uint64_t connectionGeneration_ = 0;
   EventDispatcher preparationDispatcher_;
   std::jthread preparationThread_;
   bool preparing_ = false;

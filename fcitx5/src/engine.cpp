@@ -218,6 +218,7 @@ BeanKeyState::~BeanKeyState() = default;
 bool BeanKeyState::focusIn() { return start(); }
 
 void BeanKeyState::focusOut(bool commitComposition) {
+  invalidateStaleSession();
   if (commitComposition && started_) {
     static_cast<void>(this->commitComposition());
   }
@@ -331,9 +332,9 @@ bool BeanKeyState::learningAvailable() const { return learningAvailable_; }
 bool BeanKeyState::learningWritable() const { return learningWritable_; }
 
 void BeanKeyState::reset() {
-  if (!started_ || !engine_->client().connected()) {
+  invalidateStaleSession();
+  if (!started_) {
     clearUi();
-    started_ = false;
     return;
   }
   auto request = envelope();
@@ -344,12 +345,14 @@ void BeanKeyState::reset() {
 }
 
 bool BeanKeyState::start() {
+  invalidateStaleSession();
   if (started_) {
     return true;
   }
   if (!engine_->ensureConnected()) {
     return false;
   }
+  connectionGeneration_ = engine_->connectionGeneration_;
   sessionId_ = std::to_string(nextSessionId.fetch_add(1));
   nextRequestId_ = 1;
   auto request = envelope();
@@ -520,6 +523,15 @@ void BeanKeyState::clearUi() {
   inputContext_->updateUserInterface(UserInterfaceComponent::InputPanel);
 }
 
+void BeanKeyState::invalidateStaleSession() {
+  if (started_ && (connectionGeneration_ != engine_->connectionGeneration_ ||
+                   !engine_->client().connected())) {
+    started_ = false;
+    sessionId_.clear();
+    clearUi();
+  }
+}
+
 void BeanKeyState::failSession() {
   engine_->client().disconnect();
   started_ = false;
@@ -617,6 +629,7 @@ bool BeanKeyEngine::ensureConnected() {
   }
   // Keep an already-running daemon's first key synchronous, but never wait here.
   if (client_->ensureConnected([] {}, std::chrono::milliseconds(0))) {
+    ++connectionGeneration_;
     return true;
   }
   if (learningDirectory_.empty()) {
@@ -645,6 +658,7 @@ bool BeanKeyEngine::ensureConnected() {
         preparing_ = false;
         if (ready) {
           client_ = prepared;
+          ++connectionGeneration_;
           retryAfter_ = {};
         } else {
           retryAfter_ = std::chrono::steady_clock::now() + kStartupRetryDelay;

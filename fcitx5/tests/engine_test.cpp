@@ -26,6 +26,8 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "beankey.pb.h"
@@ -111,6 +113,8 @@ int main() {
       }
     };
     std::string selectedText = "司会";
+    std::unordered_set<std::string> sessionIds;
+    std::unordered_map<std::string, std::uint64_t> requestIds;
     const auto exchange = [&](ExpectedRequest expected) {
       beankey::v1::Envelope request;
       if (!request.ParseFromString(readFrame(connection))) {
@@ -119,7 +123,9 @@ int main() {
       const bool expectedPayload = [&] {
         switch (expected) {
         case ExpectedRequest::Start:
-          return request.has_start_session();
+          return request.has_start_session() && request.request_id() == 1 &&
+                 !request.session_id().empty() &&
+                 sessionIds.insert(request.session_id()).second;
         case ExpectedRequest::Key:
           return request.has_key_event();
         case ExpectedRequest::RecoveredKey:
@@ -154,7 +160,13 @@ int main() {
         }
         return false;
       }();
-      if (!expectedPayload) {
+      if (expected == ExpectedRequest::Start) {
+        requestIds.emplace(request.session_id(), 0);
+      }
+      const auto previous = requestIds.find(request.session_id());
+      if (!expectedPayload || previous == requestIds.end() ||
+          request.request_id() != ++previous->second) {
+        shutdown(connection, SHUT_RDWR);
         return false;
       }
 
@@ -286,12 +298,22 @@ int main() {
           serverValid;
     }
     serverValid = exchange(ExpectedRequest::ResetLearning) && serverValid;
+    for (int context = 0; context < 3; ++context) {
+      serverValid = exchange(ExpectedRequest::Start) && serverValid;
+      serverValid = exchange(ExpectedRequest::Key) && serverValid;
+    }
     serverValid = exchange(ExpectedRequest::InvalidResponse) && serverValid;
     close(connection);
     connection = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
     if (connection >= 0) {
+      requestIds.clear();
       serverValid = exchange(ExpectedRequest::Start) && serverValid;
       serverValid = exchange(ExpectedRequest::RecoveredKey) && serverValid;
+      serverValid = exchange(ExpectedRequest::Start) && serverValid;
+      serverValid = exchange(ExpectedRequest::RecoveredKey) && serverValid;
+      serverValid = exchange(ExpectedRequest::Key) && serverValid;
+      serverValid = exchange(ExpectedRequest::Key) && serverValid;
+      serverValid = exchange(ExpectedRequest::End) && serverValid;
       serverValid = exchange(ExpectedRequest::End) && serverValid;
       close(connection);
     } else {
@@ -565,6 +587,22 @@ int main() {
       statusActions.front()->activate(&inputContext);
     }
 
+    TestInputContext resumedContext(instance.inputContextManager());
+    TestInputContext resetContext(instance.inputContextManager());
+    TestInputContext switchedContext(instance.inputContextManager());
+    for (auto *context : {&resumedContext, &resetContext, &switchedContext}) {
+      context->setCapabilityFlags(fcitx::CapabilityFlag::Preedit);
+      fcitx::KeyEvent input(context, fcitx::Key(FcitxKey_a));
+      engine.keyEvent(entry, input);
+      valid =
+          report(input.accepted() &&
+                     context->inputPanel().clientPreedit().toString() ==
+                         "かな" &&
+                     context->inputPanel().candidateList(),
+                 "shared connection did not start an independent session") &&
+          valid;
+    }
+
     fcitx::KeyEvent invalidResponse(&inputContext, fcitx::Key(FcitxKey_b));
     engine.keyEvent(entry, invalidResponse);
     valid = report(!invalidResponse.accepted(),
@@ -584,8 +622,46 @@ int main() {
                            "かな",
                    "first fresh key was lost after reconnecting the session") &&
             valid;
-    fcitx::InputContextEvent focusOut(
-        &inputContext, fcitx::EventType::InputContextFocusOut);
+    fcitx::KeyEvent resumedInput(&resumedContext, fcitx::Key(FcitxKey_a));
+    engine.keyEvent(entry, resumedInput);
+    valid =
+        report(resumedInput.accepted() &&
+                   resumedContext.inputPanel().clientPreedit().toString() ==
+                       "かな",
+               "another context reused its old session after reconnecting") &&
+        valid;
+
+    fcitx::InputContextEvent resetEvent(&resetContext,
+                                        fcitx::EventType::InputContextReset);
+    fcitx::InputContextEvent switchEvent(
+        &switchedContext, fcitx::EventType::InputContextSwitchInputMethod);
+    for (auto *context : {&resetContext, &switchedContext}) {
+      if (context == &resetContext) {
+        engine.reset(entry, resetEvent);
+      } else {
+        engine.deactivate(entry, switchEvent);
+      }
+      valid = report(context->inputPanel().clientPreedit().empty() &&
+                         !context->inputPanel().candidateList() &&
+                         context->inputPanel().auxDown().empty() &&
+                         context->statusArea()
+                             .actions(fcitx::StatusGroup::InputMethod)
+                             .empty() &&
+                         context->committed().empty(),
+                     "stale lifecycle callback did not discard its local UI") &&
+              valid;
+      fcitx::KeyEvent continuingInput(&inputContext, fcitx::Key(FcitxKey_a));
+      engine.keyEvent(entry, continuingInput);
+      valid =
+          report(continuingInput.accepted(),
+                 "stale lifecycle callback broke the recovered connection") &&
+          valid;
+    }
+    fcitx::InputContextEvent resumedOut(&resumedContext,
+                                        fcitx::EventType::InputContextFocusOut);
+    engine.deactivate(entry, resumedOut);
+    fcitx::InputContextEvent focusOut(&inputContext,
+                                      fcitx::EventType::InputContextFocusOut);
     engine.deactivate(entry, focusOut);
   }
 

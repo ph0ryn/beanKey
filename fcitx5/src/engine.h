@@ -44,8 +44,9 @@ private:
   bool start();
   bool commitComposition();
   bool send(beankey::v1::Envelope request);
-  bool apply(const beankey::v1::Envelope &response);
+  bool apply(const beankey::v1::StateResponse &state);
   void showTypoCorrections(const beankey::v1::TypoCorrectionResponse &response);
+  void displayTypoCorrections();
   void fillSurroundingText(beankey::v1::SurroundingText *surrounding) const;
   void clearUi();
   void invalidateStaleSession();
@@ -60,6 +61,10 @@ private:
   bool started_ = false;
   std::int32_t selectedCandidate_ = -1;
   std::int32_t candidateWindowStart_ = 0;
+  beankey::v1::StateResponse normalState_;
+  beankey::v1::TypoCorrectionResponse typoCandidates_;
+  int typoSelection_ = 0;
+  int typoWindowStart_ = 0;
   bool lmTypoAvailable_ = false;
   bool learningAvailable_ = false;
   bool learningWritable_ = false;

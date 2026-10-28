@@ -95,6 +95,8 @@ int main() {
       Forget,
       ResetLearning,
       Typo,
+      EmptyTypo,
+      Reset,
       SelectCandidate,
       SelectTypo,
       PredictionInput,
@@ -115,7 +117,8 @@ int main() {
     std::string selectedText = "司会";
     std::unordered_set<std::string> sessionIds;
     std::unordered_map<std::string, std::uint64_t> requestIds;
-    const auto exchange = [&](ExpectedRequest expected) {
+    const auto exchange = [&](ExpectedRequest expected,
+                              std::uint32_t selectedTypo = 0) {
       beankey::v1::Envelope request;
       if (!request.ParseFromString(readFrame(connection))) {
         return false;
@@ -138,12 +141,16 @@ int main() {
         case ExpectedRequest::ResetLearning:
           return request.has_reset_learning();
         case ExpectedRequest::Typo:
+        case ExpectedRequest::EmptyTypo:
           return request.has_request_typo_corrections();
+        case ExpectedRequest::Reset:
+          return request.has_reset_session();
         case ExpectedRequest::SelectCandidate:
           return request.has_select_candidate() &&
                  request.select_candidate().index() == 0;
         case ExpectedRequest::SelectTypo:
-          return request.has_select_typo_correction();
+          return request.has_select_typo_correction() &&
+                 request.select_typo_correction().index() == selectedTypo;
         case ExpectedRequest::PredictionInput:
           return request.has_key_event() &&
                  request.key_event().action() ==
@@ -177,11 +184,18 @@ int main() {
       if (expected == ExpectedRequest::InvalidResponse) {
         response.set_request_id(request.request_id() + 1);
       }
-      if (expected == ExpectedRequest::Typo) {
-        auto *candidate =
-            response.mutable_typo_correction_response()->add_candidates();
-        candidate->set_corrected_input("かな");
-        candidate->set_converted_text("仮名");
+      if (expected == ExpectedRequest::Typo ||
+          expected == ExpectedRequest::EmptyTypo) {
+        auto *typos = response.mutable_typo_correction_response();
+        if (expected == ExpectedRequest::Typo) {
+          for (int index = 0; index < 12; ++index) {
+            auto *candidate = typos->add_candidates();
+            candidate->set_corrected_input(
+                index == 0 ? "かな" : "corrected " + std::to_string(index));
+            candidate->set_converted_text(
+                index == 0 ? "仮名" : "converted " + std::to_string(index));
+          }
+        }
       } else {
         auto *state = response.mutable_state_response();
         state->set_lm_typo_available(true);
@@ -297,11 +311,33 @@ int main() {
                                   : ExpectedRequest::SelectCandidate) &&
           serverValid;
     }
+    for (const auto index : {4U, 11U, 9U}) {
+      serverValid = exchange(ExpectedRequest::Key) && serverValid;
+      serverValid = exchange(ExpectedRequest::Typo) && serverValid;
+      serverValid = exchange(ExpectedRequest::SelectTypo, index) && serverValid;
+    }
+    serverValid = exchange(ExpectedRequest::Typo) && serverValid;
+    serverValid = exchange(ExpectedRequest::EmptyTypo) && serverValid;
+    serverValid = exchange(ExpectedRequest::Key) && serverValid;
+    serverValid = exchange(ExpectedRequest::Typo) && serverValid;
+    serverValid = exchange(ExpectedRequest::EmptyTypo) && serverValid;
+    serverValid = exchange(ExpectedRequest::SelectCandidate) && serverValid;
+    serverValid = exchange(ExpectedRequest::Key) && serverValid;
+    serverValid = exchange(ExpectedRequest::Typo) && serverValid;
+    serverValid = exchange(ExpectedRequest::Key) && serverValid;
+    serverValid = exchange(ExpectedRequest::Key) && serverValid;
+    serverValid = exchange(ExpectedRequest::Typo) && serverValid;
+    serverValid = exchange(ExpectedRequest::Reset) && serverValid;
+    serverValid = exchange(ExpectedRequest::Key) && serverValid;
+    serverValid = exchange(ExpectedRequest::Typo) && serverValid;
+    serverValid = exchange(ExpectedRequest::SelectCandidate) && serverValid;
     serverValid = exchange(ExpectedRequest::ResetLearning) && serverValid;
     for (int context = 0; context < 3; ++context) {
       serverValid = exchange(ExpectedRequest::Start) && serverValid;
       serverValid = exchange(ExpectedRequest::Key) && serverValid;
+      serverValid = exchange(ExpectedRequest::Typo) && serverValid;
     }
+    serverValid = exchange(ExpectedRequest::Typo) && serverValid;
     serverValid = exchange(ExpectedRequest::InvalidResponse) && serverValid;
     close(connection);
     connection = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
@@ -429,20 +465,20 @@ int main() {
 
     const auto typoCandidates = inputContext.inputPanel().candidateList();
     valid =
-        report(typoCandidates && typoCandidates->size() == 1,
+        report(typoCandidates && typoCandidates->size() == 9,
                "LM typo corrections did not reach the Fcitx candidate UI") &&
         valid;
     valid = report(typoCandidates && typoCandidates->layoutHint() ==
                                          fcitx::CandidateLayoutHint::Vertical,
                    "LM typo corrections did not request a vertical layout") &&
             valid;
-    if (typoCandidates && typoCandidates->size() == 1) {
-      valid = report(typoCandidates->candidate(0).text().toString() == "仮名",
-                     "LM typo correction displayed the wrong conversion") &&
+    if (typoCandidates && typoCandidates->size() == 9) {
+      valid = report(typoCandidates->candidate(0).text().toString() == "かな",
+                     "LM typo correction must display corrected input first") &&
               valid;
       valid =
-          report(typoCandidates->candidate(0).comment().toString() == "かな",
-                 "LM typo correction omitted the corrected input") &&
+          report(typoCandidates->candidate(0).comment().toString() == "仮名",
+                 "LM typo correction must annotate with converted text") &&
           valid;
     }
     fcitx::KeyEvent selectTypo(&inputContext, fcitx::Key(FcitxKey_1));
@@ -583,6 +619,147 @@ int main() {
               valid;
     }
 
+    const auto press = [&](fcitx::Key key) {
+      fcitx::KeyEvent event(&inputContext, key);
+      engine.keyEvent(entry, event);
+      valid =
+          report(event.accepted(), "manual typo key was not accepted") && valid;
+    };
+    const auto checkTypoWindow = [&](int first, int cursor) {
+      const auto list = inputContext.inputPanel().candidateList();
+      valid = report(list && list->size() == 9 && list->cursorIndex() == cursor,
+                     "manual typo list lost its nine-row sliding cursor") &&
+              valid;
+      if (list && list->size() == 9) {
+        const auto text =
+            first == 0 ? "かな" : "corrected " + std::to_string(first);
+        valid = report(list->candidate(0).text().toString() == text &&
+                           list->candidate(8).text().toString() ==
+                               "corrected " + std::to_string(first + 8),
+                       "manual typo window did not retain absolute list order") &&
+                valid;
+        const auto *pages = list->toPageable();
+        valid = report(pages && pages->currentPage() == 0 && !pages->hasNext(),
+                       "manual typo window must slide, not page") &&
+                valid;
+      }
+      valid = report(inputContext.inputPanel().clientPreedit().toString() ==
+                             "かな" &&
+                         inputContext.inputPanel().auxDown().empty(),
+                     "manual typo UI changed preedit or retained prediction") &&
+              valid;
+    };
+    for (int selection = 0; selection < 3; ++selection) {
+      press(fcitx::Key(FcitxKey_a));
+      valid = report(engine.state(&inputContext)->requestTypoCorrections(),
+                     "manual typo list could not be refreshed") &&
+              valid;
+      checkTypoWindow(0, 0);
+      press(fcitx::Key(FcitxKey_Up));
+      press(fcitx::Key(FcitxKey_space, fcitx::KeyState::Shift));
+      checkTypoWindow(0, 0);
+      for (int step = 0; step < 9; ++step) {
+        press(fcitx::Key(step % 2 == 0 ? FcitxKey_Down : FcitxKey_space));
+      }
+      checkTypoWindow(1, 8);
+      press(fcitx::Key(FcitxKey_Up));
+      checkTypoWindow(1, 7);
+      for (int step = 0; step < 5; ++step) {
+        press(fcitx::Key(FcitxKey_space));
+      }
+      checkTypoWindow(3, 8);
+      press(fcitx::Key(FcitxKey_space, fcitx::KeyState::Shift));
+      checkTypoWindow(3, 7);
+      press(fcitx::Key(FcitxKey_Down));
+      checkTypoWindow(3, 8);
+      for (int step = 0; step < 9; ++step) {
+        press(fcitx::Key(FcitxKey_Up));
+      }
+      checkTypoWindow(2, 0);
+      for (int step = 0; step < 3; ++step) {
+        press(fcitx::Key(FcitxKey_Up));
+      }
+      checkTypoWindow(0, 0);
+      for (int step = 0; step < 11; ++step) {
+        press(fcitx::Key(FcitxKey_Down));
+      }
+      checkTypoWindow(3, 8);
+      const auto before = inputContext.committed();
+      if (selection == 0) {
+        press(fcitx::Key(FcitxKey_2)); // Absolute index 4, not digit index 1.
+      } else if (selection == 1) {
+        press(fcitx::Key(FcitxKey_Return)); // Selected absolute index 11.
+      } else {
+        const auto list = inputContext.inputPanel().candidateList();
+        if (list && list->size() == 9) {
+          list->candidate(6).select(&inputContext); // Absolute index 9.
+        }
+      }
+      valid = report(inputContext.committed() == before + "仮名" &&
+                         !inputContext.inputPanel().candidateList(),
+                     "manual typo digit/Enter/click did not select exactly once") &&
+              valid;
+    }
+
+    // Restoring cached UI must not replay the last state's commit.
+    const auto committedBeforeRefresh = inputContext.committed();
+    valid = report(engine.state(&inputContext)->requestTypoCorrections() &&
+                       engine.state(&inputContext)->requestTypoCorrections() &&
+                       !inputContext.inputPanel().candidateList() &&
+                       inputContext.committed() == committedBeforeRefresh,
+                   "empty typo refresh restored UI incorrectly or recommitted") &&
+            valid;
+    press(fcitx::Key(FcitxKey_a));
+    valid = report(engine.state(&inputContext)->requestTypoCorrections(),
+                   "manual typo request before empty refresh failed") &&
+            valid;
+    for (int step = 0; step < 11; ++step) {
+      press(fcitx::Key(FcitxKey_Down));
+    }
+    valid = report(engine.state(&inputContext)->requestTypoCorrections(),
+                   "empty manual typo refresh failed") &&
+            valid;
+    const auto restored = inputContext.inputPanel().candidateList();
+    valid = report(restored && restored->size() == 9 &&
+                       restored->cursorIndex() == 0 &&
+                       restored->candidate(0).text().toString() == "司会" &&
+                       inputContext.inputPanel().auxDown().toString() == "→ 今日",
+                   "empty typo refresh did not restore cached normal state") &&
+            valid;
+    press(fcitx::Key(FcitxKey_1));
+
+    press(fcitx::Key(FcitxKey_a));
+    valid = report(engine.state(&inputContext)->requestTypoCorrections(),
+                   "manual typo request before ordinary key failed") &&
+            valid;
+    press(fcitx::Key(FcitxKey_a));
+    const auto afterOrdinaryKey = inputContext.inputPanel().candidateList();
+    valid = report(afterOrdinaryKey &&
+                       afterOrdinaryKey->candidate(0).text().toString() == "司会",
+                   "ordinary daemon key did not discard the retained typo list") &&
+            valid;
+    press(fcitx::Key(FcitxKey_a));
+    valid = report(engine.state(&inputContext)->requestTypoCorrections(),
+                   "manual typo request before reset failed") &&
+            valid;
+    fcitx::InputContextEvent manualReset(
+        &inputContext, fcitx::EventType::InputContextReset);
+    engine.reset(entry, manualReset);
+    valid = report(!inputContext.inputPanel().candidateList(),
+                   "reset retained manual typo candidates") &&
+            valid;
+    press(fcitx::Key(FcitxKey_a));
+    valid = report(engine.state(&inputContext)->requestTypoCorrections(),
+                   "manual typo request before activation failed") &&
+            valid;
+    engine.activate(entry, activateEvent);
+    const auto afterActivation = inputContext.inputPanel().candidateList();
+    valid = report(afterActivation &&
+                       afterActivation->candidate(0).text().toString() == "司会",
+                   "activation retained manual typo candidates") &&
+            valid;
+    press(fcitx::Key(FcitxKey_1));
+
     if (!statusActions.empty()) {
       statusActions.front()->activate(&inputContext);
     }
@@ -601,8 +778,14 @@ int main() {
                      context->inputPanel().candidateList(),
                  "shared connection did not start an independent session") &&
           valid;
+      valid = report(engine.state(context)->requestTypoCorrections(),
+                     "independent context could not retain manual typo list") &&
+              valid;
     }
 
+    valid = report(engine.state(&inputContext)->requestTypoCorrections(),
+                   "manual typo request before connection failure failed") &&
+            valid;
     fcitx::KeyEvent invalidResponse(&inputContext, fcitx::Key(FcitxKey_b));
     engine.keyEvent(entry, invalidResponse);
     valid = report(!invalidResponse.accepted(),

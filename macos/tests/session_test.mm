@@ -664,6 +664,12 @@ static void candidateTypoWindowTest() {
     require(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow &&
                 (panel.styleMask & NSWindowStyleMaskNonactivatingPanel),
             "navigable typo panel stays nonactivating");
+    NSButton *row = (NSButton *)panel.contentView.subviews.firstObject;
+    NSTextField *primary = (NSTextField *)row.subviews[1];
+    NSTextField *annotation = (NSTextField *)row.subviews[2];
+    require([primary.stringValue isEqualToString:@"訂正0"] &&
+                [annotation.stringValue isEqualToString:@"候補0"],
+            "typo rows show corrected input as primary and conversion as annotation");
     for (int selected = 0; selected < count; ++selected) {
       require([panel selectedTypoCandidate] == selected &&
                   [panel candidateForDigit:std::min(selected, 8)] == selected,

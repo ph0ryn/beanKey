@@ -139,9 +139,9 @@ class BeanKeyTypoCorrectionWord final : public CandidateWord {
 public:
   BeanKeyTypoCorrectionWord(std::uint32_t index, std::string correctedInput,
                             std::string convertedText, BeanKeyState *state)
-      : CandidateWord(Text(std::move(convertedText))), index_(index),
+      : CandidateWord(Text(std::move(correctedInput))), index_(index),
         state_(state) {
-    setComment(Text(std::move(correctedInput)));
+    setComment(Text(std::move(convertedText)));
   }
 
   void select(InputContext *) const override {
@@ -215,7 +215,15 @@ BeanKeyState::BeanKeyState(InputContext *inputContext, BeanKeyEngine *engine)
 
 BeanKeyState::~BeanKeyState() = default;
 
-bool BeanKeyState::focusIn() { return start(); }
+bool BeanKeyState::focusIn() {
+  if (!start()) {
+    return false;
+  }
+  if (!typoCandidates_.candidates().empty()) {
+    static_cast<void>(apply(normalState_));
+  }
+  return true;
+}
 
 void BeanKeyState::focusOut(bool commitComposition) {
   invalidateStaleSession();
@@ -263,6 +271,28 @@ bool BeanKeyState::processKey(KeyEvent &event) {
     }
   }
 
+  if (!typoCandidates_.candidates().empty()) {
+    // Ordinary daemon keys discard its typo list. Navigate the retained list
+    // locally and use the same absolute indices as digits and clicks.
+    switch (key.action()) {
+    case beankey::v1::USER_ACTION_DOWN:
+    case beankey::v1::USER_ACTION_UP:
+    case beankey::v1::USER_ACTION_SPACE: {
+      const bool forward =
+          key.action() == beankey::v1::USER_ACTION_DOWN ||
+          (key.action() == beankey::v1::USER_ACTION_SPACE && !key.shift());
+      typoSelection_ = std::clamp(typoSelection_ + (forward ? 1 : -1), 0,
+                                 typoCandidates_.candidates_size() - 1);
+      displayTypoCorrections();
+      return true;
+    }
+    case beankey::v1::USER_ACTION_ENTER:
+      return selectTypoCorrection(static_cast<std::uint32_t>(typoSelection_));
+    default:
+      break;
+    }
+  }
+
   auto request = envelope();
   *request.mutable_key_event() = std::move(key);
   fillSurroundingText(request.mutable_key_event()->mutable_surrounding_text());
@@ -291,7 +321,8 @@ bool BeanKeyState::forgetCandidate(std::uint32_t index) {
 }
 
 bool BeanKeyState::selectTypoCorrection(std::uint32_t index) {
-  if (!start()) {
+  if (!start() ||
+      index >= static_cast<std::uint32_t>(typoCandidates_.candidates_size())) {
     failSession();
     return false;
   }
@@ -349,6 +380,7 @@ bool BeanKeyState::start() {
   if (started_) {
     return true;
   }
+  clearUi();
   if (!engine_->ensureConnected()) {
     return false;
   }
@@ -368,7 +400,7 @@ bool BeanKeyState::start() {
     return false;
   }
   started_ = true;
-  static_cast<void>(apply(*response));
+  static_cast<void>(apply(response->state_response()));
   return true;
 }
 
@@ -385,11 +417,20 @@ bool BeanKeyState::send(beankey::v1::Envelope request) {
     failSession();
     return false;
   }
-  return apply(*response);
+  return apply(response->state_response());
 }
 
-bool BeanKeyState::apply(const beankey::v1::Envelope &response) {
-  const auto &state = response.state_response();
+bool BeanKeyState::apply(const beankey::v1::StateResponse &state) {
+  if (!typoCandidates_.candidates().empty()) {
+    candidateWindowStart_ = 0;
+  }
+  typoCandidates_.Clear();
+  typoSelection_ = 0;
+  typoWindowStart_ = 0;
+  normalState_ = state;
+  // Restore normal UI when leaving the local typo list without a new state.
+  // Commits belong to the response that delivered them, never to a redraw.
+  normalState_.clear_commit();
   lmTypoAvailable_ = state.lm_typo_available();
   learningAvailable_ = state.learning_available();
   learningWritable_ = state.learning_writable();
@@ -482,20 +523,39 @@ bool BeanKeyState::apply(const beankey::v1::Envelope &response) {
 void BeanKeyState::showTypoCorrections(
     const beankey::v1::TypoCorrectionResponse &response) {
   if (response.candidates().empty()) {
+    static_cast<void>(apply(normalState_));
     return;
   }
+  typoCandidates_ = response;
+  typoSelection_ = 0;
+  typoWindowStart_ = 0;
   candidateIndices_.clear();
   selectedCandidate_ = -1;
+  displayTypoCorrections();
+}
+
+void BeanKeyState::displayTypoCorrections() {
+  if (typoSelection_ < typoWindowStart_) {
+    typoWindowStart_ = typoSelection_;
+  } else if (typoSelection_ >=
+             typoWindowStart_ + static_cast<int>(kCandidatePageSize)) {
+    typoWindowStart_ = typoSelection_ - static_cast<int>(kCandidatePageSize) + 1;
+  }
   auto candidates = makeCandidateList();
   candidates->setSelectionKey(Key::keyListFromString("1 2 3 4 5 6 7 8 9"));
-  for (int index = 0; index < response.candidates_size(); ++index) {
-    const auto &candidate = response.candidates(index);
+  const int end =
+      std::min(typoCandidates_.candidates_size(),
+               typoWindowStart_ + static_cast<int>(kCandidatePageSize));
+  for (int index = typoWindowStart_; index < end; ++index) {
+    const auto &candidate = typoCandidates_.candidates(index);
     candidates->append<BeanKeyTypoCorrectionWord>(
         static_cast<std::uint32_t>(index), candidate.corrected_input(),
         candidate.converted_text(), this);
   }
-  candidates->setGlobalCursorIndex(0);
-  inputContext_->inputPanel().setCandidateList(std::move(candidates));
+  candidates->setGlobalCursorIndex(typoSelection_ - typoWindowStart_);
+  auto &panel = inputContext_->inputPanel();
+  panel.setCandidateList(std::move(candidates));
+  panel.setAuxDown(Text());
   inputContext_->updateUserInterface(UserInterfaceComponent::InputPanel);
 }
 
@@ -511,6 +571,10 @@ void BeanKeyState::fillSurroundingText(
 }
 
 void BeanKeyState::clearUi() {
+  normalState_.Clear();
+  typoCandidates_.Clear();
+  typoSelection_ = 0;
+  typoWindowStart_ = 0;
   candidateIndices_.clear();
   selectedCandidate_ = -1;
   candidateWindowStart_ = 0;

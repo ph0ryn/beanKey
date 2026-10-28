@@ -95,6 +95,9 @@ int main() {
       Typo,
       SelectCandidate,
       SelectTypo,
+      PredictionInput,
+      PredictionTab,
+      PredictionEnter,
       InvalidResponse
     };
     const auto addCandidates = [](beankey::v1::StateResponse *state) {
@@ -135,6 +138,17 @@ int main() {
                  request.select_candidate().index() == 0;
         case ExpectedRequest::SelectTypo:
           return request.has_select_typo_correction();
+        case ExpectedRequest::PredictionInput:
+          return request.has_key_event() &&
+                 request.key_event().action() ==
+                     beankey::v1::USER_ACTION_INPUT &&
+                 request.key_event().input() == "p";
+        case ExpectedRequest::PredictionTab:
+          return request.has_key_event() &&
+                 request.key_event().action() == beankey::v1::USER_ACTION_TAB;
+        case ExpectedRequest::PredictionEnter:
+          return request.has_key_event() &&
+                 request.key_event().action() == beankey::v1::USER_ACTION_ENTER;
         case ExpectedRequest::InvalidResponse:
           return request.has_key_event();
         }
@@ -164,6 +178,26 @@ int main() {
         if (expected == ExpectedRequest::Start) {
           state->set_consumed(false);
           state->set_reset(true);
+        } else if (expected == ExpectedRequest::PredictionInput ||
+                   expected == ExpectedRequest::PredictionTab) {
+          const bool accepting = expected == ExpectedRequest::PredictionTab;
+          state->set_consumed(true);
+          state->set_input_state(beankey::v1::INPUT_STATE_COMPOSING);
+          state->set_preedit(accepting ? "ください" : "くだし");
+          state->set_preedit_cursor(accepting ? 4 : 3);
+          state->set_selected_candidate(-1);
+          state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_HIDDEN);
+          if (!accepting) {
+            auto *prediction = state->mutable_prediction();
+            prediction->set_display_text("下さい");
+            prediction->set_append_text("さい");
+            prediction->set_delete_count(1);
+          }
+        } else if (expected == ExpectedRequest::PredictionEnter) {
+          state->set_consumed(true);
+          state->set_commit("ください");
+          state->set_reset(true);
+          state->set_candidate_window(beankey::v1::CANDIDATE_WINDOW_HIDDEN);
         } else if ((expected == ExpectedRequest::Key ||
                     expected == ExpectedRequest::RecoveredKey) &&
                    request.key_event().action() ==
@@ -241,7 +275,9 @@ int main() {
     serverValid = exchange(ExpectedRequest::Key) && serverValid;
     serverValid = exchange(ExpectedRequest::Key) && serverValid;
     serverValid = exchange(ExpectedRequest::SelectCandidate) && serverValid;
-    serverValid = exchange(ExpectedRequest::Key) && serverValid;
+    serverValid = exchange(ExpectedRequest::PredictionInput) && serverValid;
+    serverValid = exchange(ExpectedRequest::PredictionTab) && serverValid;
+    serverValid = exchange(ExpectedRequest::PredictionEnter) && serverValid;
     for (int selection = 0; selection < 3; ++selection) {
       serverValid = exchange(ExpectedRequest::Key) && serverValid;
       serverValid =
@@ -456,9 +492,35 @@ int main() {
                    "post-composition candidates must stay hidden") &&
             valid;
 
+    const auto beforePrediction = inputContext.committed();
+    fcitx::KeyEvent predictionInput(&inputContext, fcitx::Key(FcitxKey_p));
+    engine.keyEvent(entry, predictionInput);
+    valid = report(predictionInput.accepted() &&
+                       inputContext.inputPanel().clientPreedit().toString() ==
+                           "くだし" &&
+                       inputContext.inputPanel().auxDown().toString() ==
+                           "→ 下さい" &&
+                       !inputContext.inputPanel().candidateList() &&
+                       inputContext.committed() == beforePrediction,
+                   "prediction-only state did not preserve the marked reading") &&
+            valid;
     fcitx::KeyEvent tab(&inputContext, fcitx::Key(FcitxKey_Tab));
     engine.keyEvent(entry, tab);
-    valid = report(tab.accepted(), "composing Tab was not accepted") && valid;
+    valid = report(tab.accepted() &&
+                       inputContext.inputPanel().clientPreedit().toString() ==
+                           "ください" &&
+                       inputContext.inputPanel().auxDown().empty() &&
+                       inputContext.committed() == beforePrediction,
+                   "native Tab must update corrected preedit without a commit") &&
+            valid;
+    fcitx::KeyEvent commitPrediction(&inputContext, fcitx::Key(FcitxKey_Return));
+    engine.keyEvent(entry, commitPrediction);
+    valid = report(commitPrediction.accepted() &&
+                       inputContext.committed() == beforePrediction + "ください" &&
+                       inputContext.inputPanel().clientPreedit().empty() &&
+                       inputContext.inputPanel().auxDown().empty(),
+                   "Enter must commit accepted prediction exactly once") &&
+            valid;
 
     inputContext.setCapabilityFlags(fcitx::CapabilityFlags(
         {fcitx::CapabilityFlag::Preedit,

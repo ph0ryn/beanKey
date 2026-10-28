@@ -179,6 +179,18 @@ static void fakeDaemonTest() {
       if (request.has_key_event() && request.key_event().text() == "x") {
         response.set_request_id(request.request_id() +
                                 1); // must reset, not apply
+      } else if (request.has_key_event() &&
+                 request.key_event().action() == v1::USER_ACTION_INPUT &&
+                 request.key_event().text() == "p") {
+        preedit = "くだし";
+        auto *prediction = state->mutable_prediction();
+        prediction->set_display_text("下さい");
+        prediction->set_append_text("さい");
+        prediction->set_delete_count(1);
+      } else if (request.has_key_event() &&
+                 request.key_event().action() == v1::USER_ACTION_TAB) {
+        require(preedit == "くだし", "Tab reaches the active prediction session");
+        preedit = "ください";
       } else if (request.has_key_event() && request.key_event().option()) {
         // Echo the generated wire input; conversion decisions belong to daemon.
         state->set_commit(request.key_event().input());
@@ -197,7 +209,9 @@ static void fakeDaemonTest() {
         else
           preedit = request.key_event().text() == "b" ? "「」" : "仮名😀";
       }
-      if (!preedit.empty()) {
+      if (preedit == "くだし" || preedit == "ください") {
+        state->set_input_state(v1::INPUT_STATE_COMPOSING);
+      } else if (!preedit.empty()) {
         state->set_candidate_window(v1::CANDIDATE_WINDOW_SELECTING);
         state->set_selected_candidate(0);
         auto *candidate = state->add_candidates();
@@ -210,9 +224,10 @@ static void fakeDaemonTest() {
         }
       }
       state->set_preedit(preedit);
-      state->set_preedit_cursor(preedit.empty()     ? 0
-                                : preedit == "「」" ? 2
-                                                    : 3);
+      state->set_preedit_cursor(preedit.empty()         ? 0
+                                : preedit == "「」"     ? 2
+                                : preedit == "ください" ? 4
+                                                        : 3);
       state->set_highlighted_preedit_length(preedit.empty() ? 0 : 2);
       writeFrame(socket, response);
     }
@@ -396,6 +411,24 @@ static void fakeDaemonTest() {
   require(
       [view.string isEqualToString:@"åÅ¯˘"] && !view.hasMarkedText,
       "generated Option text survives native event, IPC and client insertion");
+  view.string = @"";
+  view.selectedRange = NSMakeRange(0, 0);
+  require([session handleEvent:key(kVK_ANSI_P, @"p") client:client] &&
+              [view.string isEqualToString:@"くだし"] && view.hasMarkedText,
+          "correction prediction preserves the current marked reading");
+  NSTextField *predictionLabel =
+      (NSTextField *)panel.contentView.subviews.lastObject;
+  require(panel.visible && !panel.canBecomeKeyWindow &&
+              [predictionLabel isKindOfClass:NSTextField.class] &&
+              [predictionLabel.stringValue isEqualToString:@"→ 下さい"],
+          "prediction-only panel shows the daemon correction without focus");
+  require([session handleEvent:key(kVK_Tab, @"\t") client:client] &&
+              [view.string isEqualToString:@"ください"] && view.hasMarkedText &&
+              !panel.visible,
+          "native Tab applies corrected marked text without committing it");
+  require([session handleEvent:key(kVK_Return, @"\r") client:client] &&
+              [view.string isEqualToString:@"ください"] && !view.hasMarkedText,
+          "Enter commits accepted prediction exactly once");
   view.string = @"仮名😀仮名😀";
   view.selectedRange = NSMakeRange(view.string.length, 0);
   require([session handleEvent:key(kVK_ANSI_A, @"a") client:client],
@@ -415,6 +448,7 @@ static void fakeDaemonTest() {
   std::vector<uint32_t> selectedTypos;
   int forwardedDown = 0;
   int forwardedUpOrSpace = 0;
+  int forwardedTab = 0;
   std::vector<std::pair<std::string, std::string>> optionInputs;
   for (const auto &request : requests) {
     if (request.has_select_typo_correction())
@@ -426,6 +460,7 @@ static void fakeDaemonTest() {
         optionInputs.emplace_back(request.key_event().input(),
                                   request.key_event().intention());
       }
+      forwardedTab += request.key_event().action() == v1::USER_ACTION_TAB;
       forwardedDown += request.key_event().action() == v1::USER_ACTION_DOWN;
       forwardedUpOrSpace += request.key_event().action() == v1::USER_ACTION_UP ||
                             request.key_event().action() == v1::USER_ACTION_SPACE;
@@ -437,6 +472,8 @@ static void fakeDaemonTest() {
       "wire separates generated Option text from Shift-retaining logical text");
   require(selectedTypos == std::vector<uint32_t>({11, 9, 10}),
           "digit, click and Enter use exact absolute typo indices on the wire");
+  require(forwardedTab == 1,
+          "native prediction Tab is forwarded exactly once as a semantic key");
   require(forwardedDown == 1 && forwardedUpOrSpace == 0,
           "typo navigation is never forwarded or replayed as ordinary IPC keys");
   unlink(path.c_str());

@@ -133,6 +133,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml",
+ "unicode-segmentation",
 ]
 
 [[package]]

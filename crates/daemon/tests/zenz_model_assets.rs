@@ -487,7 +487,7 @@ predictive_input = false
 enable_alignment_separator = false
 
 [lm_typo]
-enabled = false
+enabled = true
 language_model = "zenz"
 beam_size = 32
 top_k = 64
@@ -561,6 +561,97 @@ flash_attention = true
             );
         }
     }
+    // Exercise the automatic correction through the packaged server, not only
+    // candidate existence in the converter. Match the native clients' deadline.
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let mut exchange = |request_id, payload| {
+        let mut request = envelope(request_id, payload);
+        request.session_id = "backspace-typo".into();
+        write_envelope(&mut stream, &request).unwrap();
+        let response = read_envelope(&mut stream).unwrap();
+        match response.payload {
+            Some(Payload::StateResponse(state)) => state,
+            other => panic!("automatic correction returned {other:?}"),
+        }
+    };
+    exchange(
+        1,
+        Payload::StartSession(protocol::StartSession {
+            input_style: protocol::InputStyle::RomanToKana as i32,
+            surrounding_text: Some(protocol::SurroundingText {
+                available: true,
+                text: "やあ、".into(),
+                cursor: 3,
+                anchor: 3,
+            }),
+            keyboard_language: protocol::KeyboardLanguage::Japanese as i32,
+            ..Default::default()
+        }),
+    );
+    let typed = exchange(
+        2,
+        Payload::KeyEvent(protocol::KeyEvent {
+            action: protocol::UserAction::Input as i32,
+            text: "ojsyougozainasu".into(),
+            ..Default::default()
+        }),
+    );
+    let before_backspace = Instant::now();
+    let deleted = exchange(
+        3,
+        Payload::KeyEvent(protocol::KeyEvent {
+            action: protocol::UserAction::Backspace as i32,
+            ..Default::default()
+        }),
+    );
+    let elapsed = before_backspace.elapsed();
+    eprintln!(
+        "fixed-model automatic Backspace: {elapsed:?}, prediction={:?}",
+        deleted.prediction
+    );
+    assert!(elapsed < Duration::from_secs(5));
+    let tables = InputTableRegistry::new();
+    let mut raw = ComposingText::new();
+    raw.insert_str("ojsyougozainasu", InputStyle::RomanToKana, &tables);
+    assert_eq!(typed.preedit, raw.surface());
+    raw.delete_backward(1, &tables);
+    assert_eq!(deleted.preedit, raw.surface());
+    assert!(deleted.commit.is_empty());
+    let prediction = deleted
+        .prediction
+        .expect("fixed model must offer its first converted correction");
+    let prefix_len = deleted.preedit.chars().count() - prediction.delete_count as usize;
+    let expected =
+        deleted.preedit.chars().take(prefix_len).collect::<String>() + &prediction.append_text;
+    let accepted = exchange(
+        4,
+        Payload::KeyEvent(protocol::KeyEvent {
+            action: protocol::UserAction::Tab as i32,
+            ..Default::default()
+        }),
+    );
+    assert!(accepted.consumed && accepted.commit.is_empty());
+    assert_eq!(accepted.preedit, expected);
+    let committed = exchange(
+        5,
+        Payload::KeyEvent(protocol::KeyEvent {
+            action: protocol::UserAction::Enter as i32,
+            ..Default::default()
+        }),
+    );
+    assert_eq!(committed.commit, accepted.preedit);
+    assert!(committed.preedit.is_empty() && committed.prediction.is_none());
+    let resumed = exchange(
+        6,
+        Payload::KeyEvent(protocol::KeyEvent {
+            action: protocol::UserAction::Input as i32,
+            text: "kana".into(),
+            ..Default::default()
+        }),
+    );
+    assert_eq!(resumed.preedit, "かな");
     drop(stream);
 
     let deadline = Instant::now() + Duration::from_secs(5);

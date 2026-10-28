@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use beankey_converter::{
-    Candidate as ConverterCandidate, ComposingCount as ConverterComposingCount, ConversionResult,
-    ConversionSession, DictionaryEntry, DictionaryError, DictionaryMetadata, DictionaryStore,
-    ForeignCompletionProvider, FormatReport, HunspellCompleter, HunspellError, InputModifier,
-    InputStyle as ConverterInputStyle, InputTable, InputTableId, InputTableRegistry,
+    Candidate as ConverterCandidate, ComposingCount as ConverterComposingCount, ComposingText,
+    ConversionResult, ConversionSession, DictionaryEntry, DictionaryError, DictionaryMetadata,
+    DictionaryStore, ForeignCompletionProvider, FormatReport, HunspellCompleter, HunspellError,
+    InputModifier, InputStyle as ConverterInputStyle, InputTable, InputTableId, InputTableRegistry,
     KeyboardLanguage, LearningError, LearningMemory, LearningMode, LmTypoConfig, NGramError,
     NGramLanguageModel, NormalConverter, PredictionMode, RequestOptions, SelectionError,
     TextReplacer, TextReplacerError, TypoCorrectionMode, ZenzEvaluator, ZenzLanguageModel,
@@ -18,6 +18,7 @@ use beankey_converter::{
 };
 use beankey_llama::LlamaError;
 use serde::Deserialize;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::config::{
     ConversionConfig, DaemonConfig, InputStyleConfig, KeyboardLanguageConfig, LearningConfig,
@@ -63,6 +64,7 @@ struct InputBehavior {
     punctuation_style: PunctuationStyleConfig,
 }
 
+#[derive(Clone)]
 struct SessionState {
     conversion: ConversionSession,
     input_style: ConverterInputStyle,
@@ -77,6 +79,8 @@ struct SessionState {
     segment_surface_count: Option<usize>,
     last_was_backspace: bool,
     prediction: Option<InputPrediction>,
+    // Display text and target reading retained across consecutive deletions.
+    backspace_correction: Option<(String, String)>,
     live_conversion_enabled: bool,
     surrounding: SurroundingContext,
     request_options: RequestOptions,
@@ -107,6 +111,7 @@ impl SessionState {
         self.input_mode = InputMode::None;
         self.segment_surface_count = None;
         self.last_was_backspace = false;
+        self.backspace_correction = None;
         self.clear_presentation();
         self.typo_corrections.clear();
         self.zenz_cache = zenz::ZenzConversionCache::default();
@@ -743,6 +748,7 @@ impl Engine {
                         segment_surface_count: None,
                         last_was_backspace: false,
                         prediction: None,
+                        backspace_correction: None,
                         live_conversion_enabled: self.live_conversion,
                         surrounding,
                         request_options: RequestOptions {
@@ -833,7 +839,7 @@ impl Engine {
             );
         }
         if matches!(request, Payload::RequestTypoCorrections(_)) {
-            let result = self.request_typo_corrections(&session);
+            let result = self.request_typo_corrections(&session, session.conversion.composing());
             match result {
                 Ok(candidates) => {
                     session.typo_corrections.clone_from(&candidates);
@@ -939,6 +945,7 @@ impl Engine {
     fn request_typo_corrections(
         &mut self,
         session: &SessionState,
+        composing: &ComposingText,
     ) -> SessionRequestResult<Vec<beankey_converter::LmTypoCandidate>> {
         if !self.lm_typo_enabled {
             return Err((
@@ -963,8 +970,11 @@ impl Engine {
         match experimental_typo_correction(
             model,
             session.surrounding.left.as_deref().unwrap_or(""),
-            session.conversion.composing(),
-            &session.input_style,
+            composing,
+            composing
+                .input()
+                .last()
+                .map_or(&session.input_style, |element| &element.input_style),
             &self.tables,
             &self.lm_typo_config,
         ) {
@@ -975,6 +985,50 @@ impl Engine {
                 format!("LM typo correction failed: {error}"),
             )),
         }
+    }
+
+    fn update_backspace_correction(
+        &mut self,
+        session: &mut SessionState,
+        previous: &ComposingText,
+    ) -> SessionRequestResult<()> {
+        let Some(reading) = self
+            .request_typo_corrections(session, previous)?
+            .into_iter()
+            .map(|candidate| to_hiragana(&candidate.converted_text))
+            .find(|reading| !reading.is_empty())
+        else {
+            return Ok(());
+        };
+        let display = self.converted_reading(session, &reading)?;
+        let previous_display = self.converted_reading(session, &previous.surface())?;
+        if display != previous_display {
+            session.backspace_correction = Some((display, reading));
+        }
+        Ok(())
+    }
+
+    fn converted_reading(
+        &mut self,
+        session: &SessionState,
+        reading: &str,
+    ) -> SessionRequestResult<String> {
+        // ponytail: clone session state to reuse conversion; extract a narrower
+        // conversion request if profiling shows this copy matters on Backspace.
+        let mut preview = session.clone();
+        preview.reset();
+        preview.surrounding.right = None;
+        preview.request_options.japanese_prediction = PredictionMode::Disabled;
+        preview.request_options.foreign_prediction = PredictionMode::Disabled;
+        preview
+            .conversion
+            .insert_str(reading, ConverterInputStyle::Direct, &self.tables);
+        self.request_candidates(&mut preview)?;
+        Ok(preview
+            .conversion
+            .candidates()
+            .first()
+            .map_or_else(|| reading.to_owned(), |candidate| candidate.text.clone()))
     }
 
     fn handle_key(
@@ -1031,6 +1085,7 @@ impl Engine {
                 .insert_str(" ", ConverterInputStyle::Direct, &self.tables);
             session.segment_surface_count = None;
             session.last_was_backspace = false;
+            session.backspace_correction = None;
             session.clear_presentation();
             return Ok(make_state(session, true, String::new(), false));
         }
@@ -1068,6 +1123,11 @@ impl Engine {
 
         match action {
             protocol::UserAction::Backspace if !session.conversion.composing().is_empty() => {
+                let composing = session.conversion.composing();
+                let to_end = composing.surface_graphemes().len() - composing.cursor();
+                session.conversion.move_cursor(to_end as isize);
+                let previous = (self.lm_typo_enabled && session.backspace_correction.is_none())
+                    .then(|| session.conversion.composing().clone());
                 session.conversion.delete_backward(1, &self.tables);
                 session.segment_surface_count = None;
                 session.last_was_backspace = true;
@@ -1080,6 +1140,21 @@ impl Engine {
                 self.request_candidates(session)?;
                 // azooKey-Desktop deliberately shows the raw reading immediately after deletion.
                 session.live_candidate = None;
+                if let Some(previous) = previous {
+                    self.update_backspace_correction(session, &previous)?;
+                }
+                if let Some((display, target)) = &session.backspace_correction {
+                    let correction = suffix_edit_prediction(
+                        &session.conversion.composing().surface(),
+                        target,
+                        display,
+                    );
+                    if let Some(correction) = correction {
+                        session.prediction = Some(correction);
+                    } else {
+                        session.backspace_correction = None;
+                    }
+                }
                 return Ok(make_state(session, true, String::new(), false));
             }
             protocol::UserAction::Escape => match session.input_mode {
@@ -1124,6 +1199,7 @@ impl Engine {
                     session
                         .conversion
                         .insert_composition_separator(session.input_style.clone(), &self.tables);
+                    session.last_was_backspace = false;
                     if self.live_conversion {
                         session.input_mode = InputMode::Selecting;
                         self.request_rich_candidates(session)?;
@@ -1162,6 +1238,7 @@ impl Engine {
                     session
                         .conversion
                         .insert_composition_separator(session.input_style.clone(), &self.tables);
+                    session.last_was_backspace = false;
                     self.request_rich_candidates(session)?;
                     session.input_mode = InputMode::Selecting;
                     session.selected_candidate = 0;
@@ -1231,6 +1308,7 @@ impl Engine {
                     .conversion
                     .move_cursor(target as isize - current as isize);
                 session.segment_surface_count = Some(target);
+                session.last_was_backspace = false;
                 session.input_mode = InputMode::Selecting;
                 session.clear_presentation();
                 self.request_candidates(session)?;
@@ -1267,11 +1345,16 @@ impl Engine {
                                 .conversion
                                 .delete_backward(prediction.delete_count, &self.tables);
                         }
-                        session.conversion.insert_str(
-                            &prediction.append_text,
-                            ConverterInputStyle::Direct,
-                            &self.tables,
-                        );
+                        session.backspace_correction = None;
+                        if prediction.append_text.is_empty() {
+                            session.last_was_backspace = true;
+                        } else {
+                            session.conversion.insert_str(
+                                &prediction.append_text,
+                                ConverterInputStyle::Direct,
+                                &self.tables,
+                            );
+                        }
                     }
                     self.request_candidates(session)?;
                 }
@@ -1490,6 +1573,7 @@ impl Engine {
         left_context.push_str(&commit);
         session.clear_presentation();
         session.last_was_backspace = false;
+        session.backspace_correction = None;
         if !session.conversion.composing().is_empty() {
             session.segment_surface_count = None;
             session.input_mode = remainder_mode;
@@ -1640,6 +1724,9 @@ impl Engine {
         request_rich_candidates: bool,
         left_context: Option<&str>,
     ) -> SessionRequestResult<()> {
+        if !session.last_was_backspace {
+            session.backspace_correction = None;
+        }
         let segment_request = session.segment_surface_count.is_some();
         if segment_request {
             session.conversion.begin_segment_request(&self.tables);
@@ -1945,28 +2032,30 @@ fn current_marked_text(session: &SessionState, _tables: &InputTableRegistry) -> 
     )
 }
 
+fn suffix_edit_prediction(current: &str, target: &str, display: &str) -> Option<InputPrediction> {
+    let current: Vec<_> = current.graphemes(true).collect();
+    let target: Vec<_> = target.graphemes(true).collect();
+    let shared = current
+        .iter()
+        .zip(&target)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let delete_count = current.len() - shared;
+    let append_text = target[shared..].concat();
+    (delete_count > 0 || !append_text.is_empty()).then(|| InputPrediction {
+        display_text: display.to_owned(),
+        append_text,
+        delete_count,
+        candidate: None,
+    })
+}
+
 fn input_prediction(session: &SessionState, result: &ConversionResult) -> Option<InputPrediction> {
-    if session.last_was_backspace
-        && let Some(candidate) = result
-            .main_results
-            .iter()
-            .find(|candidate| candidate.is_typo_correction)
+    if let Some((display, target)) = &session.backspace_correction
+        && let Some(prediction) =
+            suffix_edit_prediction(&session.conversion.composing().surface(), target, display)
     {
-        let corrected_reading = to_hiragana(
-            &candidate
-                .entries
-                .iter()
-                .map(|entry| entry.ruby.as_str())
-                .collect::<String>(),
-        );
-        if corrected_reading != session.conversion.composing().surface() {
-            return Some(InputPrediction {
-                display_text: candidate.text.clone(),
-                append_text: corrected_reading,
-                delete_count: session.conversion.composing().surface_graphemes().len(),
-                candidate: None,
-            });
-        }
+        return Some(prediction);
     }
     if session.request_options.japanese_prediction != PredictionMode::Manual {
         return None;
@@ -2583,6 +2672,319 @@ mod tests {
     }
 
     struct GreekCompleter;
+
+    struct BackspaceTypoModel {
+        correction: bool,
+        failure: Option<ZenzInferenceError>,
+        requests: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl ZenzLanguageModel for BackspaceTypoModel {
+        fn vocabulary_size(&self) -> usize {
+            5
+        }
+        fn eos_token(&self) -> i32 {
+            0
+        }
+        fn tokenize(
+            &mut self,
+            text: &str,
+            add_special: bool,
+        ) -> Result<Vec<i32>, ZenzInferenceError> {
+            if add_special || text.contains('\u{ee00}') {
+                self.correction = !text.contains('\u{ee01}');
+                if self.correction {
+                    self.requests
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                return Ok(vec![1]);
+            }
+            Ok(text
+                .chars()
+                .map(|c| match c {
+                    'カ' => 2,
+                    'キ' => 3,
+                    'ク' => 4,
+                    _ => 1,
+                })
+                .collect())
+        }
+        fn token_to_piece(&mut self, token: i32) -> Result<Vec<u8>, ZenzInferenceError> {
+            Ok(match token {
+                2 => "カ".as_bytes().to_vec(),
+                3 => "キ".as_bytes().to_vec(),
+                4 => "ク".as_bytes().to_vec(),
+                _ => Vec::new(),
+            })
+        }
+        fn next_logits(&mut self, tokens: &[i32]) -> Result<Vec<f32>, ZenzInferenceError> {
+            if !self.correction {
+                // Keep conversion on the real dictionary fallback, independently
+                // of the deterministic LM used to rank typo corrections.
+                return Err(ZenzInferenceError::ContextCapacity {
+                    tokens: 65,
+                    capacity: 64,
+                });
+            }
+            if let Some(error) = self.failure.take() {
+                return Err(error);
+            }
+            let next = match tokens.len() {
+                1 => 3, // キ
+                2 => 4, // ク
+                3 => 2, // カ
+                _ => 0,
+            };
+            let mut logits = vec![-12.0; 5];
+            logits[next] = 12.0;
+            Ok(logits)
+        }
+    }
+
+    #[test]
+    fn backspace_typo_prediction_keeps_its_target_and_tab_does_not_commit() {
+        for live_conversion in [false, true] {
+            for (enabled, input) in [(false, "かくか"), (true, "きくか"), (true, "かくか")]
+            {
+                let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let mut engine = Engine::open_with_zenz_model(
+                    dictionary_root(),
+                    Box::new(BackspaceTypoModel {
+                        correction: false,
+                        failure: None,
+                        requests: Arc::clone(&requests),
+                    }),
+                )
+                .unwrap();
+                engine.live_conversion = live_conversion;
+                engine.lm_typo_enabled = enabled;
+                engine.lm_typo_config.beam_size = 8;
+                engine.lm_typo_config.top_k = 8;
+                engine.request_options.typo_correction = TypoCorrectionMode::Disabled;
+                let mut request_id = 1;
+                let start = engine.handle(protocol::Envelope {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    session_id: "backspace-typo".into(),
+                    payload: Some(Payload::StartSession(protocol::StartSession {
+                        input_style: protocol::InputStyle::Direct as i32,
+                        ..Default::default()
+                    })),
+                    trace: Vec::new(),
+                });
+                assert!(matches!(start.payload, Some(Payload::StateResponse(_))));
+                let mut send = |engine: &mut Engine, action: protocol::UserAction, text: &str| {
+                    request_id += 1;
+                    let reply = engine.handle(protocol::Envelope {
+                        protocol_version: PROTOCOL_VERSION,
+                        request_id,
+                        session_id: "backspace-typo".into(),
+                        payload: Some(Payload::KeyEvent(protocol::KeyEvent {
+                            action: action as i32,
+                            text: text.into(),
+                            ..Default::default()
+                        })),
+                        trace: Vec::new(),
+                    });
+                    match reply.payload {
+                        Some(Payload::StateResponse(state)) => state,
+                        other => panic!("unexpected response: {other:?}"),
+                    }
+                };
+                send(&mut engine, protocol::UserAction::Input, input);
+                let deleted = send(&mut engine, protocol::UserAction::Backspace, "");
+                assert_eq!(
+                    deleted.preedit,
+                    if input == "かくか" {
+                        "かく"
+                    } else {
+                        "きく"
+                    }
+                );
+                if !enabled || input == "きくか" {
+                    assert!(
+                        deleted.prediction.is_none(),
+                        "disabled or identical correction must not be offered"
+                    );
+                    continue;
+                }
+                let first = deleted
+                    .prediction
+                    .expect("Backspace must offer an LM correction of the pre-delete input");
+                assert_eq!(first.append_text, "きくか");
+                assert_eq!(first.delete_count, 2);
+                assert!(!first.display_text.is_empty());
+                let repeated = send(&mut engine, protocol::UserAction::Backspace, "");
+                let prediction = repeated.prediction.unwrap();
+                assert_eq!(prediction.display_text, first.display_text);
+                assert_eq!(prediction.append_text, "きくか");
+                assert_eq!(prediction.delete_count, 1);
+                assert_eq!(
+                    requests.load(std::sync::atomic::Ordering::SeqCst),
+                    1,
+                    "continuous deletion reuses the correction target"
+                );
+                let accepted = send(&mut engine, protocol::UserAction::Tab, "");
+                assert!(accepted.consumed && accepted.commit.is_empty());
+                assert_eq!(
+                    accepted.preedit,
+                    if live_conversion {
+                        first.display_text.as_str()
+                    } else {
+                        "きくか"
+                    }
+                );
+                let committed = send(&mut engine, protocol::UserAction::Enter, "");
+                assert_eq!(committed.commit, accepted.preedit);
+                assert!(committed.preedit.is_empty() && committed.prediction.is_none());
+                send(&mut engine, protocol::UserAction::Input, "かくか");
+                send(&mut engine, protocol::UserAction::Backspace, "");
+                assert_eq!(
+                    requests.load(std::sync::atomic::Ordering::SeqCst),
+                    2,
+                    "a new composition cannot reuse an old correction"
+                );
+                let entered = send(&mut engine, protocol::UserAction::Enter, "");
+                assert_eq!(
+                    entered.commit, "かく",
+                    "Enter must not accept the correction prediction"
+                );
+                send(&mut engine, protocol::UserAction::Input, "かくか");
+                send(&mut engine, protocol::UserAction::Backspace, "");
+                let changed = send(&mut engine, protocol::UserAction::Input, "か");
+                assert!(
+                    changed.prediction.is_none(),
+                    "typing clears the correction target"
+                );
+                send(&mut engine, protocol::UserAction::Backspace, "");
+                assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 4);
+                let selecting = send(&mut engine, protocol::UserAction::Down, "");
+                assert!(selecting.prediction.is_none());
+                let mut cancelled = selecting;
+                for _ in 0..3 {
+                    cancelled = send(&mut engine, protocol::UserAction::Escape, "");
+                }
+                assert!(cancelled.prediction.is_none() && cancelled.preedit.is_empty());
+                send(&mut engine, protocol::UserAction::Input, "きくかかか");
+                let deleted = send(&mut engine, protocol::UserAction::Backspace, "");
+                let pure_delete = deleted
+                    .prediction
+                    .expect("shorter correction must be offered");
+                assert!(pure_delete.append_text.is_empty());
+                assert_eq!(pure_delete.delete_count, 1);
+                let accepted = send(&mut engine, protocol::UserAction::Tab, "");
+                assert!(accepted.commit.is_empty());
+                assert_eq!(
+                    accepted.preedit, "きくか",
+                    "pure deletion keeps raw reading even during live conversion"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn backspace_correction_capacity_falls_back_but_other_errors_reset_and_recover() {
+        for failure in [
+            ZenzInferenceError::ContextCapacity {
+                tokens: 65,
+                capacity: 64,
+            },
+            ZenzInferenceError::Message("injected typo failure".into()),
+        ] {
+            let capacity = failure.is_context_capacity_exceeded();
+            let mut engine = Engine::open_with_zenz_model(
+                dictionary_root(),
+                Box::new(BackspaceTypoModel {
+                    correction: false,
+                    failure: Some(failure),
+                    requests: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                }),
+            )
+            .unwrap();
+            engine.live_conversion = false;
+            engine.lm_typo_enabled = true;
+            engine.request_options.japanese_prediction = PredictionMode::Manual;
+            let mut request_id = 0;
+            let mut send = |engine: &mut Engine, payload| {
+                request_id += 1;
+                engine
+                    .handle(protocol::Envelope {
+                        protocol_version: PROTOCOL_VERSION,
+                        request_id,
+                        session_id: "backspace-error".into(),
+                        payload: Some(payload),
+                        trace: Vec::new(),
+                    })
+                    .payload
+            };
+            send(
+                &mut engine,
+                Payload::StartSession(protocol::StartSession {
+                    input_style: protocol::InputStyle::Direct as i32,
+                    ..Default::default()
+                }),
+            );
+            send(
+                &mut engine,
+                Payload::KeyEvent(protocol::KeyEvent {
+                    action: protocol::UserAction::Input as i32,
+                    text: "きょう".into(),
+                    ..Default::default()
+                }),
+            );
+            let deleted = send(
+                &mut engine,
+                Payload::KeyEvent(protocol::KeyEvent {
+                    action: protocol::UserAction::Backspace as i32,
+                    ..Default::default()
+                }),
+            );
+            if capacity {
+                let Some(Payload::StateResponse(state)) = deleted else {
+                    panic!("capacity cannot reset input: {deleted:?}")
+                };
+                assert_eq!(state.preedit, "きょ");
+                assert!(
+                    state.prediction.is_some(),
+                    "ordinary prediction survives typo model capacity"
+                );
+                assert!(state.commit.is_empty());
+            } else {
+                assert!(matches!(deleted, Some(Payload::ProtocolError(error))
+                    if error.code == Code::Internal as i32 && error.message.contains("injected typo failure")));
+            }
+            let recovered = send(
+                &mut engine,
+                Payload::KeyEvent(protocol::KeyEvent {
+                    action: protocol::UserAction::Input as i32,
+                    text: "あ".into(),
+                    ..Default::default()
+                }),
+            );
+            let Some(Payload::StateResponse(recovered)) = recovered else {
+                panic!("input must recover: {recovered:?}")
+            };
+            assert_eq!(recovered.preedit, if capacity { "きょあ" } else { "あ" });
+        }
+    }
+
+    #[test]
+    fn correction_suffix_edits_count_graphemes_not_scalars() {
+        for (current, target, deleted, appended) in [
+            ("くだし", "ください", 1, "さい"),
+            ("くだ", "ください", 0, "さい"),
+            ("か\u{3099}し", "か\u{3099}さい", 1, "さい"),
+            ("👩‍💻し", "👩‍💻さい", 1, "さい"),
+            ("ください", "くだ", 2, ""),
+        ] {
+            let prediction = suffix_edit_prediction(current, target, "表示").unwrap();
+            assert_eq!(
+                (prediction.delete_count, prediction.append_text.as_str()),
+                (deleted, appended)
+            );
+        }
+        assert!(suffix_edit_prediction("同じ", "同じ", "表示").is_none());
+    }
 
     struct PredictionCapacityModel {
         fail_review: bool,

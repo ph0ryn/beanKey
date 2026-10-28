@@ -992,6 +992,26 @@ fn exposes_manual_prediction_separately_and_accepts_it_with_tab() {
 }
 
 #[test]
+fn backspace_without_a_correction_falls_back_to_ordinary_prediction() {
+    let mut engine = configured_engine(ConversionConfig {
+        japanese_prediction: beankey_daemon::PredictionConfig::Manual,
+        live_conversion: false,
+        ..Default::default()
+    });
+    start_roman_session(&mut engine, 1);
+    response(engine.handle(envelope(2, Payload::KeyEvent(key_event(0, "kyou")))));
+    let deleted = response(engine.handle(envelope(3, Payload::KeyEvent(key_event(0xff08, "")))));
+    assert_eq!(deleted.preedit, "きょ");
+    let prediction = deleted
+        .prediction
+        .expect("ordinary prediction survives an absent correction");
+    assert!(!prediction.append_text.is_empty());
+    let accepted = response(engine.handle(envelope(4, Payload::KeyEvent(key_event(0xff09, "")))));
+    assert!(accepted.consumed && accepted.commit.is_empty());
+    assert_ne!(accepted.preedit, deleted.preedit);
+}
+
+#[test]
 fn exposes_manual_prediction_from_a_katakana_prefix() {
     let mut engine = Engine::open_with_conversion_resources(
         dictionary_root(),

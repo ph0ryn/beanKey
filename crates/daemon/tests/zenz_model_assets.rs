@@ -539,56 +539,18 @@ flash_attention = true
     // Metal initialization took 24 seconds on a cold macOS CI runner.
     let mut stream = connect_before(daemon.0, &socket, Duration::from_secs(60));
     stream
-        .set_read_timeout(Some(Duration::from_secs(15)))
-        .unwrap();
-    stream
-        .set_write_timeout(Some(Duration::from_secs(15)))
-        .unwrap();
-
-    for request in [
-        envelope(
-            1,
-            Payload::StartSession(protocol::StartSession {
-                input_style: protocol::InputStyle::Direct as i32,
-                surrounding_text: None,
-                keyboard_language: protocol::KeyboardLanguage::EnglishUs as i32,
-                custom_input_table: String::new(),
-            }),
-        ),
-        envelope(
-            2,
-            Payload::KeyEvent(protocol::KeyEvent {
-                action: protocol::UserAction::Input as i32,
-                text: "hel".into(),
-                ..Default::default()
-            }),
-        ),
-    ] {
-        write_envelope(&mut stream, &request).unwrap();
-        let response = read_envelope(&mut stream).unwrap();
-        let Some(Payload::StateResponse(state)) = response.payload else {
-            panic!("server returned a protocol error");
-        };
-        if request.request_id == 2 {
-            assert_eq!(
-                state
-                    .candidates
-                    .iter()
-                    .filter(|candidate| candidate.text.len() > 3)
-                    .map(|candidate| candidate.text.as_str())
-                    .collect::<Vec<_>>(),
-                ["hell", "held", "helm", "help"]
-            );
-        }
-    }
-    // Exercise the automatic correction through the packaged server, not only
-    // candidate existence in the converter. Match the native clients' deadline.
-    stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
-    let mut exchange = |request_id, payload| {
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+
+    // Match the native clients' request timeout and one-character key events.
+    let mut request_id = 0;
+    let mut exchange = |session_id: &str, payload| {
+        request_id += 1;
         let mut request = envelope(request_id, payload);
-        request.session_id = "backspace-typo".into();
+        request.session_id = session_id.into();
         let started = Instant::now();
         write_envelope(&mut stream, &request).unwrap();
         let response = read_envelope(&mut stream).unwrap_or_else(|error| {
@@ -602,13 +564,45 @@ flash_attention = true
             "fixed-model automatic correction request {request_id}: {:?}",
             started.elapsed()
         );
+        assert_eq!(response.request_id, request_id);
+        assert_eq!(response.session_id, session_id);
         match response.payload {
             Some(Payload::StateResponse(state)) => state,
-            other => panic!("automatic correction returned {other:?}"),
+            other => panic!("server returned {other:?}"),
         }
     };
     exchange(
-        1,
+        "english",
+        Payload::StartSession(protocol::StartSession {
+            input_style: protocol::InputStyle::Direct as i32,
+            keyboard_language: protocol::KeyboardLanguage::EnglishUs as i32,
+            ..Default::default()
+        }),
+    );
+    for character in "hel".chars() {
+        let state = exchange(
+            "english",
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Input as i32,
+                text: character.to_string(),
+                ..Default::default()
+            }),
+        );
+        assert!(state.consumed && state.commit.is_empty());
+        if character == 'l' {
+            assert_eq!(
+                state
+                    .candidates
+                    .iter()
+                    .filter(|candidate| candidate.text.len() > 3)
+                    .map(|candidate| candidate.text.as_str())
+                    .collect::<Vec<_>>(),
+                ["hell", "held", "helm", "help"]
+            );
+        }
+    }
+    exchange(
+        "backspace-typo",
         Payload::StartSession(protocol::StartSession {
             input_style: protocol::InputStyle::RomanToKana as i32,
             surrounding_text: Some(protocol::SurroundingText {
@@ -621,17 +615,26 @@ flash_attention = true
             ..Default::default()
         }),
     );
-    let typed = exchange(
-        2,
-        Payload::KeyEvent(protocol::KeyEvent {
-            action: protocol::UserAction::Input as i32,
-            text: "ojsyougozainasu".into(),
-            ..Default::default()
-        }),
-    );
+    // Keep the upstream typo and context, but replay actual typing rather than
+    // inserting the whole composition in one request.
+    let tables = InputTableRegistry::new();
+    let mut raw = ComposingText::new();
+    for character in "ojsyougozainasu".chars() {
+        raw.insert_str(&character.to_string(), InputStyle::RomanToKana, &tables);
+        let typed = exchange(
+            "backspace-typo",
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Input as i32,
+                text: character.to_string(),
+                ..Default::default()
+            }),
+        );
+        assert!(typed.consumed && typed.commit.is_empty());
+        assert_eq!(typed.preedit, raw.surface());
+    }
     let before_backspace = Instant::now();
     let deleted = exchange(
-        3,
+        "backspace-typo",
         Payload::KeyEvent(protocol::KeyEvent {
             action: protocol::UserAction::Backspace as i32,
             ..Default::default()
@@ -643,21 +646,19 @@ flash_attention = true
         deleted.prediction
     );
     assert!(elapsed < Duration::from_secs(5));
-    let tables = InputTableRegistry::new();
-    let mut raw = ComposingText::new();
-    raw.insert_str("ojsyougozainasu", InputStyle::RomanToKana, &tables);
-    assert_eq!(typed.preedit, raw.surface());
     raw.delete_backward(1, &tables);
     assert_eq!(deleted.preedit, raw.surface());
-    assert!(deleted.commit.is_empty());
+    assert!(deleted.consumed && deleted.commit.is_empty());
     let prediction = deleted
         .prediction
         .expect("fixed model must offer its first converted correction");
     let prefix_len = deleted.preedit.chars().count() - prediction.delete_count as usize;
     let expected =
         deleted.preedit.chars().take(prefix_len).collect::<String>() + &prediction.append_text;
+    assert_eq!(expected, "おはようございます");
+    assert!(!prediction.display_text.is_empty());
     let accepted = exchange(
-        4,
+        "backspace-typo",
         Payload::KeyEvent(protocol::KeyEvent {
             action: protocol::UserAction::Tab as i32,
             ..Default::default()
@@ -666,7 +667,7 @@ flash_attention = true
     assert!(accepted.consumed && accepted.commit.is_empty());
     assert_eq!(accepted.preedit, expected);
     let committed = exchange(
-        5,
+        "backspace-typo",
         Payload::KeyEvent(protocol::KeyEvent {
             action: protocol::UserAction::Enter as i32,
             ..Default::default()
@@ -674,15 +675,18 @@ flash_attention = true
     );
     assert_eq!(committed.commit, accepted.preedit);
     assert!(committed.preedit.is_empty() && committed.prediction.is_none());
-    let resumed = exchange(
-        6,
-        Payload::KeyEvent(protocol::KeyEvent {
-            action: protocol::UserAction::Input as i32,
-            text: "kana".into(),
-            ..Default::default()
-        }),
-    );
-    assert_eq!(resumed.preedit, "かな");
+    for (key, expected) in [("k", "k"), ("a", "か"), ("n", "かn"), ("a", "かな")] {
+        let resumed = exchange(
+            "backspace-typo",
+            Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Input as i32,
+                text: key.into(),
+                ..Default::default()
+            }),
+        );
+        assert!(resumed.consumed && resumed.commit.is_empty());
+        assert_eq!(resumed.preedit, expected);
+    }
     drop(stream);
 
     let deadline = Instant::now() + Duration::from_secs(5);

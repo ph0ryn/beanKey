@@ -1,5 +1,6 @@
 {
   model,
+  input-ngram,
   pkgs,
 }:
 
@@ -22,4 +23,5 @@ pkgs.mkShell {
   buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.fcitx5 ];
   RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
   BEANKEY_TEST_MODEL = "${model}/share/beankey/model/ggml-model-Q5_K_M.gguf";
+  BEANKEY_TEST_INPUT_NGRAM = "${input-ngram}/share/beankey/input-ngram";
 }

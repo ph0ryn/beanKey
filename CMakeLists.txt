@@ -32,6 +32,32 @@ if(NOT model_hash STREQUAL "29c223d4c23327b80fd13ebb5ab2555057a46317997d5da39158
   message(FATAL_ERROR "BEANKEY_MODEL is not the fixed Q5_K_M GGUF (an unhydrated Git LFS pointer is not a model)")
 endif()
 
+set(BEANKEY_INPUT_NGRAM "$ENV{BEANKEY_TEST_INPUT_NGRAM}" CACHE PATH "Previously acquired fixed input_n5_lm_v1 model directory")
+if(NOT BEANKEY_INPUT_NGRAM)
+  set(BEANKEY_INPUT_NGRAM "${CMAKE_CURRENT_SOURCE_DIR}/crates/converter/assets/input-ngram")
+endif()
+set(input_ngram_files)
+foreach(entry IN ITEMS
+    "lm_c_abc.marisa:bac5cebd4734ae173e77da512c9c5fbd3bd3ff6d7c3d1506aeb79517635d51c4"
+    "lm_c_bc.marisa:319044e1edadbd58e11d4ac41d30a79114958cfaa2cb23816adc6c39c8cbfb71"
+    "lm_r_xbx.marisa:3fdc44aab8309f0f073b53ccee166f896b97e7c1fdc30f500b005a25b6d107c3"
+    "lm_u_abx.marisa:963b9dcee29351ab4b1940258d7f1aadd1b630991f1c0b6e794944933607989a"
+    "lm_u_xbc.marisa:00022728f1a951a117039c070d0f6b7c34e240ce95660193a77f9077b7338ad3")
+  string(REPLACE ":" ";" fields "${entry}")
+  list(GET fields 0 name)
+  list(GET fields 1 expected_hash)
+  set(asset "${BEANKEY_INPUT_NGRAM}/${name}")
+  if(NOT EXISTS "${asset}")
+    message(FATAL_ERROR "Missing fixed asset: ${asset}. Provide -DBEANKEY_INPUT_NGRAM=<acquired model directory>.")
+  endif()
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${asset}")
+  file(SHA256 "${asset}" asset_hash)
+  if(NOT asset_hash STREQUAL expected_hash)
+    message(FATAL_ERROR "${asset} is not the fixed input_n5_lm_v1 model")
+  endif()
+  list(APPEND input_ngram_files "${asset}")
+endforeach()
+
 set(BEANKEY_CARGO_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/cargo" CACHE PATH "Cargo build directory")
 set(cargo_profile release)
 set(cargo_flags --release)
@@ -55,6 +81,7 @@ function(install_beankey_runtime prefix component)
   install(FILES "${dictionary}/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt"
     DESTINATION "${prefix}share/beankey" RENAME emoji-dictionary COMPONENT "${component}")
   install(FILES "${BEANKEY_MODEL}" DESTINATION "${prefix}share/beankey" RENAME model COMPONENT "${component}")
+  install(FILES ${input_ngram_files} DESTINATION "${prefix}share/beankey/input-ngram" COMPONENT "${component}")
   install(DIRECTORY "${dictionary}/hunspellEnglish/" DESTINATION "${prefix}share/beankey/hunspell-english" COMPONENT "${component}")
   install(DIRECTORY "${dictionary}/hunspellGreek/" DESTINATION "${prefix}share/beankey/hunspell-greek" COMPONENT "${component}")
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/crates/converter/assets/tokenizer/tokenizer.json"
@@ -93,6 +120,7 @@ if(BUILD_TESTING)
   add_test(NAME beankey-rust
     COMMAND "${CMAKE_COMMAND}" -E env
       "BEANKEY_TEST_MODEL=${test_runtime}/share/beankey/model"
+      "BEANKEY_TEST_INPUT_NGRAM=${test_runtime}/share/beankey/input-ngram"
       "BEANKEY_TEST_PACKAGE=${test_runtime}"
       "${CARGO_EXECUTABLE}" test --locked --workspace --all-targets
       --target-dir "${BEANKEY_CARGO_TARGET_DIR}" ${cargo_flags})

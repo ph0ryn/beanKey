@@ -454,6 +454,15 @@ fn runs_the_server_executable_with_the_fixed_assets() {
             ("dictionary", dictionary_root()),
             ("model", PathBuf::from(model)),
             (
+                "input-ngram",
+                PathBuf::from(required_environment("BEANKEY_TEST_INPUT_NGRAM")),
+            ),
+            (
+                "tokenizer.json",
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../converter/assets/tokenizer/tokenizer.json"),
+            ),
+            (
                 "emoji-dictionary",
                 dictionaries.join("azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt"),
             ),
@@ -488,10 +497,6 @@ enable_alignment_separator = false
 
 [lm_typo]
 enabled = true
-language_model = "zenz"
-beam_size = 32
-top_k = 64
-n_best = 5
 substitution_cost = 2.0
 deletion_cost = 3.0
 transposition_cost = 2.0
@@ -527,18 +532,14 @@ flash_attention = true
 
     // Match the native clients' request timeout and one-character key events.
     let mut request_id = 0;
-    let mut exchange = |session_id: &str, payload| {
-        request_id += 1;
-        let mut request = envelope(request_id, payload);
-        request.session_id = session_id.into();
-        write_envelope(&mut stream, &request).unwrap();
-        let response = read_envelope(&mut stream).unwrap();
-        assert_eq!(response.request_id, request_id);
-        assert_eq!(response.session_id, session_id);
-        match response.payload {
-            Some(Payload::StateResponse(state)) => state,
-            other => panic!("server returned {other:?}"),
-        }
+    let mut exchange = |session_id: &str, payload| match exchange_payload(
+        &mut stream,
+        &mut request_id,
+        session_id,
+        payload,
+    ) {
+        Payload::StateResponse(state) => state,
+        other => panic!("server returned {other:?}"),
     };
     exchange(
         "english",
@@ -656,6 +657,7 @@ flash_attention = true
         assert!(resumed.consumed && resumed.commit.is_empty());
         assert_eq!(resumed.preedit, expected);
     }
+    exercise_manual_ngram_correction(&mut stream, &mut request_id);
     drop(stream);
 
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -668,6 +670,130 @@ flash_attention = true
             panic!("daemon did not exit after its last client disconnected");
         }
         thread::sleep(Duration::from_millis(20));
+    }
+    verify_ngram_asset_failures(&root.join("share/beankey"));
+}
+
+fn verify_ngram_asset_failures(assets: &Path) {
+    let missing = TempDir::new().unwrap();
+    for entry in fs::read_dir(assets).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_name() != "input-ngram" {
+            std::os::unix::fs::symlink(entry.path(), missing.path().join(entry.file_name()))
+                .unwrap();
+        }
+    }
+    let learning = TempDir::new().unwrap();
+    let mut config = beankey_daemon::DaemonConfig::parse("[lm_typo]\nenabled = true\n").unwrap();
+    assert!(
+        matches!(
+            Engine::open_with_config(&config, missing.path(), learning.path()),
+            Err(beankey_daemon::EngineOpenError::NGram(_))
+        ),
+        "an enabled correction API must fail startup without its bundled ngram"
+    );
+    config.lm_typo.enabled = false;
+    Engine::open_with_config(&config, missing.path(), learning.path()).unwrap();
+
+    config.lm_typo.enabled = true;
+    config.lm_typo.ngram = Some(beankey_daemon::TypoNGramConfig {
+        prefix: missing.path().join("nonexistent/lm_"),
+        tokenizer: assets.join("tokenizer.json"),
+        n: 5,
+        discount: 0.75,
+    });
+    assert!(
+        matches!(
+            Engine::open_with_config(&config, assets, learning.path()),
+            Err(beankey_daemon::EngineOpenError::NGram(_))
+        ),
+        "an invalid explicit model must not fall back to the available bundled ngram"
+    );
+}
+
+fn exchange_payload(
+    stream: &mut UnixStream,
+    request_id: &mut u64,
+    session_id: &str,
+    payload: Payload,
+) -> Payload {
+    *request_id += 1;
+    let mut request = envelope(*request_id, payload);
+    request.session_id = session_id.into();
+    write_envelope(stream, &request).unwrap();
+    let response = read_envelope(stream).unwrap();
+    assert_eq!(response.request_id, *request_id);
+    assert_eq!(response.session_id, session_id);
+    response
+        .payload
+        .expect("server response must have a payload")
+}
+
+fn exercise_manual_ngram_correction(stream: &mut UnixStream, request_id: &mut u64) {
+    let mut exchange = |payload| exchange_payload(stream, request_id, "manual-typo", payload);
+    exchange(Payload::StartSession(protocol::StartSession {
+        input_style: protocol::InputStyle::RomanToKana as i32,
+        keyboard_language: protocol::KeyboardLanguage::Japanese as i32,
+        surrounding_text: Some(protocol::SurroundingText {
+            available: true,
+            text: "やあ、".into(),
+            cursor: 3,
+            anchor: 3,
+        }),
+        ..Default::default()
+    }));
+    let tables = InputTableRegistry::new();
+    for select in [false, true] {
+        let mut raw = ComposingText::new();
+        for character in "ojsyougozainasu".chars() {
+            let text = character.to_string();
+            raw.insert_str(&text, InputStyle::RomanToKana, &tables);
+            let typed = exchange(Payload::KeyEvent(protocol::KeyEvent {
+                action: protocol::UserAction::Input as i32,
+                text,
+                ..Default::default()
+            }));
+            assert!(matches!(typed, Payload::StateResponse(state)
+                if state.consumed && state.commit.is_empty() && state.preedit == raw.surface()));
+        }
+        let response = exchange(Payload::RequestTypoCorrections(
+            protocol::RequestTypoCorrections {},
+        ));
+        let Payload::TypoCorrectionResponse(correction) = response else {
+            panic!("expected manual corrections, got {response:?}");
+        };
+        assert!(!correction.candidates.is_empty() && correction.candidates.len() <= 3);
+        let first = &correction.candidates[0];
+        let mut corrected = ComposingText::new();
+        corrected.insert_str(&first.corrected_input, InputStyle::RomanToKana, &tables);
+        assert_eq!(corrected.surface(), "おはようございます");
+        assert!(!first.converted_text.is_empty());
+        let (payload, expected) = if select {
+            (
+                Payload::SelectTypoCorrection(protocol::SelectTypoCorrection { index: 0 }),
+                first.converted_text.clone(),
+            )
+        } else {
+            (
+                Payload::KeyEvent(protocol::KeyEvent {
+                    action: protocol::UserAction::Enter as i32,
+                    ..Default::default()
+                }),
+                raw.surface(),
+            )
+        };
+        let committed = exchange(payload);
+        assert!(matches!(committed, Payload::StateResponse(state)
+            if state.consumed && state.commit == expected && state.preedit.is_empty() && state.reset));
+        assert!(
+            matches!(
+                exchange(Payload::SelectTypoCorrection(
+                    protocol::SelectTypoCorrection { index: 0 }
+                )),
+                Payload::ProtocolError(_)
+            ),
+            "committing must invalidate correction candidates"
+        );
     }
 }
 

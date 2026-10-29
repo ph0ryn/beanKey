@@ -52,6 +52,7 @@ let
         -DCMAKE_INSTALL_PREFIX="$out" \
         -DCMAKE_INSTALL_LIBDIR=lib \
         -DBEANKEY_MODEL=${assets.model}/share/beankey/model/ggml-model-Q5_K_M.gguf \
+        -DBEANKEY_INPUT_NGRAM=${assets.input-ngram}/share/beankey/input-ngram \
         ${
           if pkgs.stdenv.hostPlatform.isDarwin then
             "-DBEANKEY_NIX_STORE=${pkgs.nix}/bin/nix-store"

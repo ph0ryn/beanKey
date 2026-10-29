@@ -49,7 +49,7 @@
       devShells = forAllSystems (system: {
         default = import ./nix/dev-shell.nix {
           pkgs = pkgsFor system;
-          inherit (self.packages.${system}) model;
+          inherit (self.packages.${system}) model input-ngram;
         };
       });
 

@@ -3,8 +3,9 @@ beanKey THIRD-PARTY NOTICES
 
 This file preserves the third-party attribution and license texts for the
 components documented below. It covers the directly packaged dictionary,
-emoji dictionary, English and Greek Hunspell dictionaries, GGUF model and
-tokenizer data, plus llama-cpp-sys-2, its bundled llama.cpp and rsmarisa.
+emoji dictionary, English and Greek Hunspell dictionaries, GGUF and input
+n-gram models and tokenizer data, plus llama-cpp-sys-2, its bundled llama.cpp
+and rsmarisa.
 It is not an inventory of all Cargo dependencies
 or system packages. beanKey's own license
 is provided separately in LICENSE.
@@ -27,13 +28,14 @@ Contents
 7. rsmarisa
 8. English Hunspell dictionary (en_US)
 9. Greek Hunspell dictionary (el_GR)
+10. Input correction n-gram model (input_n5_lm_v1)
 Appendix A. llama-cpp-sys-2 MIT license
 Appendix B. Bundled llama.cpp MIT license (also referenced by YaRN notice)
 Appendix C. azooKey MIT license for additional emoji data
 Appendix D. Complete Mozc LICENSE, including BSD 3-Clause terms
 Appendix E. Unicode License V3
 Appendix F1. azooKey dictionary Apache License 2.0
-Appendix F2. Apache License 2.0 supplied with the GGUF model
+Appendix F2. Apache License 2.0 for the GGUF and input n-gram models
 Appendix G. Creative Commons Attribution-ShareAlike 4.0 International
 Appendix H. rsmarisa BSD 2-Clause license
 Appendix I. English Hunspell README, license terms and attribution
@@ -407,6 +409,38 @@ Only the spellchecking files are shipped, not the separate hyphenation data.
 This notice file accompanies the vendored dictionary files in beanKey source
 and supported installed distributions. The daemon package installs this file
 alongside its existing license notices.
+
+
+10. Input correction n-gram model (input_n5_lm_v1)
+=================================================
+
+Source: Miwa-Keita/input_n5_lm_v1
+Fixed revision: 6153c4693ee202049b6cb834396e658562c147b3
+Artifact URL:
+  https://huggingface.co/Miwa-Keita/input_n5_lm_v1/resolve/6153c4693ee202049b6cb834396e658562c147b3/input_n5_lm_v1.zip
+Archive SHA-256 (flat/SRI):
+  sha256-Cq8yYUCpLVd7ICCQU0ZnK4zExH5jUWMordDxl1aKr3o=
+Archive SHA-256 (flat/hex):
+  0aaf326140a92d577b2020905346672b8cc4c47e63516328add0f197568aaf7a
+Packaged content: these five files from the input_n5_lm_v1/ directory:
+  lm_c_abc.marisa
+  lm_c_bc.marisa
+  lm_r_xbx.marisa
+  lm_u_abx.marisa
+  lm_u_xbc.marisa
+License: Apache License 2.0, as declared by the fixed model card metadata.
+License evidence:
+  https://huggingface.co/Miwa-Keita/input_n5_lm_v1/raw/6153c4693ee202049b6cb834396e658562c147b3/README.md
+Full Apache License 2.0: Appendix F2.
+
+The fixed repository contains only .gitattributes, README.md and the archive.
+Neither the repository nor the archive supplies a separate LICENSE or NOTICE.
+No additional copyright holder, copyright year or training-data licensing
+claim is inferred here. The tokenizer is separately attributed in section 6.
+
+Changes by beanKey: no changes to the five model files; extract their original
+bytes and omit the archive's Finder metadata. No model generation or format
+conversion is performed.
 
 
 FULL LICENSE TEXTS
@@ -870,7 +904,7 @@ Appendix F1. azooKey dictionary Apache License 2.0
    limitations under the License.
 
 
-Appendix F2. Apache License 2.0 supplied with the GGUF model
+Appendix F2. Apache License 2.0 for the GGUF and input n-gram models
 =========================================================
 
                                  Apache License

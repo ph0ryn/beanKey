@@ -50,7 +50,7 @@ fn partial_toml_still_rejects_invalid_settings() {
         "[inference]\ncontext_size = 1024",
         "[inference]\nflash_attention = false",
         "[zenz.personalization]\nalpha = 1.0",
-        "[lm_typo]\nenabled = true",
+        "[lm_typo]\nenabled = true\nbeam_size = 0",
     ] {
         assert!(DaemonConfig::parse(source).is_err(), "accepted: {source}");
     }
@@ -68,6 +68,13 @@ fn typo_correction_uses_the_desktop_ngram_search_defaults() {
 #[test]
 fn typo_correction_does_not_offer_a_zenz_backend() {
     assert!(DaemonConfig::parse("[lm_typo]\nlanguage_model = 'zenz'\n").is_err());
+}
+
+#[test]
+fn bundled_ngram_correction_does_not_require_user_asset_paths() {
+    let config = DaemonConfig::parse("[lm_typo]\nenabled = true\n").unwrap();
+    assert!(config.lm_typo.enabled);
+    assert!(config.lm_typo.ngram.is_none());
 }
 
 #[test]

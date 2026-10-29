@@ -351,10 +351,10 @@ impl DaemonConfig {
                 ]
                 .into_iter()
                 .any(|cost| !cost.is_finite() || cost < 0.0)
-                || match typo.ngram.as_ref() {
-                    Some(ngram) => ngram.n < 2 || !ngram.discount.is_finite(),
-                    None => true,
-                });
+                || typo
+                    .ngram
+                    .as_ref()
+                    .is_some_and(|ngram| ngram.n < 2 || !ngram.discount.is_finite()));
         if invalid_typo {
             return Err(DaemonConfigError::InvalidLmTypoConfiguration);
         }
@@ -468,12 +468,11 @@ flash_attention = true
     }
 
     #[test]
-    fn requires_assets_for_enabled_ngram_typo_correction() {
-        let config = CONFIG.replace("enabled = false", "enabled = true");
-        assert!(matches!(
-            DaemonConfig::parse(&config),
-            Err(DaemonConfigError::InvalidLmTypoConfiguration)
-        ));
+    fn enabled_ngram_typo_correction_uses_bundled_assets_by_default() {
+        let source = CONFIG.replace("enabled = false", "enabled = true");
+        let config = DaemonConfig::parse(&source).unwrap();
+        assert!(config.lm_typo.enabled);
+        assert!(config.lm_typo.ngram.is_none());
     }
 
     #[test]

@@ -387,7 +387,7 @@ impl Engine {
         engine.apply_conversion_options(&config.conversion)?;
         engine.apply_zenz_options(&config.zenz);
         engine.load_zenz_personalization(&config.zenz)?;
-        engine.load_lm_typo(&config.lm_typo)?;
+        engine.load_lm_typo(&config.lm_typo, assets)?;
         Ok(engine)
     }
 
@@ -597,6 +597,7 @@ impl Engine {
     fn load_lm_typo(
         &mut self,
         config: &crate::config::LmTypoCorrectionConfig,
+        assets: &Path,
     ) -> Result<(), NGramError> {
         self.lm_typo_enabled = config.enabled;
         self.lm_typo_config = LmTypoConfig {
@@ -609,19 +610,16 @@ impl Engine {
             transposition_cost: config.transposition_cost,
         };
         self.lm_typo_ngram = if config.enabled {
-            config
-                .ngram
-                .as_ref()
-                .map(|ngram| {
-                    NGramLanguageModel::open(
-                        &ngram.prefix,
-                        &ngram.tokenizer,
-                        ngram.n,
-                        ngram.discount,
-                    )
-                })
-                .transpose()?
-                .map(|model| zenz::SharedZenzModel::new(Box::new(model)))
+            let bundled = crate::TypoNGramConfig {
+                prefix: assets.join("input-ngram/lm_"),
+                tokenizer: assets.join("tokenizer.json"),
+                n: 5,
+                discount: 0.75,
+            };
+            let ngram = config.ngram.as_ref().unwrap_or(&bundled);
+            let model =
+                NGramLanguageModel::open(&ngram.prefix, &ngram.tokenizer, ngram.n, ngram.discount)?;
+            Some(zenz::SharedZenzModel::new(Box::new(model)))
         } else {
             None
         };
@@ -3780,17 +3778,20 @@ mod tests {
             .join("../converter/assets/tokenizer/tokenizer.json");
         let mut engine = Engine::open(dictionary).unwrap();
         engine
-            .load_lm_typo(&crate::LmTypoCorrectionConfig {
-                enabled: true,
-                ngram: Some(crate::TypoNGramConfig {
-                    prefix: ngram,
-                    tokenizer,
-                    n: 2,
-                    discount: 0.75,
-                }),
-                max_steps: Some(0),
-                ..Default::default()
-            })
+            .load_lm_typo(
+                &crate::LmTypoCorrectionConfig {
+                    enabled: true,
+                    ngram: Some(crate::TypoNGramConfig {
+                        prefix: ngram,
+                        tokenizer,
+                        n: 2,
+                        discount: 0.75,
+                    }),
+                    max_steps: Some(0),
+                    ..Default::default()
+                },
+                Path::new(env!("CARGO_MANIFEST_DIR")),
+            )
             .unwrap();
         let envelope = |request_id, payload| protocol::Envelope {
             protocol_version: PROTOCOL_VERSION,

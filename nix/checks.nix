@@ -8,10 +8,18 @@
 
 let
   packages = self.packages.${system};
-  modelPath = packages.model.outPath;
-  sharedModelPath = builtins.all (other: self.packages.${other}.model.outPath == modelPath) (
-    builtins.attrNames self.packages
-  );
+  sharedModelPaths =
+    builtins.all
+      (
+        name:
+        builtins.all (other: self.packages.${other}.${name}.outPath == packages.${name}.outPath) (
+          builtins.attrNames self.packages
+        )
+      )
+      [
+        "model"
+        "input-ngram"
+      ];
   moduleConfig =
     beanKey:
     (nixpkgs.lib.nixosSystem {
@@ -36,8 +44,8 @@ let
     };
   };
 in
-assert pkgs.lib.assertMsg sharedModelPath
-  "beanKey model must have the same store path on all supported systems";
+assert pkgs.lib.assertMsg sharedModelPaths
+  "beanKey models must have the same store paths on all supported systems";
 {
   daemon = packages.daemon;
   home-module = import ./home-module-check.nix {
@@ -100,7 +108,7 @@ assert pkgs.lib.assertMsg sharedModelPath
         test ! -e '${inputMethod}/share/beankey/llama-backend'
         runtime='${inputMethod}/Library/Input Methods/beanKey.app/Contents/Resources/beankey'
         test -x "$runtime/bin/beankey-daemon"
-        for asset in dictionary emoji-dictionary model hunspell-english hunspell-greek; do
+        for asset in dictionary emoji-dictionary model input-ngram tokenizer.json hunspell-english hunspell-greek; do
           test ! -L '${packages.daemon}/share/beankey/'"$asset"
           test -e '${packages.daemon}/share/beankey/'"$asset"
           test ! -L "$runtime/share/beankey/$asset"

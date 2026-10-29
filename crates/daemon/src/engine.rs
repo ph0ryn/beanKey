@@ -376,13 +376,14 @@ impl Engine {
         learning_directory: impl AsRef<Path>,
     ) -> Result<Self, EngineOpenError> {
         let assets = assets_directory.as_ref();
-        let mut engine = Self::open_with_llama(assets.join("dictionary"), assets.join("model"))?;
+        let mut engine =
+            Self::open_with_llama(assets.join("dictionary"), assets.join("model.gguf"))?;
         engine.load_hunspell(
             assets.join("hunspell-english/en_US"),
             assets.join("hunspell-greek/el_GR"),
         )?;
         engine.load_learning(learning_directory, &config.learning)?;
-        engine.load_text_replacer(assets.join("emoji-dictionary"))?;
+        engine.load_text_replacer(assets.join("emoji-dictionary.txt"))?;
         engine.load_conversion_resources(&config.conversion)?;
         engine.apply_conversion_options(&config.conversion)?;
         engine.apply_zenz_options(&config.zenz);

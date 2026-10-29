@@ -79,8 +79,8 @@ function(install_beankey_runtime prefix component)
   install(DIRECTORY "${dictionary}/azookeyKanaKanji/Dictionary/"
     DESTINATION "${prefix}share/beankey/dictionary" COMPONENT "${component}")
   install(FILES "${dictionary}/azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt"
-    DESTINATION "${prefix}share/beankey" RENAME emoji-dictionary COMPONENT "${component}")
-  install(FILES "${BEANKEY_MODEL}" DESTINATION "${prefix}share/beankey" RENAME model COMPONENT "${component}")
+    DESTINATION "${prefix}share/beankey" RENAME emoji-dictionary.txt COMPONENT "${component}")
+  install(FILES "${BEANKEY_MODEL}" DESTINATION "${prefix}share/beankey" RENAME model.gguf COMPONENT "${component}")
   install(FILES ${input_ngram_files} DESTINATION "${prefix}share/beankey/input-ngram" COMPONENT "${component}")
   install(DIRECTORY "${dictionary}/hunspellEnglish/" DESTINATION "${prefix}share/beankey/hunspell-english" COMPONENT "${component}")
   install(DIRECTORY "${dictionary}/hunspellGreek/" DESTINATION "${prefix}share/beankey/hunspell-greek" COMPONENT "${component}")
@@ -119,7 +119,7 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME beankey-rust
     COMMAND "${CMAKE_COMMAND}" -E env
-      "BEANKEY_TEST_MODEL=${test_runtime}/share/beankey/model"
+      "BEANKEY_TEST_MODEL=${test_runtime}/share/beankey/model.gguf"
       "BEANKEY_TEST_INPUT_NGRAM=${test_runtime}/share/beankey/input-ngram"
       "BEANKEY_TEST_PACKAGE=${test_runtime}"
       "${CARGO_EXECUTABLE}" test --locked --workspace --all-targets

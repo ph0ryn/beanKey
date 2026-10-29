@@ -452,7 +452,7 @@ fn runs_the_server_executable_with_the_fixed_assets() {
         fs::copy(env!("CARGO_BIN_EXE_beankey-daemon"), &executable).unwrap();
         for (name, path) in [
             ("dictionary", dictionary_root()),
-            ("model", PathBuf::from(model)),
+            ("model.gguf", PathBuf::from(model)),
             (
                 "input-ngram",
                 PathBuf::from(required_environment("BEANKEY_TEST_INPUT_NGRAM")),
@@ -463,7 +463,7 @@ fn runs_the_server_executable_with_the_fixed_assets() {
                     .join("../converter/assets/tokenizer/tokenizer.json"),
             ),
             (
-                "emoji-dictionary",
+                "emoji-dictionary.txt",
                 dictionaries.join("azookeyEmoji/EmojiDictionary/emoji_all_E17.0.txt"),
             ),
             ("hunspell-english", dictionaries.join("hunspellEnglish")),

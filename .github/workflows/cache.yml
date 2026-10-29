@@ -39,5 +39,6 @@ jobs:
         with:
           name: beankey
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          pathsToPush: result
       - name: Build packages
         run: nix build --print-build-logs ".#packages.${{ matrix.system }}.default"

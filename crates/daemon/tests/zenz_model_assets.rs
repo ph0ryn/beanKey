@@ -2,7 +2,6 @@ use std::fs;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -16,17 +15,6 @@ use beankey_daemon::{
 };
 use beankey_llama::LlamaContext;
 use tempfile::TempDir;
-
-// Each test creates its own model, unlike the daemon's single shared context.
-// Isolate these workloads without disabling parallelism within an inference.
-fn model_test_guard() -> MutexGuard<'static, ()> {
-    static MODEL_TEST: Mutex<()> = Mutex::new(());
-    // The lock protects scheduling, not shared state; a failed test must not
-    // prevent the remaining independent model fixtures from being exercised.
-    MODEL_TEST
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
 
 fn dictionary_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -49,7 +37,6 @@ fn required_environment(name: &str) -> String {
 
 #[test]
 fn converts_with_the_fixed_zenz_model_and_bundled_llama() {
-    let _model_guard = model_test_guard();
     let model_path = required_environment("BEANKEY_TEST_MODEL");
     let mut engine = Engine::open_with_llama(dictionary_root(), model_path)
         .expect("the fixed model and bundled llama.cpp must load");
@@ -125,7 +112,6 @@ fn converts_with_the_fixed_zenz_model_and_bundled_llama() {
 fn fixed_model_capacity_falls_back_without_losing_input_and_recovers() {
     use beankey_converter::ZenzLanguageModel;
 
-    let _model_guard = model_test_guard();
     let mut model = LlamaModel::load(required_environment("BEANKEY_TEST_MODEL")).unwrap();
     let text = "ゐ".repeat(beankey_llama::CONTEXT_TOKEN_LIMIT + 1);
     assert!(model.tokenize(&text, false).unwrap().len() > beankey_llama::CONTEXT_TOKEN_LIMIT);
@@ -188,7 +174,6 @@ fn fixed_model_capacity_falls_back_without_losing_input_and_recovers() {
 
 #[test]
 fn fixed_llama_tokenizer_matches_the_upstream_tokenizer_asset() {
-    let _model_guard = model_test_guard();
     let model_path = required_environment("BEANKEY_TEST_MODEL");
     let tokenizer_path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../converter/assets/tokenizer/tokenizer.json");
@@ -255,7 +240,6 @@ fn input_state(engine: &mut Engine, request_id: u64, text: &str) -> protocol::St
 
 #[test]
 fn inference_history_preserves_rich_candidates_and_commits() {
-    let _model_guard = model_test_guard();
     let inputs = [("はし", "箸"), ("てすと", "テスト"), ("かんじ", "漢字")];
     let mut reversed = inputs;
     reversed.reverse();
@@ -355,7 +339,6 @@ fn inference_history_preserves_rich_candidates_and_commits() {
 
 #[test]
 fn matches_the_fixed_upstream_full_conversion_regressions() {
-    let _model_guard = model_test_guard();
     for (input, expected) in [
         (
             "はがいたいのでしかいにみてもらった",
@@ -390,7 +373,6 @@ fn matches_the_fixed_upstream_full_conversion_regressions() {
 
 #[test]
 fn matches_the_pending_roman_upstream_regression() {
-    let _model_guard = model_test_guard();
     let mut engine = fixed_model_engine();
     start_input_session(&mut engine, protocol::InputStyle::RomanToKana);
     let mut final_state = None;
@@ -414,7 +396,6 @@ fn matches_the_pending_roman_upstream_regression() {
 
 #[test]
 fn recovers_the_fixed_upstream_roman_typo_regression() {
-    let _model_guard = model_test_guard();
     let tables = InputTableRegistry::new();
     let mut composing = ComposingText::new();
     composing.insert_str("ojsyougozainasu", InputStyle::RomanToKana, &tables);
@@ -448,7 +429,6 @@ fn recovers_the_fixed_upstream_roman_typo_regression() {
 
 #[test]
 fn runs_the_server_executable_with_the_fixed_assets() {
-    let _model_guard = model_test_guard();
     let package = TempDir::new().unwrap();
     let root = package.path().join("relocated 日本語");
     let executable = root.join("bin/beankey-daemon");
@@ -551,19 +531,8 @@ flash_attention = true
         request_id += 1;
         let mut request = envelope(request_id, payload);
         request.session_id = session_id.into();
-        let started = Instant::now();
         write_envelope(&mut stream, &request).unwrap();
-        let response = read_envelope(&mut stream).unwrap_or_else(|error| {
-            panic!(
-                "automatic correction request {request_id} ({:?}) failed after {:?}: {error}",
-                request.payload,
-                started.elapsed()
-            )
-        });
-        eprintln!(
-            "fixed-model automatic correction request {request_id}: {:?}",
-            started.elapsed()
-        );
+        let response = read_envelope(&mut stream).unwrap();
         assert_eq!(response.request_id, request_id);
         assert_eq!(response.session_id, session_id);
         match response.payload {

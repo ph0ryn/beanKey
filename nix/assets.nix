@@ -1,5 +1,11 @@
 { pkgs }:
 
+let
+  apacheLicense = pkgs.fetchurl {
+    url = "https://www.apache.org/licenses/LICENSE-2.0.txt";
+    hash = "sha256-z8d0m5b2O9McPEK1xHG/dWgUBT6EfBDz6wA0F7xSPTA=";
+  };
+in
 {
   model =
     let
@@ -11,7 +17,7 @@
     pkgs.runCommand "beankey-zenz-v3.2-small-gguf"
       {
         meta.license = pkgs.lib.licenses.asl20;
-        outputHash = "sha256-5GRFteUIkKTRszdgpicNiwxda5CZFFPkj/x54U18Olg=";
+        outputHash = "sha256-391knIFwSZOCt/LngjYo9kBVzohVsgo/od0TFRtl56Q=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }
@@ -19,7 +25,7 @@
         mkdir -p "$out/share/beankey/model"
         cp ${source} \
           "$out/share/beankey/model/ggml-model-Q5_K_M.gguf"
-        install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
+        install -Dm644 ${apacheLicense} "$out/share/licenses/beankey-zenz-v3.2-small-gguf/LICENSE"
       '';
 
   input-ngram =
@@ -33,7 +39,7 @@
       {
         nativeBuildInputs = [ pkgs.unzip ];
         meta.license = pkgs.lib.licenses.asl20;
-        outputHash = "sha256-UphlDGfWDPajGgYyzCsUoS8G6EuLBXgGIAwihpMA8o8=";
+        outputHash = "sha256-sMkyIiu4JntjmmWHcaR3H/QZs+wAAjtRAh9H4xmI+AE=";
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
       }
@@ -46,6 +52,6 @@
           input_n5_lm_v1/lm_u_abx.marisa \
           input_n5_lm_v1/lm_u_xbc.marisa \
           -d "$out/share/beankey/input-ngram"
-        install -Dm644 ${../THIRD_PARTY_NOTICES.txt} "$out/share/licenses/beankey/THIRD_PARTY_NOTICES.txt"
+        install -Dm644 ${apacheLicense} "$out/share/licenses/beankey-input-n5-lm-v1/LICENSE"
       '';
 }

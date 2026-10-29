@@ -22,8 +22,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::config::{
     ConversionConfig, DaemonConfig, InputStyleConfig, KeyboardLanguageConfig, LearningConfig,
-    LearningModeConfig, LmTypoLanguageModel, PredictionConfig, PunctuationStyleConfig,
-    TypoCorrectionConfig,
+    LearningModeConfig, PredictionConfig, PunctuationStyleConfig, TypoCorrectionConfig,
 };
 use crate::protocol::composing_count::Count;
 use crate::protocol::envelope::Payload;
@@ -143,7 +142,6 @@ pub struct Engine {
     zenz_predictive_input: bool,
     zenz_personalization: Option<Arc<zenz::ZenzPersonalizationModels>>,
     lm_typo_enabled: bool,
-    lm_typo_language_model: LmTypoLanguageModel,
     lm_typo_config: LmTypoConfig,
     lm_typo_ngram: Option<zenz::SharedZenzModel>,
     foreign_completion_provider: Option<Arc<dyn ForeignCompletionProvider>>,
@@ -304,7 +302,6 @@ impl Engine {
             zenz_predictive_input: self.zenz_predictive_input,
             zenz_personalization: self.zenz_personalization.clone(),
             lm_typo_enabled: self.lm_typo_enabled,
-            lm_typo_language_model: self.lm_typo_language_model,
             lm_typo_config: self.lm_typo_config.clone(),
             lm_typo_ngram: self.lm_typo_ngram.clone(),
             foreign_completion_provider: self.foreign_completion_provider.clone(),
@@ -337,7 +334,6 @@ impl Engine {
             zenz_predictive_input: false,
             zenz_personalization: None,
             lm_typo_enabled: false,
-            lm_typo_language_model: LmTypoLanguageModel::Zenz,
             lm_typo_config: LmTypoConfig::default(),
             lm_typo_ngram: None,
             foreign_completion_provider: None,
@@ -603,7 +599,6 @@ impl Engine {
         config: &crate::config::LmTypoCorrectionConfig,
     ) -> Result<(), NGramError> {
         self.lm_typo_enabled = config.enabled;
-        self.lm_typo_language_model = config.language_model;
         self.lm_typo_config = LmTypoConfig {
             beam_size: config.beam_size,
             top_k: config.top_k,
@@ -613,24 +608,23 @@ impl Engine {
             deletion_cost: config.deletion_cost,
             transposition_cost: config.transposition_cost,
         };
-        self.lm_typo_ngram =
-            if config.enabled && config.language_model == LmTypoLanguageModel::Ngram {
-                config
-                    .ngram
-                    .as_ref()
-                    .map(|ngram| {
-                        NGramLanguageModel::open(
-                            &ngram.prefix,
-                            &ngram.tokenizer,
-                            ngram.n,
-                            ngram.discount,
-                        )
-                    })
-                    .transpose()?
-                    .map(|model| zenz::SharedZenzModel::new(Box::new(model)))
-            } else {
-                None
-            };
+        self.lm_typo_ngram = if config.enabled {
+            config
+                .ngram
+                .as_ref()
+                .map(|ngram| {
+                    NGramLanguageModel::open(
+                        &ngram.prefix,
+                        &ngram.tokenizer,
+                        ngram.n,
+                        ngram.discount,
+                    )
+                })
+                .transpose()?
+                .map(|model| zenz::SharedZenzModel::new(Box::new(model)))
+        } else {
+            None
+        };
         Ok(())
     }
 
@@ -953,20 +947,12 @@ impl Engine {
                 "LM typo correction is disabled".into(),
             ));
         }
-        let model: &mut dyn ZenzLanguageModel = match self.lm_typo_language_model {
-            LmTypoLanguageModel::Zenz => self.zenz_model.as_mut().ok_or_else(|| {
-                (
-                    Code::Internal,
-                    "Zenz model is unavailable for LM typo correction".into(),
-                )
-            })?,
-            LmTypoLanguageModel::Ngram => self.lm_typo_ngram.as_mut().ok_or_else(|| {
-                (
-                    Code::Internal,
-                    "N-gram model is unavailable for LM typo correction".into(),
-                )
-            })?,
-        };
+        let model = self.lm_typo_ngram.as_mut().ok_or_else(|| {
+            (
+                Code::Internal,
+                "N-gram model is unavailable for LM typo correction".into(),
+            )
+        })?;
         match experimental_typo_correction(
             model,
             session.surrounding.left.as_deref().unwrap_or(""),
@@ -2758,6 +2744,7 @@ mod tests {
                 .unwrap();
                 engine.live_conversion = live_conversion;
                 engine.lm_typo_enabled = enabled;
+                engine.lm_typo_ngram = engine.zenz_model.clone();
                 engine.lm_typo_config.beam_size = 8;
                 engine.lm_typo_config.top_k = 8;
                 engine.request_options.typo_correction = TypoCorrectionMode::Disabled;
@@ -2903,6 +2890,7 @@ mod tests {
             .unwrap();
             engine.live_conversion = false;
             engine.lm_typo_enabled = true;
+            engine.lm_typo_ngram = engine.zenz_model.clone();
             engine.request_options.japanese_prediction = PredictionMode::Manual;
             let mut request_id = 0;
             let mut send = |engine: &mut Engine, payload| {
@@ -3163,6 +3151,39 @@ mod tests {
     }
 
     #[test]
+    fn typo_api_does_not_use_the_conversion_model_when_ngram_is_unavailable() {
+        let mut engine = Engine::open_with_zenz_model(
+            dictionary_root(),
+            Box::new(TypoFailureModel {
+                failure: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+                calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            }),
+        )
+        .unwrap();
+        engine.lm_typo_enabled = true;
+        let request = |request_id, payload| protocol::Envelope {
+            protocol_version: PROTOCOL_VERSION,
+            request_id,
+            session_id: "missing-typo-model".into(),
+            payload: Some(payload),
+            trace: Vec::new(),
+        };
+        engine.handle(request(
+            1,
+            Payload::StartSession(protocol::StartSession::default()),
+        ));
+        let response = engine.handle(request(
+            2,
+            Payload::RequestTypoCorrections(protocol::RequestTypoCorrections {}),
+        ));
+        assert!(
+            matches!(response.payload, Some(Payload::ProtocolError(error))
+            if error.code == Code::Internal as i32
+                && error.message.contains("N-gram model is unavailable"))
+        );
+    }
+
+    #[test]
     fn explicit_typo_capacity_preserves_input_clears_stale_results_and_retries() {
         use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
         let failure = Arc::new(AtomicU8::new(0));
@@ -3176,7 +3197,7 @@ mod tests {
         )
         .unwrap();
         engine.lm_typo_enabled = true;
-        engine.lm_typo_language_model = LmTypoLanguageModel::Zenz;
+        engine.lm_typo_ngram = engine.zenz_model.clone();
         engine.lm_typo_config.beam_size = 2;
         engine.lm_typo_config.top_k = 2;
         engine.lm_typo_config.max_steps = Some(8);
@@ -3761,7 +3782,6 @@ mod tests {
         engine
             .load_lm_typo(&crate::LmTypoCorrectionConfig {
                 enabled: true,
-                language_model: crate::LmTypoLanguageModel::Ngram,
                 ngram: Some(crate::TypoNGramConfig {
                     prefix: ngram,
                     tokenizer,

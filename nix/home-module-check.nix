@@ -42,7 +42,6 @@ let
       };
       lm_typo = {
         enabled = true;
-        language_model = "ngram";
         ngram = {
           prefix = "/beankey-test/typo-ngram";
           tokenizer = "/beankey-test/tokenizer.json";
@@ -111,7 +110,6 @@ pkgs.runCommand "beankey-home-module"
         }},
         "lm_typo": {
             "enabled": True,
-            "language_model": "ngram",
             "ngram": {
                 "prefix": "/beankey-test/typo-ngram",
                 "tokenizer": "/beankey-test/tokenizer.json",

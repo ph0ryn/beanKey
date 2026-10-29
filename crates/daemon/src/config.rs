@@ -185,7 +185,6 @@ pub struct PersonalizationConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct LmTypoCorrectionConfig {
     pub enabled: bool,
-    pub language_model: LmTypoLanguageModel,
     pub ngram: Option<TypoNGramConfig>,
     pub beam_size: usize,
     pub top_k: usize,
@@ -200,25 +199,16 @@ impl Default for LmTypoCorrectionConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            language_model: LmTypoLanguageModel::Zenz,
             ngram: None,
-            beam_size: 32,
-            top_k: 64,
-            n_best: 5,
+            beam_size: 16,
+            top_k: 32,
+            n_best: 3,
             max_steps: None,
             substitution_cost: 2.0,
             deletion_cost: 3.0,
             transposition_cost: 2.0,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum LmTypoLanguageModel {
-    #[default]
-    Zenz,
-    Ngram,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -361,12 +351,9 @@ impl DaemonConfig {
                 ]
                 .into_iter()
                 .any(|cost| !cost.is_finite() || cost < 0.0)
-                || match (typo.language_model, typo.ngram.as_ref()) {
-                    (LmTypoLanguageModel::Zenz, _) => false,
-                    (LmTypoLanguageModel::Ngram, Some(ngram)) => {
-                        ngram.n < 2 || !ngram.discount.is_finite()
-                    }
-                    (LmTypoLanguageModel::Ngram, None) => true,
+                || match typo.ngram.as_ref() {
+                    Some(ngram) => ngram.n < 2 || !ngram.discount.is_finite(),
+                    None => true,
                 });
         if invalid_typo {
             return Err(DaemonConfigError::InvalidLmTypoConfiguration);
@@ -409,10 +396,9 @@ enable_alignment_separator = false
 
 [lm_typo]
 enabled = false
-language_model = "zenz"
-beam_size = 32
-top_k = 64
-n_best = 5
+beam_size = 16
+top_k = 32
+n_best = 3
 substitution_cost = 2.0
 deletion_cost = 3.0
 transposition_cost = 2.0
@@ -483,9 +469,7 @@ flash_attention = true
 
     #[test]
     fn requires_assets_for_enabled_ngram_typo_correction() {
-        let config = CONFIG
-            .replace("enabled = false", "enabled = true")
-            .replace("language_model = \"zenz\"", "language_model = \"ngram\"");
+        let config = CONFIG.replace("enabled = false", "enabled = true");
         assert!(matches!(
             DaemonConfig::parse(&config),
             Err(DaemonConfigError::InvalidLmTypoConfiguration)

@@ -19,8 +19,8 @@ pub mod protocol {
 pub use config::{
     ConversionConfig, DaemonConfig, DaemonConfigError, InferenceConfig, InputStyleConfig,
     KeyboardLanguageConfig, LearningConfig, LearningModeConfig, LmTypoCorrectionConfig,
-    LmTypoLanguageModel, PersonalizationConfig, PredictionConfig, PunctuationStyleConfig,
-    TypoCorrectionConfig, TypoNGramConfig, ZenzConfig,
+    PersonalizationConfig, PredictionConfig, PunctuationStyleConfig, TypoCorrectionConfig,
+    TypoNGramConfig, ZenzConfig,
 };
 pub use engine::{ConversionResourceError, Engine, EngineOpenError};
 pub use server::{DaemonServer, DaemonServerReservation, ServerError};

@@ -50,10 +50,45 @@ fn partial_toml_still_rejects_invalid_settings() {
         "[inference]\ncontext_size = 1024",
         "[inference]\nflash_attention = false",
         "[zenz.personalization]\nalpha = 1.0",
-        "[lm_typo]\nenabled = true\nlanguage_model = 'ngram'",
+        "[lm_typo]\nenabled = true",
     ] {
         assert!(DaemonConfig::parse(source).is_err(), "accepted: {source}");
     }
+}
+
+#[test]
+fn typo_correction_uses_the_desktop_ngram_search_defaults() {
+    let config = DaemonConfig::parse("").unwrap();
+    assert!(!config.lm_typo.enabled);
+    assert_eq!(config.lm_typo.beam_size, 16);
+    assert_eq!(config.lm_typo.top_k, 32);
+    assert_eq!(config.lm_typo.n_best, 3);
+}
+
+#[test]
+fn typo_correction_does_not_offer_a_zenz_backend() {
+    assert!(DaemonConfig::parse("[lm_typo]\nlanguage_model = 'zenz'\n").is_err());
+}
+
+#[test]
+fn accepts_ngram_correction_without_a_backend_selector() {
+    let config = DaemonConfig::parse(
+        "[lm_typo]\nenabled = true\n[lm_typo.ngram]\n\
+         prefix = '/model/lm_'\ntokenizer = '/model/tokenizer.json'\nn = 5\ndiscount = 0.75\n",
+    )
+    .unwrap();
+    assert!(config.lm_typo.enabled);
+    let ngram = config.lm_typo.ngram.unwrap();
+    assert_eq!(ngram.n, 5);
+    assert_eq!(ngram.discount, 0.75);
+    assert!(
+        DaemonConfig::parse(
+            "[lm_typo]\nenabled = true\n[lm_typo.ngram]\n\
+         prefix = '/model/lm_'\nn = 5\ndiscount = 0.75\n"
+        )
+        .is_err(),
+        "an external ngram must declare its tokenizer"
+    );
 }
 
 #[test]
